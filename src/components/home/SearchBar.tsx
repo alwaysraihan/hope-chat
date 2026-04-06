@@ -5,7 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from 'react-native';
-import { colors, radius, spacing } from '../theme';
+import { colors, radius, spacing } from '../../theme';
 
 // Simple SVG-free search icon using View shapes
 const SearchIcon = () => (

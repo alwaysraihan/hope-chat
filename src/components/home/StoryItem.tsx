@@ -6,7 +6,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { colors, radius, fonts } from '../theme';
+import { colors, radius, fonts } from '../../theme';
 
 const StoryItem = ({ item, onPress }) => {
   if (item.isAdd) {

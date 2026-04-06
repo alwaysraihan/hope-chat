@@ -6,7 +6,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { colors, radius, fonts, spacing } from '../theme';
+import { colors, radius, fonts, spacing } from '../../theme';
 
 const ConversationItem = ({ item, onPress }) => {
   return (

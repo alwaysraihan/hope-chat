@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import { colors, fonts, spacing } from '../theme';
+import { colors, fonts, spacing } from '../../theme';
 
 const TAB_ICONS = {
   Chats: ({ active }) => (

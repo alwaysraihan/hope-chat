@@ -6,7 +6,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { colors, spacing, radius, fonts } from '../theme';
+import { colors, spacing, radius, fonts } from '../../theme';
 
 const Header = ({ onSearch, onNewChat }) => {
   return (

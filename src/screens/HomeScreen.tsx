@@ -8,15 +8,19 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Header from '../components/Header';
-import StoryItem from '../components/StoryItem';
-import ConversationItem from '../components/ConversationItem';
-import SearchBar from '../components/SearchBar';
-import BottomTabBar from '../components/BottomTabBar';
+import Header from '../components/home/Header';
+import StoryItem from '../components/home/StoryItem';
+import ConversationItem from '../components/home/ConversationItem';
+import SearchBar from '../components/home/SearchBar';
+import BottomTabBar from '../components/home/BottomTabBar';
 import { stories, conversations } from '../data/mockData';
 import { colors, spacing, fonts } from '../theme';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootNavigatorParamList } from '../types/navigators';
 
-const HomeScreen = ({}) => {
+type Props = NativeStackScreenProps<RootNavigatorParamList, 'Home'>;
+
+const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('Chats');
 
@@ -28,11 +32,11 @@ const HomeScreen = ({}) => {
       )
     : conversations;
 
-  const handleConversationPress = useCallback(item => {
-    // Navigate to chat screen — wire up with navigation prop
-    Alert.alert('Open Chat', `Opening chat with ${item.name}`);
-    // navigation.navigate('ChatScreen', { conversation: item });
-  }, []);
+  // const handleConversationPress = (item) => {
+  //   // Navigate to chat screen — wire up with navigation prop
+  //   Alert.alert('Open Chat', `Opening chat with ${item.name}`);
+  //   navigation.navigate('ChatScreen', { conversation: item });
+  // };
 
   const handleStoryPress = useCallback(item => {
     if (item.isAdd) {
@@ -54,14 +58,14 @@ const HomeScreen = ({}) => {
       <>
         <ConversationItem
           item={item}
-          onPress={() => handleConversationPress(item)}
+          onPress={() => navigation.push('Inbox')}
         />
         {index < filteredConversations.length - 1 && (
           <View style={styles.divider} />
         )}
       </>
     ),
-    [filteredConversations.length, handleConversationPress],
+    [filteredConversations.length, navigation],
   );
 
   const ListHeader = useCallback(
