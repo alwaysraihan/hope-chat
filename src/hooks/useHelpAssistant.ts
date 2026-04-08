@@ -1,12 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Dimensions, Animated, Keyboard, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  useFocusEffect,
-  useIsFocused,
-  useNavigation,
-  useRoute,
-} from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 // import { useDispatch, useSelector } from 'react-redux';
 import { GiftedChat, IMessage } from 'react-native-gifted-chat';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -33,9 +28,6 @@ export interface MediaMessage extends IMessage {
         duration: number;
         remoteUri?: string;
       };
-  customOrder?: boolean;
-  isCustomOrderInvite?: boolean;
-  orderItems?: any;
   replyTo?: any;
   read?: boolean;
   pending?: boolean;
@@ -51,8 +43,6 @@ const user = {
 const API_URL = 'http://localhost:8000';
 
 export const useHelpAssistant = () => {
-  const route = useRoute();
-  const navigation = useNavigation<any>();
   // const { t } = useTranslation();
   // const dispatch = useDispatch();
   const isFocused = useIsFocused();
@@ -66,7 +56,29 @@ export const useHelpAssistant = () => {
   // useBackHandlerWithKeyboard();
 
   // State
-  const [messages, setMessages] = useState<MediaMessage[]>([]);
+  const [messages, setMessages] = useState<MediaMessage[]>([
+    {
+      _id: 1,
+      text: 'Hello, how can I help you?',
+      createdAt: new Date(),
+      user: user,
+    },
+    {
+      _id: 2,
+      text: 'I need a help',
+      createdAt: new Date(),
+      user: user,
+    },
+    {
+      _id: 3,
+      text: 'I need a help',
+      createdAt: new Date(),
+      user: {
+        _id: 'admin',
+        name: 'Admin',
+      },
+    },
+  ]);
   const [initialText, setInitialText] = useState<string>('');
   const [text, setText] = useState('');
   const [replyMessage, setReplyMessage] = useState<IMessage | null>(null);
@@ -165,7 +177,7 @@ export const useHelpAssistant = () => {
         setLoading(false);
       }
     };
-    fetchChatAndMessages();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?._id]);
 
@@ -420,7 +432,7 @@ export const useHelpAssistant = () => {
                   ...msg,
                   media: {
                     ...msg.media,
-                    remoteUri: "url",
+                    remoteUri: 'url',
                     uploading: false,
                     type: 'image',
                   },
@@ -431,25 +443,25 @@ export const useHelpAssistant = () => {
               return msg;
             }),
           );
-        //   setPendingUploads(prev => {
-        //     const c = { ...prev };
-        //     delete c[tempId];
-        //     return c;
-        //   });
-        //   setPendingMap(prev => ({ ...prev, [localId]: 'pending' }));
+          //   setPendingUploads(prev => {
+          //     const c = { ...prev };
+          //     delete c[tempId];
+          //     return c;
+          //   });
+          //   setPendingMap(prev => ({ ...prev, [localId]: 'pending' }));
 
-        //   socket.emit('message:send', payload, (ack: any) => {
-        //     if (ack && ack.error) {
-        //       setPendingMap(prev => ({ ...prev, [localId]: 'failed' }));
-        //       setMessages(prev =>
-        //         prev.map(m =>
-        //           m._id === localId
-        //             ? { ...m, pending: false, failed: true }
-        //             : m,
-        //         ),
-        //       );
-        //     }
-        //   });
+          //   socket.emit('message:send', payload, (ack: any) => {
+          //     if (ack && ack.error) {
+          //       setPendingMap(prev => ({ ...prev, [localId]: 'failed' }));
+          //       setMessages(prev =>
+          //         prev.map(m =>
+          //           m._id === localId
+          //             ? { ...m, pending: false, failed: true }
+          //             : m,
+          //         ),
+          //       );
+          //     }
+          //   });
         } catch (err) {
           setMessages(prev =>
             prev.map(msg =>
@@ -461,10 +473,7 @@ export const useHelpAssistant = () => {
         }
       },
     );
-  }, [ chatId]);
-
-
-
+  }, [chatId]);
 
   // Pagination
   const loadEarlier = useCallback(async () => {
@@ -514,8 +523,5 @@ export const useHelpAssistant = () => {
     handleVoiceRecordingCancel,
     handleCameraPress,
     loadEarlier,
-
-    // Navigation
-    navigation,
   };
 };

@@ -1,14 +1,25 @@
-import {  Text, View } from 'react-native';
 import React from 'react';
+import HomeScreen from '../screens/HomeScreen';
+import MenuScreen from '../screens/MenuScreen';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import CustomTabBar from '../components/CustomTabBar';
+import { BottomTabNavigatorParamList } from '../types/navigators';
+import StoryScreen from '../screens/StoryScreen';
+import DiscoverScreen from '../screens/DiscoverScreen';
 
+const TabNavigator = createBottomTabNavigator<BottomTabNavigatorParamList>();
 const BottomTabNavigator = () => {
   return (
-    <View>
-      <Text>BottomTabNavigator</Text>
-    </View>
+    <TabNavigator.Navigator
+      tabBar={props => <CustomTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
+      <TabNavigator.Screen name="Home" component={HomeScreen} />
+      <TabNavigator.Screen name="Story" component={StoryScreen} />
+      <TabNavigator.Screen name="Discover" component={DiscoverScreen} />
+      <TabNavigator.Screen name="Menu" component={MenuScreen} />
+    </TabNavigator.Navigator>
   );
 };
 
 export default BottomTabNavigator;
-
-

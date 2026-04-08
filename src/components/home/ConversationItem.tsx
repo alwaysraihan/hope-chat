@@ -1,31 +1,26 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { colors, radius, fonts, spacing } from '../../theme';
+import { colors, radius, fonts, spacing, colorss } from '../../theme';
+import { IC_PROFILE } from '../../assets';
 
 const ConversationItem = ({ item, onPress }) => {
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
       <View style={styles.avatarWrap}>
-        <LinearGradient
-          colors={[item.bgFrom, item.bgTo]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.avatar}
-        >
-          <Text style={styles.avatarEmoji}>{item.emoji}</Text>
-        </LinearGradient>
+        <Image source={IC_PROFILE} style={styles.avatar} />
         {item.isOnline && <View style={styles.onlineDot} />}
       </View>
 
       <View style={styles.body}>
         <View style={styles.topRow}>
-          <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.name} numberOfLines={1}>
+            {item.name}
+          </Text>
           <Text style={styles.time}>{item.time}</Text>
         </View>
         <Text
@@ -34,7 +29,9 @@ const ConversationItem = ({ item, onPress }) => {
         >
           {item.isTyping ? (
             <Text style={styles.typingText}>Typing...</Text>
-          ) : item.preview}
+          ) : (
+            item.preview
+          )}
         </Text>
       </View>
 
@@ -94,7 +91,7 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 15,
     fontWeight: fonts.semibold,
-    color: colors.textPrimary,
+    color: colorss.textPrimary,
     flex: 1,
     marginRight: spacing.sm,
   },
@@ -104,10 +101,10 @@ const styles = StyleSheet.create({
   },
   preview: {
     fontSize: 13,
-    color: '#6a6a8a',
+    color: colorss.textSecondary,
   },
   previewUnread: {
-    color: colors.textUnread,
+    color: colorss.textPrimary,
     fontWeight: fonts.medium,
   },
   typingText: {
@@ -116,7 +113,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   badge: {
-    backgroundColor: colors.purple,
+    backgroundColor: colorss.primary,
     minWidth: 20,
     height: 20,
     borderRadius: radius.full,

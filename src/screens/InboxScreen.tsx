@@ -1,8 +1,7 @@
 import React, { useCallback } from 'react';
 import { GiftedChat, Time, Composer } from 'react-native-gifted-chat';
-import { useHeaderHeight } from '@react-navigation/elements';
 
-import ChatMessageBox from '../components/message/ChatMessageBox'; 
+import ChatMessageBox from '../components/message/ChatMessageBox';
 import MessageHeader from '../components/message/MessageHeader';
 // import { IC_MESSAGE_PATTERN } from '../assets';
 
@@ -11,42 +10,38 @@ import { useHelpAssistant } from '../hooks/useHelpAssistant';
 import CustomBubble from '../components/message/CustomBubble';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
 import CustomSend from '../components/message/CustomSend';
-import SystemMessageLogo from '../components/message/SystemMessageLogo';
+// import SystemMessageLogo from '../components/message/SystemMessageLogo';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { View } from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootStackNavigatorParamList } from '../types/navigators';
 
+type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 
-const HelpAssistantScreen = () => {
-//   const { t } = useTranslation();
+const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
+  //   const { t } = useTranslation();
   const {
     messages,
-    text,
     setText,
     initialText,
     setInitialText,
     user,
     insets,
     refreshTrigger,
-    keyboardHeight,
     isRecording,
     inputAnimation,
-    modalVisible,
-    modalImageUrl,
     setModalVisible,
     setModalImageUrl,
-    isProcessingOrder,
     loadingMore,
     hasMore,
     width,
-
     onSend,
     handleVoiceRecordingStart,
     handleVoiceRecordingComplete,
     handleVoiceRecordingCancel,
     handleCameraPress,
     loadEarlier,
-
-    navigation,
   } = useHelpAssistant();
-  const headerHeight = useHeaderHeight();
 
   // Clear initialText after it's been used
   React.useEffect(() => {
@@ -57,13 +52,6 @@ const HelpAssistantScreen = () => {
       return () => clearTimeout(timer);
     }
   }, [initialText, setInitialText]);
-
-  const handleOrderStatusChange = useCallback(
-    (orderId: string, newStatus: string) => {
-      console.log(`Order ${orderId} status changed to: ${newStatus}`);
-    },
-    [],
-  );
 
   const handleImagePress = useCallback(
     (media: any) => {
@@ -140,11 +128,6 @@ const HelpAssistantScreen = () => {
     [handleCameraPress, handleVoiceRecordingStart],
   );
 
-  const renderSystemMessage = useCallback(
-    (props: any) => <SystemMessageLogo currentMessage={props.currentMessage} />,
-    [],
-  );
-
   const renderTime = useCallback((props: any) => {
     if (
       props.currentMessage &&
@@ -166,13 +149,9 @@ const HelpAssistantScreen = () => {
 
   const renderMessage = useCallback(
     (props: any) => (
-      <ChatMessageBox
-        {...props}
-        refreshTrigger={refreshTrigger}
-        onOrderStatusChange={handleOrderStatusChange}
-      />
+      <ChatMessageBox {...props} refreshTrigger={refreshTrigger} />
     ),
-    [refreshTrigger, handleOrderStatusChange],
+    [refreshTrigger],
   );
 
   const renderComposer = useCallback(
@@ -196,45 +175,56 @@ const HelpAssistantScreen = () => {
   const renderLoadEarlier = useCallback(() => <></>, []);
 
   return (
-    <
-    >
-      <MessageHeader />
-      <GiftedChat
-        messages={allMessages as any[]}
-        placeholder={'chat.placeholder'}
-        {...(initialText ? { text: initialText } : {})}
-        onSend={(messages: any) => onSend(messages)}
-        // @ts-ignore
-        onInputTextChanged={handleTextChange}
-        user={{
-          _id: user?._id || '1',
-        }}
-        renderSystemMessage={renderSystemMessage}
-        renderTime={renderTime}
-        renderAvatar={null}
-        maxComposerHeight={100}
-        alwaysShowSend={true}
-        // Custom Renders
-        renderBubble={renderBubble}
-        renderInputToolbar={renderInputToolbar}
-        renderComposer={renderComposer}
-        renderSend={renderSend}
-        renderMessage={renderMessage}
-        loadEarlier={hasMore}
-        infiniteScroll={true}
-        renderLoadEarlier={renderLoadEarlier}
-        onLoadEarlier={loadEarlier}
-        isLoadingEarlier={loadingMore}
-        keyboardShouldPersistTaps="handled"
-        timeFormat="LT"
-        dateFormat="LL"
-        bottomOffset={insets.bottom}
-        keyboardAvoidingViewProps={{
-          keyboardVerticalOffset: insets.top + 60,
-        }}
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F72585' }}>
+      <MessageHeader
+        onProfilePress={() =>
+          navigation.navigate('Profile', {
+            userId: '1',
+          })
+        }
+        onBackPress={() =>
+          navigation.navigate('BottomTab', {
+            screen: 'Home',
+          })
+        }
       />
-
-    </>
+      <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+        <GiftedChat
+          messages={allMessages as any[]}
+          placeholder={'chat.placeholder'}
+          {...(initialText ? { text: initialText } : {})}
+          onSend={(messages: any) => onSend(messages)}
+          // @ts-ignore
+          onInputTextChanged={handleTextChange}
+          user={{
+            _id: user?._id || '1',
+          }}
+          renderTime={renderTime}
+          renderAvatar={null}
+          maxComposerHeight={100}
+          alwaysShowSend={true}
+          // Custom Renders
+          renderBubble={renderBubble}
+          renderInputToolbar={renderInputToolbar}
+          renderComposer={renderComposer}
+          renderSend={renderSend}
+          renderMessage={renderMessage}
+          loadEarlier={hasMore}
+          infiniteScroll={true}
+          renderLoadEarlier={renderLoadEarlier}
+          onLoadEarlier={loadEarlier}
+          renderSystemMessage={() => <></>}
+          isLoadingEarlier={loadingMore}
+          keyboardShouldPersistTaps="handled"
+          timeFormat="LT"
+          dateFormat="LL"
+          bottomOffset={insets.bottom}
+          keyboardAvoidingViewProps={{
+            keyboardVerticalOffset: insets.top + 60,
+          }}
+        />
+      </View>
+    </SafeAreaView>
   );
 };
 

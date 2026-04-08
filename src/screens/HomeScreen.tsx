@@ -1,44 +1,19 @@
-import React, { useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  StyleSheet,
-  StatusBar,
-  Alert,
-} from 'react-native';
+import React, { useCallback } from 'react';
+import { View, Text, FlatList, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Header from '../components/home/Header';
 import StoryItem from '../components/home/StoryItem';
 import ConversationItem from '../components/home/ConversationItem';
 import SearchBar from '../components/home/SearchBar';
-import BottomTabBar from '../components/home/BottomTabBar';
 import { stories, conversations } from '../data/mockData';
-import { colors, spacing, fonts } from '../theme';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootNavigatorParamList } from '../types/navigators';
+import { colors, spacing, fonts, colorss } from '../theme';
+import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { BottomTabNavigatorParamList } from '../types/navigators';
 
-type Props = NativeStackScreenProps<RootNavigatorParamList, 'Home'>;
+type Props = BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>;
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('Chats');
-
-  const filteredConversations = searchQuery
-    ? conversations.filter(
-        c =>
-          c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.preview.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : conversations;
-
-  // const handleConversationPress = (item) => {
-  //   // Navigate to chat screen — wire up with navigation prop
-  //   Alert.alert('Open Chat', `Opening chat with ${item.name}`);
-  //   navigation.navigate('ChatScreen', { conversation: item });
-  // };
-
-  const handleStoryPress = useCallback(item => {
+  const handleStoryPress = useCallback((item: { isAdd: any; name: any }) => {
     if (item.isAdd) {
       Alert.alert('Add Story', 'Open camera to add a story');
     } else {
@@ -58,26 +33,17 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       <>
         <ConversationItem
           item={item}
-          onPress={() => navigation.push('Inbox')}
+          onPress={() => navigation.navigate('Inbox')}
         />
-        {index < filteredConversations.length - 1 && (
-          <View style={styles.divider} />
-        )}
+        {index < conversations.length - 1 && <View style={styles.divider} />}
       </>
     ),
-    [filteredConversations.length, navigation],
+    [navigation],
   );
 
   const ListHeader = useCallback(
     () => (
       <>
-        <Header
-          onSearch={() => {
-            /* focus search bar */
-          }}
-          onNewChat={() => Alert.alert('New Chat', 'Start a new conversation')}
-        />
-        <SearchBar value={searchQuery} onChangeText={setSearchQuery} />
         <FlatList
           data={stories}
           renderItem={renderStory}
@@ -89,15 +55,21 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         <Text style={styles.sectionLabel}>Messages</Text>
       </>
     ),
-    [renderStory, searchQuery],
+    [renderStory],
   );
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <Header
+        onSearch={() => {
+          /* focus search bar */
+        }}
+        onNewChat={() => Alert.alert('New Chat', 'Start a new conversation')}
+      />
+      <SearchBar />
       <View style={styles.container}>
         <FlatList
-          data={filteredConversations}
+          data={conversations}
           renderItem={renderConversation}
           keyExtractor={item => item.id}
           ListHeaderComponent={ListHeader}
@@ -109,7 +81,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           }
         />
-        <BottomTabBar activeTab={activeTab} onTabPress={setActiveTab} />
       </View>
     </SafeAreaView>
   );
@@ -118,15 +89,15 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colorss.primary,
   },
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colorss.background,
   },
   storiesList: {
     paddingHorizontal: spacing.xl,
-    paddingBottom: 14,
+    paddingVertical: 14,
     gap: 12,
   },
   sectionLabel: {

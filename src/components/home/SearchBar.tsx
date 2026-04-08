@@ -1,33 +1,16 @@
-import React, { useState } from 'react';
-import {
-  View,
-  TextInput,
-  StyleSheet,
-  TouchableOpacity,
-} from 'react-native';
-import { colors, radius, spacing } from '../../theme';
+import React from 'react';
+import { View, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import {  colorss, radius, spacing } from '../../theme';
+import { LucideSearch } from 'lucide-react-native';
 
-// Simple SVG-free search icon using View shapes
-const SearchIcon = () => (
-  <View style={styles.iconWrap}>
-    <View style={styles.iconCircle} />
-    <View style={styles.iconHandle} />
-  </View>
-);
-
-const SearchBar = ({ onChangeText, value }) => {
+const SearchBar = ({}) => {
   return (
-    <View style={styles.container}>
-      <SearchIcon />
-      <TextInput
-        style={styles.input}
-        placeholder="Search messages…"
-        placeholderTextColor={colors.textMuted}
-        value={value}
-        onChangeText={onChangeText}
-        returnKeyType="search"
-      />
-    </View>
+    <TouchableOpacity onPress={() => {}} activeOpacity={0.7}>
+      <View style={styles.container}>
+        <LucideSearch size={16} color={colorss.textSecondary} />
+        <Text style={styles.input}>Search messages…</Text>
+      </View>
+    </TouchableOpacity>
   );
 };
 
@@ -35,7 +18,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e1e30',
+    backgroundColor: colorss.background,
     marginHorizontal: spacing.xl,
     marginBottom: 14,
     borderRadius: radius.md,
@@ -43,34 +26,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 10,
   },
-  iconWrap: {
-    width: 16,
-    height: 16,
-    position: 'relative',
-  },
-  iconCircle: {
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: colors.textMuted,
-    position: 'absolute',
-    top: 0,
-    left: 0,
-  },
-  iconHandle: {
-    width: 1.5,
-    height: 5,
-    backgroundColor: colors.textMuted,
-    position: 'absolute',
-    bottom: 0,
-    right: 1,
-    transform: [{ rotate: '-45deg' }],
-  },
   input: {
     flex: 1,
     fontSize: 14,
-    color: colors.textSecondary,
+    color: colorss.textSecondary,
     padding: 0,
   },
 });

@@ -18,6 +18,23 @@ export const colors = {
   amber: '#F59E0B',
 };
 
+export const colorss = {
+  primary: '#FF4E8C',
+  primaryLight: '#FF7FA8',
+  primaryDark: '#CC3E70',
+
+  background: '#F4F4F4',
+  surface: '#F8FAFC',
+
+  textPrimary: '#10182B',
+  textSecondary: '#4A5568',
+  placeholder: "#A0AEC0",
+
+  accent: '#6366F1',
+  success: '#22C55E',
+  error: '#EF4444',
+};
+
 export const fonts = {
   regular: '400' as const,
   medium: '500' as const,

@@ -1,17 +1,16 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { colors, radius, fonts } from '../../theme';
+import { colors, radius, fonts, colorss } from '../../theme';
 
 const StoryItem = ({ item, onPress }) => {
   if (item.isAdd) {
     return (
-      <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={styles.container}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
         <View style={styles.addRing}>
           <View style={styles.addAvatar}>
             <Text style={styles.addIcon}>+</Text>
@@ -23,7 +22,11 @@ const StoryItem = ({ item, onPress }) => {
   }
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
       {item.active ? (
         <LinearGradient
           colors={['#7C3AED', '#EC4899', '#F59E0B']}
@@ -52,7 +55,9 @@ const StoryItem = ({ item, onPress }) => {
           </LinearGradient>
         </View>
       )}
-      <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+      <Text style={styles.name} numberOfLines={1}>
+        {item.name}
+      </Text>
     </TouchableOpacity>
   );
 };
@@ -87,7 +92,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#3a3a54',
     borderStyle: 'dashed',
-    backgroundColor: '#1e1e30',
+    backgroundColor: colorss.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -112,7 +117,7 @@ const styles = StyleSheet.create({
   },
   addIcon: {
     fontSize: 26,
-    color: colors.purpleLight,
+    color: "#ffffff",
     fontWeight: fonts.bold,
     lineHeight: 28,
   },
@@ -125,7 +130,7 @@ const styles = StyleSheet.create({
   },
   addName: {
     fontSize: 10,
-    color: colors.purple,
+    color: colorss.textPrimary,
     fontWeight: fonts.medium,
     textAlign: 'center',
   },

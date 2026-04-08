@@ -1,6 +1,18 @@
-type RootNavigatorParamList = {
+import { NavigatorScreenParams } from '@react-navigation/native';
+
+type BottomTabNavigatorParamList = {
   Home: undefined;
-  Inbox: undefined;
+  Menu: undefined;
+  Story: undefined;
+  Discover: undefined;
 };
 
-export type { RootNavigatorParamList };
+type RootStackNavigatorParamList = {
+  BottomTab: NavigatorScreenParams<BottomTabNavigatorParamList>;
+  Inbox: undefined;
+  Profile: {
+    userId: string;
+  };
+};
+
+export type { BottomTabNavigatorParamList, RootStackNavigatorParamList };
