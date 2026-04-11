@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, Text } from 'react-native';
-import {  colorss, radius, spacing } from '../../theme';
+import { colorss, radius, spacing } from '../../theme';
 import { LucideSearch } from 'lucide-react-native';
 
-const SearchBar = ({}) => {
+const SearchBar = ({ onSearchPress }) => {
   return (
-    <TouchableOpacity onPress={() => {}} activeOpacity={0.7}>
+    <TouchableOpacity onPress={onSearchPress} activeOpacity={0.7}>
       <View style={styles.container}>
         <LucideSearch size={16} color={colorss.textSecondary} />
         <Text style={styles.input}>Search messages…</Text>

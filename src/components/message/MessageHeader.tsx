@@ -38,7 +38,7 @@ const MessageHeader = ({ onProfilePress, onBackPress }) => {
         <TouchableOpacity onPress={() => {}} style={styles.actionButton}>
           <LucideVideo size={18} color="white" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => {}} style={styles.actionButton}>
+        <TouchableOpacity onPress={onProfilePress} style={styles.actionButton}>
           <LucideEllipsisVertical size={18} color="white" />
         </TouchableOpacity>
       </View>

@@ -1,8 +1,20 @@
-import { Image, SectionList, StyleSheet, Text, View } from 'react-native';
+import {
+  Image,
+  SectionList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import React from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { RootNavigatorParamList } from '../types/navigators';
+import {
+  BottomTabNavigatorParamList,
+  RootStackNavigatorParamList,
+} from '../types/navigators';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { CompositeScreenProps } from '@react-navigation/native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   LucideArchive,
   LucideMessageCircleMore,
@@ -11,7 +23,10 @@ import {
   LucideUsers,
 } from 'lucide-react-native';
 import { IC_PROFILE } from '../assets';
-type Props = BottomTabScreenProps<RootNavigatorParamList, 'Menu'>;
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<BottomTabNavigatorParamList, 'Menu'>,
+  NativeStackScreenProps<RootStackNavigatorParamList>
+>;
 
 const colors = {
   primary: '#FF4E8C',
@@ -30,7 +45,7 @@ const colors = {
   error: '#EF4444',
 };
 
-const MenuScreen: React.FC<Props> = ({}) => {
+const MenuScreen: React.FC<Props> = ({ navigation }) => {
   const menus = [
     {
       id: 1,
@@ -46,6 +61,7 @@ const MenuScreen: React.FC<Props> = ({}) => {
               fill={colors.textPrimary}
             />
           ),
+          onPress: () => {},
         },
       ],
     },
@@ -63,6 +79,7 @@ const MenuScreen: React.FC<Props> = ({}) => {
               fill={colors.textPrimary}
             />
           ),
+          onPress: () => {},
         },
         {
           id: 2,
@@ -74,6 +91,7 @@ const MenuScreen: React.FC<Props> = ({}) => {
               fill={colors.textPrimary}
             />
           ),
+          onPress: () => {},
         },
         {
           id: 3,
@@ -85,6 +103,7 @@ const MenuScreen: React.FC<Props> = ({}) => {
               fill={colors.textPrimary}
             />
           ),
+          onPress: () => {},
         },
         {
           id: 4,
@@ -96,6 +115,7 @@ const MenuScreen: React.FC<Props> = ({}) => {
               fill={colors.textPrimary}
             />
           ),
+          onPress: () => navigation.navigate('Archive'),
         },
       ],
     },
@@ -113,6 +133,7 @@ const MenuScreen: React.FC<Props> = ({}) => {
               fill={colors.textPrimary}
             />
           ),
+          onPress: () => {},
         },
       ],
     },
@@ -187,7 +208,8 @@ const MenuScreen: React.FC<Props> = ({}) => {
           />
         )}
         renderItem={({ item }) => (
-          <View
+          <TouchableOpacity
+            onPress={item.onPress}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -205,7 +227,7 @@ const MenuScreen: React.FC<Props> = ({}) => {
             >
               {item.title}
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
       />
     </SafeAreaView>

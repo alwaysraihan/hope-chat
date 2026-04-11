@@ -1,20 +1,20 @@
 import React, { useCallback } from 'react';
-import { GiftedChat, Time, Composer } from 'react-native-gifted-chat';
+import { Composer, GiftedChat, Send, Time } from 'react-native-gifted-chat';
 
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import MessageHeader from '../components/message/MessageHeader';
-// import { IC_MESSAGE_PATTERN } from '../assets';
 
 import { useHelpAssistant } from '../hooks/useHelpAssistant';
 
 import CustomBubble from '../components/message/CustomBubble';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
-import CustomSend from '../components/message/CustomSend';
-// import SystemMessageLogo from '../components/message/SystemMessageLogo';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { View } from 'react-native';
+import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackNavigatorParamList } from '../types/navigators';
+import CustomSend from '../components/message/CustomSend';
+import CInputToolbar from '../components/message/CInputToolbar';
+import { colorss } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 
@@ -96,9 +96,10 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
           isRecording={isRecording}
           onRecordingComplete={handleVoiceRecordingComplete}
           onRecordingCancel={handleVoiceRecordingCancel}
+          onVoiceRecordingStart={handleVoiceRecordingStart}
           inputAnimation={inputAnimation}
+          handleCameraPress={handleCameraPress}
           insets={insets}
-          onCustomOrderPress={() => navigation.navigate('CustomOrderModal')}
           width={width}
         />
       );
@@ -109,13 +110,15 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
       handleVoiceRecordingCancel,
       inputAnimation,
       insets,
-      navigation,
       width,
+      handleVoiceRecordingStart,
+      handleCameraPress,
     ],
   );
 
   const renderSend = useCallback(
     (props: any) => {
+      console.log('props', props);
       return (
         <CustomSend
           {...props}
@@ -206,8 +209,38 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
           // Custom Renders
           renderBubble={renderBubble}
           renderInputToolbar={renderInputToolbar}
-          renderComposer={renderComposer}
-          renderSend={renderSend}
+          // renderInputToolbar={(props: any) => {
+          //   console.log('renderInputToolbar', props);
+          //   return (
+          //     <View
+          //       style={{
+          //         flexDirection: 'row',
+          //         alignItems: 'center',
+          //         backgroundColor: '#F72585',
+          //         paddingVertical: 12,
+          //         paddingHorizontal: 16,
+          //         gap: 10,
+          //       }}
+          //     >
+          //       <Composer
+          //         {...props}
+          //         // textInputProps={{
+          //         //   flex: 1,
+          //         //   color: colorss.textPrimary,
+          //         //   fontSize: 16,
+          //         //   fontFamily: 'regular',
+          //         //   width: '100%',
+          //         //   backgroundColor: 'white',
+          //         // }}
+          //       />
+          //       <Send {...props}>
+          //         <Text> Send</Text>
+          //       </Send>
+          //     </View>
+          //   );
+          // }}
+          // renderComposer={renderComposer}
+          // renderSend={renderSend}
           renderMessage={renderMessage}
           loadEarlier={hasMore}
           infiniteScroll={true}
@@ -217,7 +250,6 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
           isLoadingEarlier={loadingMore}
           keyboardShouldPersistTaps="handled"
           timeFormat="LT"
-          dateFormat="LL"
           bottomOffset={insets.bottom}
           keyboardAvoidingViewProps={{
             keyboardVerticalOffset: insets.top + 60,

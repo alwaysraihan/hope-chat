@@ -4,12 +4,13 @@ import LinearGradient from 'react-native-linear-gradient';
 import { colors, radius, fonts, spacing, colorss } from '../../theme';
 import { IC_PROFILE } from '../../assets';
 
-const ConversationItem = ({ item, onPress }) => {
+const ConversationItem = ({ item, onPress, onLongPress }) => {
   return (
     <TouchableOpacity
       style={styles.container}
       onPress={onPress}
       activeOpacity={0.7}
+      onLongPress={onLongPress}
     >
       <View style={styles.avatarWrap}>
         <Image source={IC_PROFILE} style={styles.avatar} />

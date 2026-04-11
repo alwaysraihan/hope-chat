@@ -13,6 +13,10 @@ type RootStackNavigatorParamList = {
   Profile: {
     userId: string;
   };
+  Search: undefined;
+  ConversationAction: undefined;
+  EditSearchHistory: undefined;
+  Archive: undefined;
 };
 
 export type { BottomTabNavigatorParamList, RootStackNavigatorParamList };

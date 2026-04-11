@@ -25,12 +25,13 @@ export const colorss = {
 
   background: '#F4F4F4',
   surface: '#F8FAFC',
+  backgroundDeep: '#e2e5ea',
 
   textPrimary: '#10182B',
   textSecondary: '#4A5568',
-  placeholder: "#A0AEC0",
+  placeholder: '#A0AEC0',
 
-  accent: '#6366F1',
+  accent: '#1877f2',
   success: '#22C55E',
   error: '#EF4444',
 };

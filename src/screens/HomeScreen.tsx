@@ -8,9 +8,17 @@ import SearchBar from '../components/home/SearchBar';
 import { stories, conversations } from '../data/mockData';
 import { colors, spacing, fonts, colorss } from '../theme';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import { BottomTabNavigatorParamList } from '../types/navigators';
+import {
+  BottomTabNavigatorParamList,
+  RootStackNavigatorParamList,
+} from '../types/navigators';
+import { CompositeScreenProps } from '@react-navigation/native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-type Props = BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>;
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>,
+  NativeStackScreenProps<RootStackNavigatorParamList, 'Search'>
+>;
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const handleStoryPress = useCallback((item: { isAdd: any; name: any }) => {
@@ -34,6 +42,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         <ConversationItem
           item={item}
           onPress={() => navigation.navigate('Inbox')}
+          onLongPress={() => navigation.navigate('ConversationAction')}
         />
         {index < conversations.length - 1 && <View style={styles.divider} />}
       </>
@@ -66,7 +75,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         }}
         onNewChat={() => Alert.alert('New Chat', 'Start a new conversation')}
       />
-      <SearchBar />
+      <SearchBar onSearchPress={() => navigation.navigate('Search')} />
       <View style={styles.container}>
         <FlatList
           data={conversations}

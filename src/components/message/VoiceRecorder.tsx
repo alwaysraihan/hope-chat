@@ -18,7 +18,6 @@ import RNFS from 'react-native-fs';
 import { IC_MIC, IC_SEND, IC_CLOSE_CIRCLE } from '../../assets';
 import { checkMicrophonePermission } from '../../utils/permissions';
 
-
 interface VoiceRecorderProps {
   onRecordingComplete: (audioPath: string, duration: number) => void;
   onCancel: () => void;
@@ -59,7 +58,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     } else {
       pulseAnimation.setValue(1);
     }
-  }, [isRecording, isPaused]);
+  }, [isRecording, isPaused, pulseAnimation]);
 
   const getAudioFilePath = () => {
     const timestamp = Date.now();
