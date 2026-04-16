@@ -26,6 +26,8 @@ export const colorss = {
   background: '#F4F4F4',
   surface: '#F8FAFC',
   backgroundDeep: '#e2e5ea',
+  white: '#FFFFFF',
+  border: '#E5E5EA',
 
   textPrimary: '#10182B',
   textSecondary: '#4A5568',

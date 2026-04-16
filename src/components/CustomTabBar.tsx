@@ -2,9 +2,11 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { IC_ACCOUNT, IC_CART, IC_SHOP } from '../assets/bottom-tab';
 import { colors } from '../theme';
 import {
+  FileText,
+  Images,
+  Link,
   LucideImages,
   LucideMenu,
   LucideMessageCircle,
@@ -20,17 +22,19 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
 
     switch (routeName) {
       case 'Home':
-        return (
-          <LucideMessageCircle color={iconColor} fill={iconColor} size={24} />
-        );
+        return <LucideMessageCircle color={iconColor} size={24} />;
       case 'Story':
-        return <LucideImages color={iconColor} fill={iconColor} size={24} />;
+        return <LucideImages color={iconColor} size={24} />;
       case 'Discover':
-        return (
-          <LucideMessageCircle color={iconColor} fill={iconColor} size={24} />
-        );
+        return <LucideMessageCircle color={iconColor} size={24} />;
       case 'Menu':
-        return <LucideMenu color={iconColor} fill={iconColor} size={24} />;
+        return <LucideMenu color={iconColor} size={24} />;
+      case 'Media':
+        return <Images color={iconColor} size={24} />;
+      case 'Files':
+        return <FileText color={iconColor} size={24} />;
+      case 'Links':
+        return <Link color={iconColor} size={24} />;
       default:
         return null;
     }

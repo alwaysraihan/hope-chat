@@ -6,10 +6,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import React from 'react';
+import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { IC_PROFILE } from '../assets';
 import {
+  ALargeSmall,
+  ArrowDownToLine,
+  Bell,
+  BlocksIcon,
+  Eye,
+  ImageIcon,
   LucideArrowLeft,
   LucideBell,
   LucidePalette,
@@ -17,26 +23,27 @@ import {
   LucidePhone,
   LucideSettings,
   LucideVideo,
+  Pin,
+  Shield,
+  ThumbsUp,
+  TypeIcon,
+  Users,
 } from 'lucide-react-native';
+import { colorss } from '../theme';
 
-const colors = {
-  primary: '#FF4E8C',
-  primaryLight: '#FF7FA8',
-  primaryDark: '#CC3E70',
+import { RootStackNavigatorParamList } from '../types/navigators';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import OptionModal from '../components/profile/OptionModal';
+import ProfileHeader from '../components/profile/ProfileHeader';
+import SectionItem from '../components/profile/SectionItem';
+type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Profile'>;
 
-  background: '#F4F4F4',
-  surface: '#F8FAFC',
+const ProfileScreen: React.FC<Props> = ({ navigation }) => {
+  const [visibleMuteModal, setVisibleMuteModal] = useState(false);
+  const [muteIndex, setMuteIndex] = useState<number | null>(null);
+  const [muteDurationModal, setMuteDurationModal] = useState(false);
+  const [muteDuration, setMuteDuration] = useState<number | null>(null);
 
-  textPrimary: '#10182B',
-  textSecondary: '#4A5568',
-  placeholder: "#A0AEC0",
-
-  accent: '#6366F1',
-  success: '#22C55E',
-  error: '#EF4444',
-};
-
-const ProfileScreen = () => {
   const sectionsData = [
     {
       id: 1,
@@ -45,30 +52,36 @@ const ProfileScreen = () => {
         {
           id: 1,
           title: 'Theme',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <LucidePalette size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {
+            navigation.navigate('Theme');
+          },
         },
         {
           id: 2,
           title: 'Quick reaction',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <ThumbsUp size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {},
         },
         {
           id: 3,
           title: 'Nicknames',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <LucidePalette size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {
+            navigation.navigate('Nicknames');
+          },
         },
         {
           id: 4,
           title: 'Word effects',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <ALargeSmall size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {
+            navigation.navigate('WordEffects');
+          },
         },
       ],
     },
@@ -79,30 +92,47 @@ const ProfileScreen = () => {
         {
           id: 1,
           title: 'Create group with',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <Users size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {
+            navigation.navigate('NewGroup');
+          },
         },
         {
           id: 2,
           title: 'View media, files, and links',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <ImageIcon size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {
+            navigation.navigate('MediaTab', { screen: 'Media' });
+          },
         },
         {
           id: 3,
           title: 'Auto-save photos',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <ArrowDownToLine size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {
+            navigation.navigate('AutoSavePhotos');
+          },
         },
         {
           id: 4,
           title: 'Pinned messages',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <Pin size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {
+            navigation.navigate('PinnedMessages');
+          },
+        },
+        {
+          id: 5,
+          title: 'Notification & sounds',
+          image: <Bell size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => {
+            navigation.navigate('NotificationsSounds');
+          },
         },
       ],
     },
@@ -113,23 +143,52 @@ const ProfileScreen = () => {
         {
           id: 1,
           title: 'Message permissions',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: (
+            <Shield fill={colorss.primary} size={22} color={colorss.primary} />
+          ),
           type: 'switch',
-          url: '',
+          onPress: () => {},
+        },
+        {
+          id: 4,
+          title: 'Blocked users',
+          image: <BlocksIcon size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => {
+            navigation.navigate('BlockedUser');
+          },
+        },
+        {
+          id: 5,
+          title: 'Read Receipts',
+          image: <Eye size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => {
+            navigation.navigate('ReadReceipts');
+          },
+        },
+        {
+          id: 6,
+          title: 'Typing indicator',
+          image: <TypeIcon size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => {
+            navigation.navigate('TypingIndicator');
+          },
         },
         {
           id: 2,
           title: 'Privacy policy',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <LucidePalette size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {},
         },
         {
           id: 3,
           title: 'Support',
-          image: <LucidePalette size={22} color={colors.primary} />,
+          image: <LucidePalette size={22} color={colorss.primary} />,
           type: 'switch',
-          url: '',
+          onPress: () => {},
         },
       ],
     },
@@ -140,125 +199,108 @@ const ProfileScreen = () => {
       id: 1,
       name: 'Audio',
       icon: <LucidePhone fill={'white'} stroke={'white'} />,
+      onPress: () => {
+        navigation.navigate('AudioCall');
+      },
     },
     {
       id: 2,
       name: 'Video',
       icon: <LucideVideo fill={'white'} stroke={'white'} />,
+      onPress: () => {},
     },
     {
       id: 3,
       name: 'Profile',
       icon: <LucidePersonStanding fill={'white'} stroke={'white'} />,
+      onPress: () => {},
     },
     {
       id: 4,
       name: 'Mute',
       icon: <LucideBell fill={'white'} stroke={'white'} />,
+      onPress: () => setVisibleMuteModal(true),
     },
   ];
 
-  const listHeader = () => {
-    return (
-      <>
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-          }}
-        >
-          <TouchableOpacity>
-            <LucideArrowLeft />
-          </TouchableOpacity>
-          <View>
-            <LucideSettings />
-          </View>
-        </View>
-        <View
-          style={{
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginVertical: 20,
-          }}
-        >
-          <Image
-            source={IC_PROFILE}
-            style={{ height: 100, width: 100, borderRadius: 50 }}
-          />
-          <Text
-            style={{
-              fontWeight: 'bold',
-              fontSize: 20,
-              marginVertical: 10,
-              textAlign: 'center',
-            }}
-          >
-            MD Emon Hossain
-          </Text>
+  const muteOptions = [
+    {
+      id: 1,
+      title: 'Mute message notifications',
+    },
+    {
+      id: 2,
+      title: 'Mute call notifications',
+    },
+    {
+      id: 3,
+      title: 'Mute message and call notifications',
+    },
+  ];
 
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-around',
-              gap: 20,
-            }}
-          >
-            {actionButton.map(item => (
-              <TouchableOpacity key={item.id}>
-                <View
-                  style={{
-                    backgroundColor: colors.primary,
-                    width: 50,
-                    height: 50,
-                    borderRadius: 25,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
-                >
-                  {item.icon}
-                </View>
-                <Text style={{ textAlign: 'center' }}>{item.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </>
-    );
-  };
+  const muteDurationData = [
+    {
+      id: 1,
+      title: 'For 15 minutes',
+    },
+    {
+      id: 2,
+      title: 'For 1 hour',
+    },
+    {
+      id: 3,
+      title: 'For 8 hours',
+    },
+    {
+      id: 4,
+      title: 'For 24 hours',
+    },
+    {
+      id: 5,
+      title: 'Until I turn it off',
+    },
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
       <SectionList
-        ListHeaderComponent={listHeader}
-        showsVerticalScrollIndicator={false}
-        style={{ flex: 1 }}
         sections={sectionsData}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={{ flexDirection: 'row', gap: 10 }}>
-            {item.image}
-            <Text
-              style={{
-                color: colors.textPrimary,
-                fontFamily: 'semibold',
-              }}
-            >
-              {item.title}
-            </Text>
-          </TouchableOpacity>
-        )}
+        keyExtractor={item => item.id.toString()}
+        ListHeaderComponent={<ProfileHeader actionButton={actionButton} />}
+        renderItem={({ item }) => <SectionItem item={item} />}
         renderSectionHeader={({ section }) => (
-          <Text
-            style={{
-              fontSize: 16,
-              marginVertical: 4,
-              color: colors.primaryLight,
-            }}
-          >
-            {section.title}
-          </Text>
+          <Text style={styles.sectionHeader}>{section.title}</Text>
         )}
-        contentContainerStyle={{
-          gap: 12,
+        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        SectionSeparatorComponent={() => <View style={{ height: 20 }} />}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+      />
+
+      {/* Mute type */}
+      <OptionModal
+        visible={visibleMuteModal}
+        title="Mute this chat?"
+        data={muteOptions}
+        selected={muteIndex}
+        onSelect={setMuteIndex}
+        onCancel={() => setVisibleMuteModal(false)}
+        onConfirm={() => {
+          setVisibleMuteModal(false);
+          setMuteDurationModal(true);
+        }}
+      />
+
+      {/* Mute duration */}
+      <OptionModal
+        visible={muteDurationModal}
+        title="Select duration"
+        data={muteDurationData}
+        selected={muteDuration}
+        onSelect={setMuteDuration}
+        onCancel={() => setMuteDurationModal(false)}
+        onConfirm={() => {
+          setMuteDurationModal(false);
         }}
       />
     </SafeAreaView>
@@ -270,8 +312,13 @@ export default ProfileScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colorss.white,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+  },
+  sectionHeader: {
+    fontSize: 14,
+    color: colorss.primaryLight,
+    marginBottom: 6,
+    marginTop: 10,
   },
 });

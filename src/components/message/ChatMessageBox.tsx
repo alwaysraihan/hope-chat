@@ -15,7 +15,6 @@ import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { IMessage, Message, MessageProps } from 'react-native-gifted-chat';
 import AudioPlayer from './AudioPlayer';
 
-
 // Add these imports for permissions (Android)
 import { PermissionsAndroid, Platform } from 'react-native';
 // download
@@ -24,26 +23,17 @@ type ChatMessageBoxProps = {
   replyMessage?: IMessage | null;
   highlightedMessageId?: string | number | null;
   refreshTrigger?: number; // Add this prop to trigger refresh from parent
-  onOrderStatusChange?: (orderId: string, newStatus: string) => void; // Callback for status changes
 } & MessageProps<IMessage>;
 
-const ChatMessageBox = ({
-  refreshTrigger,
-  onOrderStatusChange,
-  ...props
-}: ChatMessageBoxProps) => {
-
+const ChatMessageBox = ({ refreshTrigger, ...props }: ChatMessageBoxProps) => {
   const isNextMyMessage =
     props.currentMessage &&
     props.nextMessage &&
     isSameUser(props.currentMessage, props.nextMessage) &&
     isSameDay(props.currentMessage, props.nextMessage);
 
-
   // Get token from Redux
   // const token = useSelector((state: RootState) => state.auth.token);
-
-
 
   // Helper function to format message time
   const formatMessageTime = (date: Date | number) => {
@@ -70,7 +60,6 @@ const ChatMessageBox = ({
       });
     }
   };
-  
 
   // Enhanced permission request function
   const requestStoragePermission = async () => {
@@ -165,19 +154,12 @@ const ChatMessageBox = ({
     }
   };
 
-
-
-
-
-
-
   // State for modal preview
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMedia, setModalMedia] = useState<{
     uri: string;
     type: 'image';
   } | null>(null);
-
 
   // Voice message rendering
   const renderVoiceMessage = () => {
@@ -262,14 +244,12 @@ const ChatMessageBox = ({
   return (
     <>
       <View style={[styles.messageContainer]}>
-       
         {renderVoiceMessage()}
         {renderMediaMessage()}
         {!renderVoiceMessage() && !renderMediaMessage() && (
           <Message {...props} />
         )}
       </View>
-
     </>
   );
 };
@@ -301,70 +281,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
-  // Order Message Styles
-  orderContainer: {
-    margin: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#F72585',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: '#F72585',
-  },
-
-  orderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#F72585',
-  },
-
-  orderHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  shopIcon: {
-    width: 24,
-    height: 24,
-    tintColor: '#FFFFFF',
-    marginRight: 8,
-  },
-
-  orderTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-
-  orderTime: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.9,
-  },
-
-  orderContent: {
-    padding: 16,
-  },
-
-  orderIdRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-
-  orderIdText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1C1C1E',
-  },
-
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 4,
@@ -374,169 +290,6 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: 'bold',
-  },
-
-  addressSection: {
-    marginBottom: 16,
-    padding: 12,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#F72585',
-  },
-
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#F72585',
-    marginBottom: 8,
-  },
-
-  addressText: {
-    fontSize: 14,
-    color: '#1C1C1E',
-    marginBottom: 4,
-  },
-
-  addressDetails: {
-    fontSize: 13,
-    color: '#8E8E93',
-    marginBottom: 4,
-  },
-
-  phoneText: {
-    fontSize: 13,
-    color: '#F72585',
-    fontWeight: '500',
-  },
-
-  itemsSection: {
-    marginBottom: 16,
-  },
-
-  orderItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-  },
-
-  itemLeft: {
-    flex: 1,
-  },
-
-  itemName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    marginBottom: 2,
-  },
-
-  itemQuantity: {
-    fontSize: 12,
-    color: '#8E8E93',
-  },
-
-  itemPrice: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#F72585',
-  },
-
-  summarySection: {
-    marginBottom: 16,
-    padding: 12,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-  },
-
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-
-  summaryLabel: {
-    fontSize: 13,
-    color: '#8E8E93',
-  },
-
-  summaryValue: {
-    fontSize: 13,
-    color: '#1C1C1E',
-    fontWeight: '500',
-  },
-
-  totalRow: {
-    borderTopWidth: 1,
-    borderTopColor: '#E5E5EA',
-    marginTop: 8,
-    paddingTop: 8,
-  },
-
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1C1C1E',
-  },
-
-  totalValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#F72585',
-  },
-
-  paymentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    padding: 8,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-  },
-
-  paymentLabel: {
-    fontSize: 13,
-    color: '#8E8E93',
-  },
-
-  paymentStatus: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-
-  paymentPaid: {
-    color: '#4CAF50',
-    backgroundColor: '#E6F9F0',
-  },
-
-  paymentPending: {
-    color: '#FFB300',
-    backgroundColor: '#FFF6E0',
-  },
-
-  orderFooter: {
-    alignItems: 'center',
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E5EA',
-  },
-
-  orderDate: {
-    fontSize: 11,
-    color: '#8E8E93',
   },
 
   // Skeleton Styles

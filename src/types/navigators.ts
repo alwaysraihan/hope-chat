@@ -17,6 +17,28 @@ type RootStackNavigatorParamList = {
   ConversationAction: undefined;
   EditSearchHistory: undefined;
   Archive: undefined;
+  NotificationsSounds: undefined;
+  PinnedMessages: undefined;
+  WordEffects: undefined;
+  AutoSavePhotos: undefined;
+  Nicknames: undefined;
+  MediaTab: NavigatorScreenParams<MediaTabNavigatorParamList>;
+  AudioCall: undefined;
+  NewGroup: undefined;
+  TypingIndicator: undefined;
+  BlockedUser: undefined;
+  ReadReceipts: undefined;
+  Theme: undefined;
 };
 
-export type { BottomTabNavigatorParamList, RootStackNavigatorParamList };
+type MediaTabNavigatorParamList = {
+  Media: undefined;
+  Files: undefined;
+  Links: undefined;
+};
+
+export type {
+  BottomTabNavigatorParamList,
+  RootStackNavigatorParamList,
+  MediaTabNavigatorParamList,
+};
