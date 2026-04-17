@@ -103,7 +103,9 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
               fill={colors.textPrimary}
             />
           ),
-          onPress: () => {},
+          onPress: () => {
+            navigation.navigate('MessageRequests');
+          },
         },
         {
           id: 4,

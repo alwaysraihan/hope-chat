@@ -21,12 +21,10 @@ const ITEM_SIZE = (SCREEN_WIDTH - GAP * 4) / 3;
 const DATA = Array.from({ length: 12 }).map((_, i) => ({
   id: String(i),
   image: IC_PROFILE,
+  unique: `img-${i}`,
 }));
 
-
-const MediaFilesLinksScreen= ({ navigation }) => {
-
-
+const MediaFilesLinksScreen = ({ navigation }) => {
   const [visible, setVisible] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);
 
@@ -41,7 +39,6 @@ const MediaFilesLinksScreen= ({ navigation }) => {
 
   const renderItem = ({ index, item }) => (
     <TouchableOpacity
-      key={index}
       activeOpacity={0.8}
       onPress={() => openImage(index)}
       style={styles.gridItem}

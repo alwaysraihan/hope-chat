@@ -209,38 +209,6 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
           // Custom Renders
           renderBubble={renderBubble}
           renderInputToolbar={renderInputToolbar}
-          // renderInputToolbar={(props: any) => {
-          //   console.log('renderInputToolbar', props);
-          //   return (
-          //     <View
-          //       style={{
-          //         flexDirection: 'row',
-          //         alignItems: 'center',
-          //         backgroundColor: '#F72585',
-          //         paddingVertical: 12,
-          //         paddingHorizontal: 16,
-          //         gap: 10,
-          //       }}
-          //     >
-          //       <Composer
-          //         {...props}
-          //         // textInputProps={{
-          //         //   flex: 1,
-          //         //   color: colorss.textPrimary,
-          //         //   fontSize: 16,
-          //         //   fontFamily: 'regular',
-          //         //   width: '100%',
-          //         //   backgroundColor: 'white',
-          //         // }}
-          //       />
-          //       <Send {...props}>
-          //         <Text> Send</Text>
-          //       </Send>
-          //     </View>
-          //   );
-          // }}
-          // renderComposer={renderComposer}
-          // renderSend={renderSend}
           renderMessage={renderMessage}
           loadEarlier={hasMore}
           infiniteScroll={true}

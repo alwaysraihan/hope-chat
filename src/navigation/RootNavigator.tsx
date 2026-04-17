@@ -20,6 +20,12 @@ import BlockUserScreen from '../screens/BlockUserScreen';
 import AudioCallScreen from '../screens/AudioCallScreen';
 import TypingIndicatorScreen from '../screens/TypingIndicatorScreen';
 import ThemeScreen from '../screens/ThemeScreen';
+import DisappearingMessagesScreen from '../screens/DisappearingMessagesScreen';
+import ReportProblemScreen from '../screens/ReportProblemScreen';
+import MessagePermissionsScreen from '../screens/MessagePermissionsScreen';
+import RestrictUserScreen from '../screens/RestrictUserScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import { MessageRequestsScreen } from '../screens/MessegeRequestScreen';
 
 const RootStack = createNativeStackNavigator<RootStackNavigatorParamList>();
 
@@ -60,6 +66,21 @@ const StackNavigator = () => {
         component={TypingIndicatorScreen}
       />
       <RootStack.Screen name="AudioCall" component={AudioCallScreen} />
+      <RootStack.Screen
+        name="DisappearingMessages"
+        component={DisappearingMessagesScreen}
+      />
+      <RootStack.Screen name="ReportProblem" component={ReportProblemScreen} />
+      <RootStack.Screen
+        name="MessagePermissions"
+        component={MessagePermissionsScreen}
+      />
+      <RootStack.Screen name="RestrictUser" component={RestrictUserScreen} />
+      <RootStack.Screen name="Settings" component={SettingsScreen} />
+      <RootStack.Screen
+        name="MessageRequests"
+        component={MessageRequestsScreen}
+      />
       <RootStack.Screen
         options={{
           presentation: 'formSheet',

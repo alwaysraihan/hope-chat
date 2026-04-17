@@ -292,6 +292,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
+  messageContainerr: {
+    width: '80%',
+  },
+
   // Skeleton Styles
   skeletonLine: {
     backgroundColor: '#E5E5EA',

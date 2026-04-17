@@ -29,6 +29,12 @@ type RootStackNavigatorParamList = {
   BlockedUser: undefined;
   ReadReceipts: undefined;
   Theme: undefined;
+  RestrictUser: undefined;
+  ReportProblem: undefined;
+  MessagePermissions: undefined;
+  DisappearingMessages: undefined;
+  Settings: undefined;
+  MessageRequests: undefined;
 };
 
 type MediaTabNavigatorParamList = {

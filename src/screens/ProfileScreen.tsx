@@ -11,9 +11,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { IC_PROFILE } from '../assets';
 import {
   ALargeSmall,
+  AlertTriangle,
   ArrowDownToLine,
   Bell,
   BlocksIcon,
+  CircleSlash,
+  ClockFading,
   Eye,
   ImageIcon,
   LucideArrowLeft,
@@ -26,6 +29,7 @@ import {
   Pin,
   Shield,
   ThumbsUp,
+  Trash2,
   TypeIcon,
   Users,
 } from 'lucide-react-native';
@@ -36,6 +40,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import OptionModal from '../components/profile/OptionModal';
 import ProfileHeader from '../components/profile/ProfileHeader';
 import SectionItem from '../components/profile/SectionItem';
+import DeleteChat from '../components/profile/DeleteChat';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Profile'>;
 
 const ProfileScreen: React.FC<Props> = ({ navigation }) => {
@@ -43,6 +48,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const [muteIndex, setMuteIndex] = useState<number | null>(null);
   const [muteDurationModal, setMuteDurationModal] = useState(false);
   const [muteDuration, setMuteDuration] = useState<number | null>(null);
+  const [visibleDeleteChatModal, setVisibleDeleteChatModal] = useState(false);
 
   const sectionsData = [
     {
@@ -147,7 +153,9 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
             <Shield fill={colorss.primary} size={22} color={colorss.primary} />
           ),
           type: 'switch',
-          onPress: () => {},
+          onPress: () => {
+            navigation.navigate('MessagePermissions');
+          },
         },
         {
           id: 4,
@@ -168,6 +176,33 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           },
         },
         {
+          id: 7,
+          title: 'Disappearing messages',
+          image: <ClockFading size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => {
+            navigation.navigate('DisappearingMessages');
+          },
+        },
+        {
+          id: 8,
+          title: 'Restrict',
+          image: <CircleSlash size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => {
+            navigation.navigate('RestrictUser');
+          },
+        },
+        {
+          id: 11,
+          title: 'Report a problem',
+          image: <AlertTriangle size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => {
+            navigation.navigate('ReportProblem');
+          },
+        },
+        {
           id: 6,
           title: 'Typing indicator',
           image: <TypeIcon size={22} color={colorss.primary} />,
@@ -177,18 +212,13 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           },
         },
         {
-          id: 2,
-          title: 'Privacy policy',
-          image: <LucidePalette size={22} color={colorss.primary} />,
+          id: 9,
+          title: 'Delete account',
+          image: <Trash2 size={22} color={colorss.primary} />,
           type: 'switch',
-          onPress: () => {},
-        },
-        {
-          id: 3,
-          title: 'Support',
-          image: <LucidePalette size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {},
+          onPress: () => {
+            setVisibleDeleteChatModal(true);
+          },
         },
       ],
     },
@@ -302,6 +332,10 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         onConfirm={() => {
           setMuteDurationModal(false);
         }}
+      />
+      <DeleteChat
+        visible={visibleDeleteChatModal}
+        onCancel={() => setVisibleDeleteChatModal(false)}
       />
     </SafeAreaView>
   );
