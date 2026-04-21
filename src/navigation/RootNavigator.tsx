@@ -24,8 +24,8 @@ import DisappearingMessagesScreen from '../screens/DisappearingMessagesScreen';
 import ReportProblemScreen from '../screens/ReportProblemScreen';
 import MessagePermissionsScreen from '../screens/MessagePermissionsScreen';
 import RestrictUserScreen from '../screens/RestrictUserScreen';
-import SettingsScreen from '../screens/SettingsScreen';
-import { MessageRequestsScreen } from '../screens/MessegeRequestScreen';
+import MessageRequestsScreen from '../screens/MessegeRequestScreen';
+import ReactionsScreen from '../screens/ReactionsScreen';
 
 const RootStack = createNativeStackNavigator<RootStackNavigatorParamList>();
 
@@ -76,10 +76,18 @@ const StackNavigator = () => {
         component={MessagePermissionsScreen}
       />
       <RootStack.Screen name="RestrictUser" component={RestrictUserScreen} />
-      <RootStack.Screen name="Settings" component={SettingsScreen} />
       <RootStack.Screen
         name="MessageRequests"
         component={MessageRequestsScreen}
+      />
+      <RootStack.Screen
+        options={{
+          presentation: 'formSheet',
+          sheetAllowedDetents: 'fitToContents',
+          contentStyle: { backgroundColor: 'transparent' },
+        }}
+        name="Reactions"
+        component={ReactionsScreen}
       />
       <RootStack.Screen
         options={{

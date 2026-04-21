@@ -1,5 +1,12 @@
-import React from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  TouchableOpacity,
+  StyleSheet,
+  Pressable,
+  Text,
+  Image,
+} from 'react-native';
 import {
   Plus,
   Camera,
@@ -8,12 +15,27 @@ import {
   Smile,
   ThumbsUp,
   Send,
+  ArrowRight,
+  X,
 } from 'lucide-react-native';
 import { Composer, Send as MessageSend } from 'react-native-gifted-chat';
 import { colorss } from '../../theme';
 import VoiceRecorder from './VoiceRecorder';
+import { useAppDispatch, useAppSelector } from '../../hooks/redux';
+import { IC_PROFILE } from '../../assets';
+import { resetReplayTo } from '../../redux/features/inbox/inboxSlice';
 
 const CustomInputToolbar: React.FC<any> = props => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const replayTo = useAppSelector(state => state.inbox.replayTo);
+  const dispatch = useAppDispatch();
+
+  useEffect(() => {
+    if (props?.text.trim()) {
+      setIsExpanded(true);
+    }
+  }, [props?.text]);
+
   if (props.isRecording) {
     return (
       <VoiceRecorder
@@ -26,44 +48,89 @@ const CustomInputToolbar: React.FC<any> = props => {
   return (
     <View style={styles.container}>
       {/* Left Icons */}
-      <View style={styles.leftIcons}>
-        <IconButton icon={<Plus size={22} color={colorss.primary} />} />
-        <TouchableOpacity onPress={props?.handleCameraPress}>
-          <IconButton icon={<Camera size={22} color={colorss.primary} />} />
-        </TouchableOpacity>
-        <IconButton icon={<ImageIcon size={22} color={colorss.primary} />} />
-        <TouchableOpacity onPress={props?.onVoiceRecordingStart}>
-          <IconButton icon={<Mic size={22} color={colorss.primary} />} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Input */}
-      <View style={styles.inputWrapper}>
-        <Composer
-          textInputProps={{
-            placeholder: 'Message',
-            style: styles.input,
-            placeholderTextColor: colorss.textSecondary,
-            multiline: true,
-            numberOfLines: 3,
+      {replayTo && (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingVertical: 10,
           }}
-          {...props}
-        />
-
-        <TouchableOpacity style={styles.emojiBtn}>
-          <Smile size={20} color={colorss.primary} />
-        </TouchableOpacity>
-      </View>
-
-      {props?.text.trim() ? (
-        <MessageSend {...props} style={styles.rightBtn}>
-          <Send size={22} color={colorss.primary} />
-        </MessageSend>
-      ) : (
-        <TouchableOpacity style={styles.rightBtn}>
-          <ThumbsUp size={24} color={colorss.primary} />
-        </TouchableOpacity>
+        >
+          <View style={{ width: '75%' }}>
+            <Text style={{ fontWeight: '500' }}>
+              Replay to {replayTo.user.name}
+            </Text>
+            <Text numberOfLines={1}>{replayTo.text}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Image
+              source={IC_PROFILE}
+              style={{ width: 30, height: 30, borderRadius: 4 }}
+            />
+            <Pressable
+              onPress={() => dispatch(resetReplayTo())}
+              style={{
+                padding: 4,
+                backgroundColor: colorss.backgroundDeep,
+                borderRadius: 99,
+              }}
+            >
+              <X size={22} color={colorss.primary} />
+            </Pressable>
+          </View>
+        </View>
       )}
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {!isExpanded ? (
+          <View style={styles.leftIcons}>
+            <IconButton icon={<Plus size={22} color={colorss.primary} />} />
+            <TouchableOpacity onPress={props?.handleCameraPress}>
+              <IconButton icon={<Camera size={22} color={colorss.primary} />} />
+            </TouchableOpacity>
+            <IconButton
+              icon={<ImageIcon size={22} color={colorss.primary} />}
+            />
+            <TouchableOpacity onPress={props?.onVoiceRecordingStart}>
+              <IconButton icon={<Mic size={22} color={colorss.primary} />} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <Pressable onPress={() => setIsExpanded(false)}>
+            <ArrowRight size={22} color={colorss.primary} />
+          </Pressable>
+        )}
+
+        {/* Input */}
+        <View style={styles.inputWrapper}>
+          <Composer
+            {...props}
+            text={props.text}
+            textInputProps={{
+              style: styles.input,
+              placeholderTextColor: colorss.textSecondary,
+              multiline: true,
+              numberOfLines: 3,
+              placeholder: 'Type here...',
+              onChangeText: props.textInputProps?.onChangeText,
+            }}
+          />
+
+          <TouchableOpacity style={styles.emojiBtn}>
+            <Smile size={20} color={colorss.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {props?.text.trim() ? (
+          <MessageSend {...props} style={styles.rightBtn}>
+            <Send size={22} color={colorss.primary} />
+          </MessageSend>
+        ) : (
+          <TouchableOpacity style={styles.rightBtn}>
+            <ThumbsUp size={24} color={colorss.primary} />
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 };
@@ -75,8 +142,6 @@ const IconButton = ({ icon }) => (
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: colorss.background,
@@ -98,7 +163,8 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.backgroundDeep,
     borderRadius: 25,
     paddingHorizontal: 12,
-    height: 40,
+    minHeight: 40,
+    maxHeight: 100,
   },
 
   input: {

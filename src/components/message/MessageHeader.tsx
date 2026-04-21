@@ -8,7 +8,7 @@ import {
   Phone,
 } from 'lucide-react-native';
 
-const MessageHeader = ({ onProfilePress, onBackPress }) => {
+const MessageHeader = ({ onProfilePress, onBackPress, onAudioCall }) => {
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={onBackPress}>
@@ -32,7 +32,7 @@ const MessageHeader = ({ onProfilePress, onBackPress }) => {
 
       {/* Phone & WhatsApp Icons */}
       <View style={styles.actionsContainer}>
-        <TouchableOpacity onPress={() => {}} style={styles.actionButton}>
+        <TouchableOpacity onPress={onAudioCall} style={styles.actionButton}>
           <Phone size={18} color="white" />
         </TouchableOpacity>
         <TouchableOpacity onPress={() => {}} style={styles.actionButton}>

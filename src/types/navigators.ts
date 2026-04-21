@@ -4,7 +4,7 @@ type BottomTabNavigatorParamList = {
   Home: undefined;
   Menu: undefined;
   Story: undefined;
-  Discover: undefined;
+  Notifications: undefined;
 };
 
 type RootStackNavigatorParamList = {
@@ -35,6 +35,7 @@ type RootStackNavigatorParamList = {
   DisappearingMessages: undefined;
   Settings: undefined;
   MessageRequests: undefined;
+  Reactions: undefined;
 };
 
 type MediaTabNavigatorParamList = {

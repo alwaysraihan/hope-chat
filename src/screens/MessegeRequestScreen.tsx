@@ -157,7 +157,8 @@ export const MessageRequestsScreen = ({ navigation }) => {
   );
 };
 
-// ─── STYLES ───────────────────────────────────────────
+export default MessageRequestsScreen;
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: C.background },
 

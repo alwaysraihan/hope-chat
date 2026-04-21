@@ -59,7 +59,7 @@ export const useHelpAssistant = () => {
   const [messages, setMessages] = useState<MediaMessage[]>([
     {
       _id: 1,
-      text: 'Hello, how can I help you?',
+      text: 'Hello, how can I help you? I need a help Hello, how can I help you? I need a help Hello, how can I help you? I need a help Hello, how can I help you? I need a help',
       createdAt: new Date(),
       user: user,
     },
@@ -73,6 +73,36 @@ export const useHelpAssistant = () => {
       _id: 3,
       text: 'I need a help',
       createdAt: new Date(),
+      user: {
+        _id: 'admin',
+        name: 'Admin',
+      },
+    },
+    {
+      _id: 4,
+      media: {
+        localUri: 'https://i.pravatar.cc/300?img=3',
+        type: 'image',
+        remoteUri: 'https://i.pravatar.cc/300?img=3',
+        uploading: false,
+      },
+      text: 'I need a help',
+      createdAt: new Date(new Date().setDate(new Date().getDate() - 5)),
+      user: {
+        _id: 'admin',
+        name: 'Admin',
+      },
+    },
+    {
+      _id: 5,
+      media: {
+        type: 'voice',
+        duration: 10,
+        url: 'https://on.soundcloud.com/6R7UcWVAbV9xrklC7x',
+        remoteUri: 'https://on.soundcloud.com/6R7UcWVAbV9xrklC7x',
+      },
+      text: 'I need a help',
+      createdAt: new Date(new Date().setDate(new Date().getDate() - 5)),
       user: {
         _id: 'admin',
         name: 'Admin',

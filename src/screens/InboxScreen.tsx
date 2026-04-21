@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Composer, GiftedChat, Send, Time } from 'react-native-gifted-chat';
+import { GiftedChat, Time } from 'react-native-gifted-chat';
 
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import MessageHeader from '../components/message/MessageHeader';
@@ -9,12 +9,9 @@ import { useHelpAssistant } from '../hooks/useHelpAssistant';
 import CustomBubble from '../components/message/CustomBubble';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackNavigatorParamList } from '../types/navigators';
-import CustomSend from '../components/message/CustomSend';
-import CInputToolbar from '../components/message/CInputToolbar';
-import { colorss } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 
@@ -64,17 +61,6 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
     [setModalImageUrl, setModalVisible],
   );
 
-  // System message (always at the top)
-  const systemMessage = {
-    _id: 'system-logo',
-    text: 'system-logo',
-    createdAt: new Date(),
-    system: true,
-    user: { _id: 'system' },
-  };
-
-  const allMessages = [...messages, systemMessage];
-
   // Render Functions wrapped in useCallback to prevent re-renders
   const renderBubble = useCallback(
     (props: any) => <CustomBubble {...props} onImagePress={handleImagePress} />,
@@ -116,21 +102,6 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
     ],
   );
 
-  const renderSend = useCallback(
-    (props: any) => {
-      console.log('props', props);
-      return (
-        <CustomSend
-          {...props}
-          text={props.text || ''}
-          onCameraPress={handleCameraPress}
-          onVoiceRecordingStart={handleVoiceRecordingStart}
-        />
-      );
-    },
-    [handleCameraPress, handleVoiceRecordingStart],
-  );
-
   const renderTime = useCallback((props: any) => {
     if (
       props.currentMessage &&
@@ -152,27 +123,13 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
 
   const renderMessage = useCallback(
     (props: any) => (
-      <ChatMessageBox {...props} refreshTrigger={refreshTrigger} />
-    ),
-    [refreshTrigger],
-  );
-
-  const renderComposer = useCallback(
-    (props: any) => (
-      <Composer
+      <ChatMessageBox
         {...props}
-        textInputStyle={{
-          color: '#000000',
-        }}
-        textInputProps={{
-          ...props.textInputProps,
-          placeholderTextColor: '#999999',
-          keyboardAppearance: 'light',
-          style: [props.textInputStyle, { color: '#000000' }],
-        }}
+        refreshTrigger={refreshTrigger}
+        onPressReactions={() => navigation.navigate('Reactions')}
       />
     ),
-    [],
+    [refreshTrigger, navigation],
   );
 
   const renderLoadEarlier = useCallback(() => <></>, []);
@@ -190,11 +147,12 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
             screen: 'Home',
           })
         }
+        onAudioCall={() => navigation.navigate('AudioCall')}
       />
       <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
         <GiftedChat
-          messages={allMessages as any[]}
-          placeholder={'chat.placeholder'}
+          placeholder={'Type here...'}
+          messages={messages as any[]}
           {...(initialText ? { text: initialText } : {})}
           onSend={(messages: any) => onSend(messages)}
           // @ts-ignore
@@ -214,7 +172,6 @@ const HelpAssistantScreen: React.FC<Props> = ({ navigation }) => {
           infiniteScroll={true}
           renderLoadEarlier={renderLoadEarlier}
           onLoadEarlier={loadEarlier}
-          renderSystemMessage={() => <></>}
           isLoadingEarlier={loadingMore}
           keyboardShouldPersistTaps="handled"
           timeFormat="LT"

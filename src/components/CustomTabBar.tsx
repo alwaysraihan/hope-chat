@@ -4,6 +4,7 @@ import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme';
 import {
+  Bell,
   FileText,
   Images,
   Link,
@@ -25,8 +26,8 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
         return <LucideMessageCircle color={iconColor} size={24} />;
       case 'Story':
         return <LucideImages color={iconColor} size={24} />;
-      case 'Discover':
-        return <LucideMessageCircle color={iconColor} size={24} />;
+      case 'Notifications':
+        return <Bell color={iconColor} size={24} />;
       case 'Menu':
         return <LucideMenu color={iconColor} size={24} />;
       case 'Media':

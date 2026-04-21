@@ -1,37 +1,25 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  Image,
-  Text,
-  Pressable,
-  Alert,
-  Linking,
-} from 'react-native';
+import React from 'react';
+import { View, StyleSheet, Image, Text, Alert, Linking } from 'react-native';
 import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 // import { useSelector } from 'react-redux';
 // import { RootState } from '../../../store';
 
-import { IMessage, Message, MessageProps } from 'react-native-gifted-chat';
+import { IMessage, MessageProps } from 'react-native-gifted-chat';
 import AudioPlayer from './AudioPlayer';
 
 // Add these imports for permissions (Android)
 import { PermissionsAndroid, Platform } from 'react-native';
-// download
-import { isSameDay, isSameUser } from 'react-native-gifted-chat/src/utils';
+
+import { colorss } from '../../theme';
+import Reaction from './Reaction';
 type ChatMessageBoxProps = {
   replyMessage?: IMessage | null;
   highlightedMessageId?: string | number | null;
+  onPressReactions?: () => void;
   refreshTrigger?: number; // Add this prop to trigger refresh from parent
 } & MessageProps<IMessage>;
 
 const ChatMessageBox = ({ refreshTrigger, ...props }: ChatMessageBoxProps) => {
-  const isNextMyMessage =
-    props.currentMessage &&
-    props.nextMessage &&
-    isSameUser(props.currentMessage, props.nextMessage) &&
-    isSameDay(props.currentMessage, props.nextMessage);
-
   // Get token from Redux
   // const token = useSelector((state: RootState) => state.auth.token);
 
@@ -154,34 +142,36 @@ const ChatMessageBox = ({ refreshTrigger, ...props }: ChatMessageBoxProps) => {
     }
   };
 
-  // State for modal preview
-  const [modalVisible, setModalVisible] = useState(false);
-  const [modalMedia, setModalMedia] = useState<{
-    uri: string;
-    type: 'image';
-  } | null>(null);
+  console.log('props.currentMessage:', props.currentMessage);
 
   // Voice message rendering
   const renderVoiceMessage = () => {
-    if (props.currentMessage && (props.currentMessage as any).voiceMessage) {
-      const voiceData = (props.currentMessage as any).voiceMessage;
+    const media = (props.currentMessage as any)?.media;
+    if (media && media.type === 'voice' && media.remoteUri && media.duration) {
       return (
-        <View
-          style={[
-            styles.voiceMessageContainer,
-            props.position === 'right'
-              ? styles.voiceMessageRight
-              : styles.voiceMessageLeft,
-          ]}
+        <Reaction
+          currentMessage={props.currentMessage}
+          position={props.position}
+          onPressReactions={props.onPressReactions}
+          onReact={() => console.log('on react')}
+          onReply={() => console.log('on reply')}
         >
-          <AudioPlayer
-            audioPath={voiceData.audioPath}
-            duration={voiceData.duration}
-            remoteUri={voiceData.remoteUri}
-            uploading={voiceData.uploading}
-            createdAt={props.currentMessage.createdAt}
-          />
-        </View>
+          <View
+            style={[
+              styles.voiceMessageContainer,
+              props.position === 'right'
+                ? styles.voiceMessageRight
+                : styles.voiceMessageLeft,
+            ]}
+          >
+            <AudioPlayer
+              audioPath={media.remoteUri}
+              duration={media.duration}
+              remoteUri={media.remoteUri}
+              createdAt={props.currentMessage.createdAt}
+            />
+          </View>
+        </Reaction>
       );
     }
     return null;
@@ -193,52 +183,69 @@ const ChatMessageBox = ({ refreshTrigger, ...props }: ChatMessageBoxProps) => {
     if (!media) return null;
     if (media.type === 'image' && (media.localUri || media.remoteUri)) {
       return (
-        <View
-          style={[
-            styles.mediaMessageContainer,
-            props.position === 'right'
-              ? styles.mediaMessageRight
-              : styles.mediaMessageLeft,
-          ]}
+        <Reaction
+          currentMessage={props.currentMessage}
+          position={props.position}
+          onPressReactions={props.onPressReactions}
+          onReact={() => console.log('on react')}
+          onReply={() => console.log('on reply')}
         >
-          <Pressable
-            onPress={() => {
-              setModalMedia({
-                uri: media.remoteUri || media.localUri,
-                type: 'image',
-              });
-              setModalVisible(true);
-            }}
-            style={styles.imageContainer}
+          <View
+            style={[
+              styles.mediaMessageContainer,
+              props.position === 'right'
+                ? styles.mediaMessageRight
+                : styles.mediaMessageLeft,
+            ]}
           >
-            <Image
-              source={{ uri: media.remoteUri || media.localUri }}
-              style={styles.image}
-              resizeMode="cover"
-            />
-            {media.uploading && (
-              <View style={styles.uploadingOverlay}>
-                <Text style={styles.uploadingText}>{t('chat.uploading')}</Text>
-              </View>
-            )}
-            {media.error && (
-              <View style={styles.errorOverlay}>
-                <Text style={styles.errorText}>{t('chat.uploadFailed')}</Text>
-              </View>
-            )}
-          </Pressable>
-          {props.currentMessage?.createdAt && (
-            <View style={styles.mediaTimeContainer}>
-              <Text style={styles.mediaTimeText}>
-                {formatMessageTime(props.currentMessage.createdAt)}
-              </Text>
+            <View style={styles.imageContainer}>
+              <Image
+                source={{ uri: media.remoteUri || media.localUri }}
+                style={styles.image}
+                resizeMode="cover"
+              />
+              {media.uploading && (
+                <View style={styles.uploadingOverlay}>
+                  <Text style={styles.uploadingText}>
+                    {t('chat.uploading')}
+                  </Text>
+                </View>
+              )}
+              {media.error && (
+                <View style={styles.errorOverlay}>
+                  <Text style={styles.errorText}>{t('chat.uploadFailed')}</Text>
+                </View>
+              )}
             </View>
-          )}
-        </View>
+          </View>
+        </Reaction>
       );
     }
 
     return null;
+  };
+
+  const textMessage = () => {
+    const text = (props.currentMessage as any)?.text;
+    const isRight = props.position === 'right';
+    return (
+      <Reaction
+        currentMessage={props.currentMessage}
+        position={props.position}
+        onPressReactions={props.onPressReactions}
+        onReact={() => console.log('on react')}
+        onReply={() => console.log('on reply')}
+      >
+        <View
+          style={[
+            styles.bubble,
+            isRight ? styles.messageRight : styles.messageLeft,
+          ]}
+        >
+          <Text style={styles.messageText}>{text || ''}</Text>
+        </View>
+      </Reaction>
+    );
   };
 
   return (
@@ -246,9 +253,7 @@ const ChatMessageBox = ({ refreshTrigger, ...props }: ChatMessageBoxProps) => {
       <View style={[styles.messageContainer]}>
         {renderVoiceMessage()}
         {renderMediaMessage()}
-        {!renderVoiceMessage() && !renderMediaMessage() && (
-          <Message {...props} />
-        )}
+        {!renderVoiceMessage() && !renderMediaMessage() && textMessage()}
       </View>
     </>
   );
@@ -258,6 +263,31 @@ const styles = StyleSheet.create({
   container: {
     width: 40,
   },
+
+  bubble: {
+    maxWidth: '72%',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  messageText: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 18,
+  },
+
+  messageLeft: {
+    alignSelf: 'flex-start',
+    marginLeft: 10,
+    backgroundColor: colorss.backgroundDeep,
+  },
+
+  messageRight: {
+    alignSelf: 'flex-end',
+    marginRight: 10,
+    backgroundColor: colorss.accent,
+  },
+
   replyImageWrapper: {
     flex: 1,
     justifyContent: 'center',
