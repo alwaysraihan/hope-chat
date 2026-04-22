@@ -9,104 +9,91 @@ import {
 import { Bubble, IMessage, BubbleProps } from 'react-native-gifted-chat';
 import FastImage from '@d11/react-native-fast-image';
 import AudioPlayer from './AudioPlayer';
-
-interface MediaMessage extends IMessage {
-  media?: any;
-  pending?: boolean;
-  failed?: boolean;
-}
+import { ExtendedMessage } from '../types/chat';
 
 interface CustomBubbleProps extends BubbleProps<IMessage> {
-  onImagePress: (media: any) => void;
+  onImagePress: (media: ExtendedMessage['media']) => void;
 }
 
-const CustomBubble: React.FC<CustomBubbleProps> = ({
-  onImagePress,
-  ...props
-}) => {
-  // @ts-ignore
-  const currentMessage: MediaMessage = props.currentMessage;
+const CustomBubble: React.FC<CustomBubbleProps> = ({ onImagePress, ...props }) => {
+  const msg = props.currentMessage as ExtendedMessage;
+  const isOwn = props.position === 'right';
 
-  const renderStatus = () => (
+  const StatusOverlay: React.FC = () => (
     <>
-      {currentMessage?.pending && (
-        <ActivityIndicator
-          size="small"
-          color="#F72585"
-          style={styles.statusIndicator}
-        />
+      {msg?.pending && (
+        <ActivityIndicator size="small" color="#F72585" style={styles.status} />
       )}
-      {currentMessage?.failed && (
-        <View style={styles.statusIndicator}>
-          <Text style={styles.text}>Failed</Text>
+      {msg?.failed && (
+        <View style={styles.status}>
+          <Text style={styles.failedText}>Failed</Text>
         </View>
       )}
     </>
   );
 
-  // Voice Message
-  if (currentMessage?.media && currentMessage.media.type === 'voice') {
+  if (msg?.media?.type === 'voice') {
+    const audioUri = msg.media.url ?? msg.media.remoteUri ?? msg.media.localUri ?? '';
     return (
-      <View style={styles.bubbleContainer}>
+      <View style={styles.row}>
         <AudioPlayer
-          audioPath={currentMessage.media.url}
-          duration={currentMessage.media.duration || 0}
-          remoteUri={currentMessage.media.url}
-          uploading={currentMessage.pending}
-          createdAt={currentMessage.createdAt}
+          audioPath={audioUri}
+          duration={msg.media.duration ?? 0}
+          remoteUri={msg.media.remoteUri}
+          uploading={msg.pending}
+          createdAt={msg.createdAt as Date}
+          isOwn={isOwn}
         />
-        {renderStatus()}
+        <StatusOverlay />
       </View>
     );
   }
 
-  // Image Message
-  if (currentMessage?.media && currentMessage.media.type === 'image') {
-    const imageUrl =
-      currentMessage.media.type === 'image' && currentMessage.media.url
-        ? currentMessage.media.url
-        : currentMessage.media.remoteUri || currentMessage.media.localUri;
-
+  if (msg?.media?.type === 'image') {
+    const imageUri = msg.media.url ?? msg.media.remoteUri ?? msg.media.localUri ?? '';
     return (
-      <TouchableOpacity onPress={() => onImagePress(currentMessage.media)}>
-        <View style={styles.bubbleContainer}>
+      <TouchableOpacity
+        onPress={() => onImagePress(msg.media)}
+        activeOpacity={0.9}
+      >
+        <View style={styles.row}>
           <FastImage
-            source={{ uri: imageUrl }}
-            style={styles.imageMessage}
+            source={{ uri: imageUri }}
+            style={styles.image}
             resizeMode={FastImage.resizeMode.cover}
           />
-          {renderStatus()}
+          <StatusOverlay />
         </View>
       </TouchableOpacity>
     );
   }
 
-  // Default Bubble
   return (
-    <View style={styles.bubbleContainer}>
+    <View style={styles.row}>
       <Bubble {...props} />
-      {renderStatus()}
+      <StatusOverlay />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  bubbleContainer: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  statusIndicator: {
+  status: {
     marginLeft: 4,
   },
-  imageMessage: {
+  image: {
     width: 180,
     height: 180,
     borderRadius: 12,
     backgroundColor: '#eee',
   },
-  text: {
+  failedText: {
     color: '#F72585',
     fontSize: 12,
+    fontWeight: '500',
   },
 });
 

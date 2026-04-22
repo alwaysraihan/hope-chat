@@ -27,6 +27,12 @@ export interface MediaMessage extends IMessage {
         url: string;
         duration: number;
         remoteUri?: string;
+      }
+    | {
+        type: 'video';
+        url: string;
+        duration: number;
+        remoteUri?: string;
       };
   replyTo?: any;
   read?: boolean;
@@ -107,6 +113,31 @@ export const useHelpAssistant = () => {
         _id: 'admin',
         name: 'Admin',
       },
+    },
+    {
+      _id: 6,
+      media: {
+        type: 'voice',
+        duration: 10,
+        url: 'https://on.soundcloud.com/6R7UcWVAbV9xrklC7x',
+        remoteUri: 'https://on.soundcloud.com/6R7UcWVAbV9xrklC7x',
+      },
+      text: 'I need a help',
+      createdAt: new Date(new Date().setDate(new Date().getDate() - 5)),
+      user: user,
+    },
+    {
+      _id: 7,
+      media: {
+        type: 'video',
+        duration: 10,
+        url: 'https://hopenity.com/cdn-media/videos/259829-1776878634859/master.m3u8',
+        remoteUri:
+          'https://hopenity.com/cdn-media/videos/259829-1776878634859/master.m3u8',
+      },
+      text: 'I need a help',
+      createdAt: new Date(new Date().setDate(new Date().getDate() - 5)),
+      user: user,
     },
   ]);
   const [initialText, setInitialText] = useState<string>('');

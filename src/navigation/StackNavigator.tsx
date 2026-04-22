@@ -1,7 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StackNavigatorParamList } from '../types/navigators';
-import InboxScreen from '../screens/InboxScreen';
+import InboxScreen from '../screens/InboxScreenn';
 import ProfileScreen from '../screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator<StackNavigatorParamList>();

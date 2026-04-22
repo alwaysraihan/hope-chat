@@ -1,44 +1,57 @@
-import { Image, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import React from 'react';
+import { Image, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import { IC_ASSISTANT } from '../../assets/bottom-tab';
+import Profile from '../../assets/raihan-sarkar.webp';
 import {
   LucideArrowLeft,
   LucideEllipsisVertical,
   LucideVideo,
   Phone,
 } from 'lucide-react-native';
+import { colorss } from '../../theme';
 
-const MessageHeader = ({ onProfilePress, onBackPress, onAudioCall }) => {
+interface MessageHeaderProps {
+  onProfilePress: () => void;
+  onBackPress: () => void;
+  onAudioCall: () => void;
+  onVideoCall?: () => void;
+  name?: string;
+  status?: string;
+}
+
+const MessageHeader: React.FC<MessageHeaderProps> = ({
+  onProfilePress,
+  onBackPress,
+  onAudioCall,
+  onVideoCall,
+  name = 'Raihan Sarkar',
+  status = 'Online',
+}) => {
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={onBackPress}>
-        <LucideArrowLeft color={'white'} />
+      <TouchableOpacity
+        onPress={onBackPress}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <LucideArrowLeft color="white" size={22} />
       </TouchableOpacity>
-      <TouchableOpacity onPress={onProfilePress} style={{ flex: 1, gap: 6 }}>
-        <View style={styles.contentContainer}>
-          <Image
-            source={IC_ASSISTANT}
-            style={{
-              height: 35,
-              width: 35,
-              borderRadius: 200,
-              borderWidth: 1,
-              borderColor: 'white',
-            }}
-          />
-          <Text style={styles.title}>Raihan Sorkar</Text>
+
+      <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
+        <Image source={Profile} style={styles.avatar} />
+        <View style={styles.nameBlock}>
+          <Text style={styles.name}>{name}</Text>
+          <Text style={styles.status}>{status}</Text>
         </View>
       </TouchableOpacity>
 
-      {/* Phone & WhatsApp Icons */}
-      <View style={styles.actionsContainer}>
-        <TouchableOpacity onPress={onAudioCall} style={styles.actionButton}>
+      <View style={styles.actions}>
+        <TouchableOpacity onPress={onAudioCall} style={styles.actionBtn}>
           <Phone size={18} color="white" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => {}} style={styles.actionButton}>
+        <TouchableOpacity onPress={onVideoCall} style={styles.actionBtn}>
           <LucideVideo size={18} color="white" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={onProfilePress} style={styles.actionButton}>
+        <TouchableOpacity onPress={onProfilePress} style={styles.actionBtn}>
           <LucideEllipsisVertical size={18} color="white" />
         </TouchableOpacity>
       </View>
@@ -46,40 +59,51 @@ const MessageHeader = ({ onProfilePress, onBackPress, onAudioCall }) => {
   );
 };
 
-export default MessageHeader;
+export default React.memo(MessageHeader);
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#F72585',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    backgroundColor: colorss.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  contentContainer: {
+  profile: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 10,
   },
-  backIcon: {
-    width: 20,
-    height: 20,
+  avatar: {
+    height: 38,
+    width: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
   },
-  actionsContainer: {
+  nameBlock: {
+    gap: 1,
+  },
+  name: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.1,
+  },
+  status: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+  },
+  actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
-  actionButton: {
+  actionBtn: {
     padding: 7,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: 20,
-  },
-  title: {
-    fontFamily: 'bold',
-    color: 'white',
-    fontSize: 16,
   },
 });

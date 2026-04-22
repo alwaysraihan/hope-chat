@@ -6,98 +6,100 @@ import {
   StyleSheet,
   Text,
   View,
+  ListRenderItem,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { X } from 'lucide-react-native';
 
-const colorss = {
-  surface: '#fff',
-  textPrimary: '#111',
-  primary: '#4F46E5',
-};
+interface Reactor {
+  id: string;
+  name: string;
+  reaction: string;
+  avatar?: string;
+}
 
-const IC_PROFILE = {
-  uri: 'https://i.pravatar.cc/100',
-};
+interface ReactorListProps {
+  onClose?: () => void;
+  reactors?: Reactor[];
+}
 
-const DATA = [
+const DEFAULT_DATA: Reactor[] = [
   { id: '1', name: 'Emon Hossain', reaction: '❤️' },
   { id: '2', name: 'John Doe', reaction: '😂' },
   { id: '3', name: 'Alex', reaction: '👍' },
   { id: '4', name: 'Sam', reaction: '❤️' },
   { id: '5', name: 'David', reaction: '👍' },
-  { id: '6', name: 'Emon Hossain', reaction: '❤️' },
-  { id: '7', name: 'John Doe', reaction: '😂' },
-  { id: '8', name: 'Alex', reaction: '👍' },
-  { id: '9', name: 'Sam', reaction: '❤️' },
 ];
 
-export default function ReactorList({ onClose }: { onClose?: () => void }) {
+const AVATAR_PLACEHOLDER = { uri: 'https://i.pravatar.cc/100' };
+
+export default function ReactorList({ onClose, reactors = DEFAULT_DATA }: ReactorListProps) {
   const [activeFilter, setActiveFilter] = useState('ALL');
 
-  const reactionsSummary = [
-    { key: 'ALL', label: 'All' },
-    { key: '❤️', label: '❤️ 2' },
-    { key: '😂', label: '😂 1' },
-    { key: '👍', label: '👍 2' },
+  const reactionGroups = reactors.reduce<Record<string, number>>((acc, r) => {
+    acc[r.reaction] = (acc[r.reaction] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const filterOptions = [
+    { key: 'ALL', label: `All ${reactors.length}` },
+    ...Object.entries(reactionGroups).map(([emoji, count]) => ({
+      key: emoji,
+      label: `${emoji} ${count}`,
+    })),
   ];
 
-  const filteredData =
-    activeFilter === 'ALL'
-      ? DATA
-      : DATA.filter(item => item.reaction === activeFilter);
+  const filtered =
+    activeFilter === 'ALL' ? reactors : reactors.filter(r => r.reaction === activeFilter);
+
+  const renderItem: ListRenderItem<Reactor> = ({ item }) => (
+    <View style={styles.row}>
+      <View style={styles.userInfo}>
+        <Image
+          source={item.avatar ? { uri: item.avatar } : AVATAR_PLACEHOLDER}
+          style={styles.avatar}
+        />
+        <Text style={styles.name}>{item.name}</Text>
+      </View>
+      <Text style={styles.emoji}>{item.reaction}</Text>
+    </View>
+  );
 
   return (
-    <Animated.View style={styles.overlay}>
+    <Animated.View entering={FadeInUp.duration(250)} style={styles.overlay}>
       <View style={styles.sheet}>
-        {/* HANDLE */}
         <View style={styles.handle} />
 
-        {/* HEADER */}
         <View style={styles.header}>
           <Text style={styles.title}>Reactions</Text>
-          <Pressable onPress={onClose}>
-            <X size={20} color={colorss.textPrimary} />
+          <Pressable onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <X size={20} color="#111B21" />
           </Pressable>
         </View>
 
-        {/* LIST */}
+        {/* Filter chips */}
+        <View style={styles.filterRow}>
+          {filterOptions.map(opt => (
+            <Pressable
+              key={opt.key}
+              onPress={() => setActiveFilter(opt.key)}
+              style={[styles.chip, activeFilter === opt.key && styles.activeChip]}
+            >
+              <Text style={[styles.chipText, activeFilter === opt.key && styles.activeChipText]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         <FlatList
-          data={filteredData}
+          data={filtered}
           keyExtractor={item => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <View style={styles.userInfo}>
-                <Image source={IC_PROFILE} style={styles.avatar} />
-                <Text style={styles.name}>{item.name}</Text>
-              </View>
-              <Text style={styles.emoji}>{item.reaction}</Text>
-            </View>
-          )}
+          renderItem={renderItem}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
         />
-
-        {/* FOOTER */}
-        <View style={styles.footer}>
-          {reactionsSummary.map(item => {
-            const isActive = activeFilter === item.key;
-
-            return (
-              <Pressable
-                key={item.key}
-                onPress={() => setActiveFilter(item.key)}
-                style={[styles.chip, isActive && styles.activeChip]}
-              >
-                <Text
-                  style={[styles.chipText, isActive && styles.activeChipText]}
-                >
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
       </View>
     </Animated.View>
   );
@@ -106,107 +108,96 @@ export default function ReactorList({ onClose }: { onClose?: () => void }) {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: 'flex-end', // 🔥 push to bottom
-    backgroundColor: 'rgba(0,0,0,0.4)', // backdrop
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
-
   sheet: {
-    height: '40%', // ✅ fixed height
-    backgroundColor: colorss.surface,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
+    height: '45%',
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 10,
+    paddingBottom: 20,
   },
-
   handle: {
-    width: 80,
+    width: 40,
     height: 4,
     backgroundColor: '#E2E8F0',
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
-
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingBottom: 10,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#ddd',
+    marginBottom: 12,
   },
-
   title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colorss.textPrimary,
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111B21',
   },
-
+  filterRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E9EDEF',
+  },
+  chip: {
+    paddingHorizontal: 14,
+    height: 32,
+    borderRadius: 999,
+    backgroundColor: '#F0F2F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chipText: {
+    fontSize: 13,
+    color: '#667781',
+    fontWeight: '500',
+  },
+  activeChip: {
+    backgroundColor: '#00A884',
+  },
+  activeChipText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
   list: {
-    paddingTop: 12,
-    paddingBottom: 10,
-    gap: 12,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
-
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: 10,
   },
-
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E9EDEF',
+  },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
-
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
   },
-
   name: {
     fontSize: 14,
-    color: colorss.textPrimary,
+    color: '#111B21',
+    fontWeight: '500',
   },
-
   emoji: {
-    fontSize: 20,
-  },
-
-  footer: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingTop: 10,
-    borderTopWidth: 0.5,
-    borderTopColor: '#ddd',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-
-  chip: {
-    paddingHorizontal: 14,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: '#f2f2f2',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  chipText: {
-    fontSize: 13,
-    color: '#555',
-  },
-
-  activeChip: {
-    backgroundColor: colorss.primary,
-  },
-
-  activeChipText: {
-    color: '#fff',
-    fontWeight: '600',
+    fontSize: 22,
   },
 });

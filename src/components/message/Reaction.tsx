@@ -1,297 +1,315 @@
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Dimensions,
   Modal,
   Pressable,
+  StyleSheet,
+  Text,
   TouchableOpacity,
-  Dimensions,
-  Image,
+  View,
+  Animated,
 } from 'react-native';
 import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { ReplyAll } from 'lucide-react-native';
-import ReactorList from './ReactorList';
+import { IMessage } from 'react-native-gifted-chat';
 import { useAppDispatch } from '../../hooks/redux';
 import { setReplayTo } from '../../redux/features/inbox/inboxSlice';
+import ReactorList from './ReactorList';
+import { Anchor, ExtendedMessage } from '../types/chat';
+import { colorss } from '../../theme';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+type ReactionProps = {
+  currentMessage: ExtendedMessage;
+  position: 'left' | 'right';
+  onPressReactions?: () => void;
+  onReact?: (emoji: string, message: IMessage) => void;
+  onReply?: (message: IMessage) => void;
+  children: React.ReactNode;
+};
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const EMOJIS = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
 
 export default function Reaction({
   currentMessage,
   position,
-  onPressReactions,
   onReact,
   onReply,
   children,
-}) {
-  const [trayVisible, setTrayVisible] = useState(false);
-  const [anchor, setAnchor] = useState(null);
-  const [reactorListModal, setReactorListModal] = useState(false);
-  const [imageModal, setImageModal] = useState('');
+}: ReactionProps) {
   const dispatch = useAppDispatch();
-
-  const wrapRef = useRef(null);
-  const swipeRef = useRef(null);
-  const hasTriggered = useRef(false);
-
   const isRight = position === 'right';
 
-  const handleLongPress = () => {
-    swipeRef.current?.close();
+  const wrapRef = useRef<View>(null);
+  const swipeRef = useRef<any>(null);
+  const hasTriggered = useRef(false);
 
-    wrapRef.current?.measure((x, y, w, h, pageX, pageY) => {
-      setAnchor({ pageX, pageY, w, h });
-      setTrayVisible(true);
-    });
-  };
+  const [trayVisible, setTrayVisible] = useState(false);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const [reactorListVisible, setReactorListVisible] = useState(false);
 
-  const handleSwipeTrigger = direction => {
-    if (hasTriggered.current) return;
+  // Tray animation
+  const trayScale = useRef(new Animated.Value(0.5)).current;
+  const trayOpacity = useRef(new Animated.Value(0)).current;
 
-    hasTriggered.current = true;
-
-    if (direction === 'left' && isRight) {
-      onReply?.(currentMessage);
-    }
-
-    if (direction === 'right' && !isRight) {
-      onReply?.(currentMessage);
-    }
-
-    dispatch(
-      setReplayTo({
-        ...currentMessage,
-        createdAt: new Date(currentMessage.createdAt).toISOString(),
+  const openTray = useCallback(() => {
+    setTrayVisible(true);
+    Animated.parallel([
+      Animated.spring(trayScale, {
+        toValue: 1,
+        tension: 90,
+        friction: 7,
+        useNativeDriver: true,
       }),
-    );
+      Animated.timing(trayOpacity, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [trayScale, trayOpacity]);
 
+  const closeTray = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(trayScale, {
+        toValue: 0.5,
+        duration: 130,
+        useNativeDriver: true,
+      }),
+      Animated.timing(trayOpacity, {
+        toValue: 0,
+        duration: 130,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setTrayVisible(false));
+  }, [trayScale, trayOpacity]);
+
+  const handleLongPress = useCallback(() => {
     swipeRef.current?.close();
+    wrapRef.current?.measure((_x, _y, w, h, pageX, pageY) => {
+      setAnchor({ pageX, pageY, w, h });
+      openTray();
+    });
+  }, [openTray]);
 
-    setTimeout(() => {
-      hasTriggered.current = false;
-    }, 200);
-  };
+  const handleSwipe = useCallback(
+    (direction: string) => {
+      if (hasTriggered.current) return;
+      hasTriggered.current = true;
 
-  const trayTop = anchor ? anchor.pageY - 70 : 0;
+      const shouldTrigger =
+        (direction === 'left' && isRight) ||
+        (direction === 'right' && !isRight);
 
-  const trayLeft = anchor
-    ? isRight
-      ? undefined
-      : Math.max(10, anchor.pageX)
-    : 10;
+      if (shouldTrigger) {
+        onReply?.(currentMessage);
+        dispatch(
+          setReplayTo({
+            ...currentMessage,
+            createdAt: new Date(currentMessage.createdAt as Date).toISOString(),
+          }),
+        );
+      }
 
-  const trayRight = anchor
-    ? isRight
-      ? Math.max(10, SCREEN_WIDTH - anchor.pageX - anchor.w)
-      : undefined
-    : undefined;
+      swipeRef.current?.close();
+      setTimeout(() => {
+        hasTriggered.current = false;
+      }, 200);
+    },
+    [isRight, onReply, currentMessage, dispatch],
+  );
 
-  const onImagePress = () => {
-    if (currentMessage.media.type === 'image') {
-      console.log('currentMessage.media', currentMessage.media);
-      setImageModal(currentMessage.media.localUri);
-    }
-    return null;
-  };
+  const handleEmojiPress = useCallback(
+    (emoji: string) => {
+      onReact?.(emoji, currentMessage);
+      closeTray();
+    },
+    [onReact, currentMessage, closeTray],
+  );
+
+  const trayStyle = anchor
+    ? {
+        top: anchor.pageY - 76,
+        ...(isRight
+          ? { right: Math.max(10, SCREEN_WIDTH - anchor.pageX - anchor.w) }
+          : { left: Math.max(10, anchor.pageX) }),
+      }
+    : { top: 0, left: 10 };
+
+  const hasReactions =
+    currentMessage.reactions && currentMessage.reactions.length > 0;
+
+  const reactionSummary = hasReactions
+    ? currentMessage
+        .reactions!.reduce<{ emoji: string; count: number }[]>((acc, r) => {
+          const found = acc.find(x => x.emoji === r.emoji);
+          if (found) found.count++;
+          else acc.push({ emoji: r.emoji, count: 1 });
+          return acc;
+        }, [])
+        .slice(0, 3)
+    : [];
+
+  const swipeAction = () => (
+    <View style={styles.swipeAction}>
+      <ReplyAll size={16} color="#fff" />
+    </View>
+  );
 
   return (
-    <View ref={wrapRef} collapsable={false}>
-      {/* REACTION TRAY */}
+    // Extra bottom margin when there ARE reactions so badge doesn't overlap next message
+    <View
+      ref={wrapRef}
+      collapsable={false}
+      style={[styles.wrapper, hasReactions && styles.wrapperWithReaction]}
+    >
+      {/* Emoji Tray Modal */}
       <Modal
         transparent
         visible={trayVisible}
-        animationType="fade"
+        animationType="none"
         statusBarTranslucent
-        onRequestClose={() => setTrayVisible(false)}
+        onRequestClose={closeTray}
       >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setTrayVisible(false)}
-        >
-          <Pressable
+        <Pressable style={styles.backdrop} onPress={closeTray}>
+          <Animated.View
             style={[
               styles.tray,
-              { top: trayTop, left: trayLeft, right: trayRight },
+              trayStyle,
+              { transform: [{ scale: trayScale }], opacity: trayOpacity },
             ]}
-            onPress={e => e.stopPropagation()}
           >
             {EMOJIS.map(emoji => (
               <TouchableOpacity
                 key={emoji}
-                activeOpacity={0.7}
-                onPress={() => {
-                  onReact?.(emoji, currentMessage);
-                  setTrayVisible(false);
-                }}
+                onPress={() => handleEmojiPress(emoji)}
                 style={styles.emojiBtn}
+                activeOpacity={0.7}
               >
                 <Text style={styles.emoji}>{emoji}</Text>
               </TouchableOpacity>
             ))}
-          </Pressable>
+          </Animated.View>
         </Pressable>
       </Modal>
 
-      {/* 💬 MESSAGE */}
-      <View style={styles.messageContainer}>
-        <Swipeable
-          ref={swipeRef}
-          friction={2}
-          overshootLeft={false}
-          overshootRight={false}
-          leftThreshold={40}
-          rightThreshold={40}
-          onSwipeableWillOpen={dir => handleSwipeTrigger(dir)}
-          renderLeftActions={isRight ? undefined : renderLeftActions}
-          renderRightActions={!isRight ? undefined : renderLeftActions}
-        >
-          <View style={[isRight ? styles.right : styles.left]}>
-            <Pressable onPress={onImagePress} onLongPress={handleLongPress}>
-              {children}
-            </Pressable>
-
-            {/* Reaction badge */}
-            <Pressable
-              style={[
-                styles.badge,
-                isRight ? styles.badgeRight : styles.badgeLeft,
-              ]}
-              onPress={() => setReactorListModal(true)}
-            >
-              <Text style={styles.badgeText}>❤️ 2</Text>
-            </Pressable>
-          </View>
-        </Swipeable>
-      </View>
-
-      <Modal transparent visible={reactorListModal} animationType="fade">
-        <ReactorList onClose={() => setReactorListModal(false)} />
-      </Modal>
-      <Modal
-        transparent
-        visible={Boolean(imageModal)}
-        animationType="fade"
-        onRequestClose={() => setImageModal('')}
+      {/* Message Row */}
+      <Swipeable
+        ref={swipeRef}
+        friction={2}
+        overshootLeft={false}
+        overshootRight={false}
+        leftThreshold={40}
+        rightThreshold={40}
+        onSwipeableWillOpen={handleSwipe}
+        renderLeftActions={isRight ? undefined : swipeAction}
+        renderRightActions={isRight ? swipeAction : undefined}
       >
-        <View
-          style={{
-            backgroundColor: '#000',
-            flex: 1,
-          }}
-        >
-          <Image
-            source={{ uri: imageModal }}
-            style={{
-              width: '100%',
-              height: '100%',
-            }}
-            resizeMode="contain"
-          />
+        <View style={[styles.row, isRight ? styles.rowRight : styles.rowLeft]}>
+          <Pressable onLongPress={handleLongPress}>{children}</Pressable>
+
+          {/* Reaction Badge */}
+          {/* {hasReactions && ( */}
+          <Pressable
+            style={[
+              styles.badge,
+              isRight ? styles.badgeRight : styles.badgeLeft,
+            ]}
+            onPress={() => setReactorListVisible(true)}
+          >
+            <Text style={styles.badgeText}>
+              ❤️ 2
+              {/* {reactionSummary.map(r => r.emoji).join('')}{' '}
+                {currentMessage.reactions!.length} */}
+            </Text>
+          </Pressable>
+          {/* )} */}
         </View>
+      </Swipeable>
+
+      {/* Reactor List Modal */}
+      <Modal transparent visible={reactorListVisible} animationType="slide">
+        <ReactorList onClose={() => setReactorListVisible(false)} />
       </Modal>
     </View>
   );
 }
 
-const renderLeftActions = () => (
-  <View style={styles.leftContainer}>
-    <View style={styles.leftAction}>
-      <ReplyAll size={18} color="#fff" />
-    </View>
-  </View>
-);
-
 const styles = StyleSheet.create({
+  wrapper: {
+    marginBottom: 6,
+  },
+  wrapperWithReaction: {
+    // Extra space so the reaction badge doesn't overlap the next message
+    marginBottom: 24,
+  },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.1)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
-
-  messageContainer: {
-    marginBottom: 8,
+  row: {
+    position: 'relative',
+    marginBottom:20
   },
-
-  bubble: {
-    maxWidth: '72%',
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 10,
-  },
-
-  left: {
+  rowLeft: {
     alignSelf: 'flex-start',
-    marginLeft: 10,
+    marginLeft: 12,
   },
-
-  right: {
+  rowRight: {
     alignSelf: 'flex-end',
-    marginRight: 10,
+    marginRight: 12,
   },
-
-  messageText: {
-    color: '#fff',
-    fontSize: 14,
-    lineHeight: 18,
-  },
-
-  /* -------- TRAY -------- */
   tray: {
     position: 'absolute',
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e2e',
     borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    elevation: 20,
+    paddingVertical: 8,
+    elevation: 24,
     shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    gap: 2,
   },
-
   emojiBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
   },
-
   emoji: {
     fontSize: 26,
   },
-
-  /* -------- ACTIONS -------- */
-  leftContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  leftAction: {
+  swipeAction: {
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#3b82f6',
-    borderRadius: 99,
-    padding: 6,
-    height: 32,
+    borderRadius: 50,
     width: 32,
+    height: 32,
+    alignSelf: 'center',
+    marginHorizontal: 6,
   },
-
-  /* -------- BADGE -------- */
   badge: {
     position: 'absolute',
-    bottom: -14,
-    backgroundColor: '#fff',
+    bottom: -18,
+    backgroundColor: colorss.white,
     borderRadius: 12,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: 0.5,
-    borderColor: '#ddd',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
-
-  badgeLeft: { left: 8 },
-  badgeRight: { right: 8 },
-
+  badgeLeft: { left: 6 },
+  badgeRight: { right: 6 },
   badgeText: {
-    fontSize: 12,
+    fontSize: 11,
+    color: '#e2e8f0',
+    fontWeight: '500',
   },
 });

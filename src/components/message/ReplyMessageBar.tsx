@@ -1,108 +1,162 @@
-/* eslint-disable react/self-closing-comp */
-import { View, TouchableOpacity, Text, Image } from 'react-native';
-import { IMessage } from 'react-native-gifted-chat';
+import React from 'react';
+import { View, TouchableOpacity, Text, Image, StyleSheet } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
-import { IC_CLOSE_CIRCLE } from '../../assets';
+import FastImage from '@d11/react-native-fast-image';
+import { X } from 'lucide-react-native';
+import { ExtendedMessage } from '../types/chat';
 
 type ReplyMessageBarProps = {
   clearReply: () => void;
-  message: IMessage | null;
+  message: ExtendedMessage | null;
   onReplyPress?: (messageId: string | number) => void;
 };
 
-const ReplyMessageBar = ({
+const ReplyMessageBar: React.FC<ReplyMessageBarProps> = ({
   clearReply,
   message,
   onReplyPress,
-}: ReplyMessageBarProps) => {
+}) => {
   if (!message) return null;
+
+  const isVoice = message.media?.type === 'voice';
+  const isImage = message.media?.type === 'image';
+  const isVideo = message.media?.type === 'video';
+  const hasMedia = isVoice || isImage || isVideo;
+
+  const previewUri = isImage || isVideo
+    ? message.media?.url || message.media?.remoteUri || message.media?.localUri
+    : null;
+
+  const previewThumbnail = isVideo ? message.media?.thumbnail : null;
+
+  const getPreviewText = (): string => {
+    if (isVoice) return '🎤 Voice message';
+    if (isVideo) return '🎬 Video';
+    if (isImage) return '📷 Photo';
+    return message.text?.length > 80
+      ? message.text.substring(0, 80) + '…'
+      : message.text || '';
+  };
 
   return (
     <Animated.View
-      style={{
-        height: 70,
-        flexDirection: 'row',
-        backgroundColor: '#F8F9FA',
-        borderTopWidth: 1,
-        borderTopColor: '#E0E0E0',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        marginBottom: 10,
-      }}
-      entering={FadeInDown}
-      exiting={FadeOutDown}
+      style={styles.container}
+      entering={FadeInDown.duration(200).springify()}
+      exiting={FadeOutDown.duration(150)}
     >
-      <View
-        style={{
-          height: 44,
-          width: 4,
-          backgroundColor: '#25D366',
-          borderRadius: 2,
-          marginRight: 12,
-          alignSelf: 'center',
-        }}
-      />
+      {/* Accent bar */}
+      <View style={styles.accentBar} />
+
+      {/* Content */}
       <TouchableOpacity
-        style={{
-          flexDirection: 'column',
-          flex: 1,
-          justifyContent: 'center',
-        }}
+        style={styles.content}
         onPress={() => onReplyPress?.(message._id)}
         activeOpacity={0.7}
       >
-        <Text
-          style={{
-            color: '#25D366',
-            fontWeight: '700',
-            fontSize: 14,
-            marginBottom: 4,
-            letterSpacing: 0.2,
-          }}
-        >
-          {message?.user.name}
+        <Text style={styles.senderName} numberOfLines={1}>
+          {message.user?.name ?? 'Unknown'}
         </Text>
-        <Text
-          style={{
-            color: '#666666',
-            fontSize: 15,
-            lineHeight: 20,
-            opacity: 0.9,
-          }}
-        >
-          {message.text.length > 60
-            ? message.text.substring(0, 60) + '...'
-            : message.text}
+        <Text style={styles.previewText} numberOfLines={2}>
+          {getPreviewText()}
         </Text>
       </TouchableOpacity>
-      <View
-        style={{
-          justifyContent: 'center',
-          alignItems: 'center',
-          paddingLeft: 8,
-        }}
-      >
-        <TouchableOpacity
-          onPress={clearReply}
-          style={{
-            padding: 6,
-            borderRadius: 20,
-            backgroundColor: 'rgba(255, 43, 133, 0.1)',
-          }}
-        >
-          <Image
-            source={IC_CLOSE_CIRCLE}
-            style={{
-              tintColor: '#F72585',
-              height: 24,
-              width: 24,
-              resizeMode: 'contain',
-            }}
+
+      {/* Media thumbnail */}
+      {(isImage || isVideo) && (previewUri || previewThumbnail) && (
+        <View style={styles.thumbnailWrapper}>
+          <FastImage
+            source={{ uri: previewThumbnail ?? previewUri! }}
+            style={styles.thumbnail}
+            resizeMode={FastImage.resizeMode.cover}
           />
-        </TouchableOpacity>
-      </View>
+          {isVideo && (
+            <View style={styles.playOverlay}>
+              <Text style={styles.playIcon}>▶</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {isVoice && (
+        <View style={styles.voiceIcon}>
+          <Text style={{ fontSize: 20 }}>🎤</Text>
+        </View>
+      )}
+
+      {/* Close */}
+      <TouchableOpacity onPress={clearReply} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <X size={18} color="#667781" />
+      </TouchableOpacity>
     </Animated.View>
   );
 };
 
-export default ReplyMessageBar;
+const styles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F2F5',
+    borderTopWidth: 1,
+    borderTopColor: '#E9EDEF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 58,
+    gap: 10,
+  },
+  accentBar: {
+    width: 3,
+    alignSelf: 'stretch',
+    backgroundColor: '#00A884',
+    borderRadius: 2,
+    minHeight: 36,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 2,
+  },
+  senderName: {
+    color: '#00A884',
+    fontWeight: '700',
+    fontSize: 13,
+    letterSpacing: 0.1,
+  },
+  previewText: {
+    color: '#667781',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  thumbnailWrapper: {
+    position: 'relative',
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  thumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: 6,
+  },
+  playOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playIcon: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  voiceIcon: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 44,
+    height: 44,
+  },
+  closeBtn: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 4,
+  },
+});
+
+export default React.memo(ReplyMessageBar);
