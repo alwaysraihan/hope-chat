@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback } from 'react';
 import { GiftedChat, Time } from 'react-native-gifted-chat';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { View } from 'react-native';
@@ -7,11 +7,8 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import MessageHeader from '../components/message/MessageHeader';
-import CustomBubble from '../components/message/CustomBubble';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
-import MediaPreviewModal from '../components/message/ImagePreviewModal';
 import { useHelpAssistant } from '../hooks/useHelpAssistant';
-import { MediaType } from '../components/types/chat';
 import { colorss } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
@@ -38,9 +35,6 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
     loadEarlier,
   } = useHelpAssistant();
 
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
-
   // Clear initialText after use
   React.useEffect(() => {
     if (initialText) {
@@ -49,27 +43,11 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [initialText, setInitialText]);
 
-  const handleMediaPress = useCallback(
-    (url: string, type: 'image' | 'video') => {
-      setPreviewUrl(url);
-      setPreviewType(type);
-    },
-    [],
-  );
-
-  const renderBubble = useCallback(
-    (props: any) => (
-      <CustomBubble
-        {...props}
-        onImagePress={(media: any) => {
-          const url = media?.url || media?.remoteUri || media?.localUri;
-          const type: MediaType = media?.type === 'video' ? 'video' : 'image';
-          if (url) handleMediaPress(url, type);
-        }}
-      />
-    ),
-    [handleMediaPress],
-  );
+  // TODO: connect this to your FlatList/GiftedChat ref to scroll to original message
+  const handlePressReplyPreview = useCallback((messageId: string | number) => {
+    console.log('Scroll to message:', messageId);
+    // e.g. flatListRef.current?.scrollToItem({ item: messages.find(m => m._id === messageId) });
+  }, []);
 
   const renderInputToolbar = useCallback(
     (props: any) => (
@@ -117,10 +95,10 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
         {...props}
         refreshTrigger={refreshTrigger}
         onPressReactions={() => navigation.navigate('Reactions')}
-        onMediaPress={handleMediaPress}
+        onPressReplyPreview={handlePressReplyPreview}
       />
     ),
-    [refreshTrigger, navigation, handleMediaPress],
+    [refreshTrigger, navigation, handlePressReplyPreview],
   );
 
   return (
@@ -145,7 +123,6 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
           renderAvatar={null}
           maxComposerHeight={100}
           alwaysShowSend
-          renderBubble={renderBubble}
           renderInputToolbar={renderInputToolbar}
           renderMessage={renderMessage}
           loadEarlier={hasMore}
@@ -161,13 +138,6 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
           }}
         />
       </View>
-
-      <MediaPreviewModal
-        visible={!!previewUrl}
-        mediaUrl={previewUrl}
-        mediaType={previewType}
-        onClose={() => setPreviewUrl(null)}
-      />
     </SafeAreaView>
   );
 };

@@ -1,14 +1,6 @@
-import {
-  Image,
-  SectionList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { SectionList, StyleSheet, Text, View } from 'react-native';
 import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { IC_PROFILE } from '../assets';
 import {
   ALargeSmall,
   AlertTriangle,
@@ -19,12 +11,10 @@ import {
   ClockFading,
   Eye,
   ImageIcon,
-  LucideArrowLeft,
   LucideBell,
   LucidePalette,
   LucidePersonStanding,
   LucidePhone,
-  LucideSettings,
   LucideVideo,
   Pin,
   Shield,

@@ -68,6 +68,12 @@ export const useHelpAssistant = () => {
       text: 'Hello, how can I help you? I need a help Hello, how can I help you? I need a help Hello, how can I help you? I need a help Hello, how can I help you? I need a help',
       createdAt: new Date(),
       user: user,
+      replyTo: {
+        _id: 1,
+        text: 'I need a help',
+        createdAt: new Date(),
+        user: user,
+      },
     },
     {
       _id: 2,
@@ -83,6 +89,12 @@ export const useHelpAssistant = () => {
         _id: 'admin',
         name: 'Admin',
       },
+      replyTo: {
+        _id: 1,
+        text: 'I need a help',
+        createdAt: new Date(),
+        user: user,
+      },
     },
     {
       _id: 4,
@@ -97,6 +109,12 @@ export const useHelpAssistant = () => {
       user: {
         _id: 'admin',
         name: 'Admin',
+      },
+      replyTo: {
+        _id: 22,
+        text: 'I need a help',
+        createdAt: new Date(),
+        user: user,
       },
     },
     {

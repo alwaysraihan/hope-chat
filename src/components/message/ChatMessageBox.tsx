@@ -1,13 +1,20 @@
 import React, { useCallback } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { IMessage, MessageProps } from 'react-native-gifted-chat';
 import FastImage from '@d11/react-native-fast-image';
-import Video from 'react-native-video';
 import AudioPlayer from './AudioPlayer';
+import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
 import { ExtendedMessage } from '../types/chat';
+import Video from 'react-native-video';
 
-// Pull in your theme colors
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Bubble can never be wider than 78% of screen
+const MAX_BUBBLE_WIDTH = SCREEN_WIDTH * 0.78;
+// When a reply preview is inside, enforce this minimum so the preview doesn't collapse
+const MIN_BUBBLE_WIDTH_WITH_REPLY = SCREEN_WIDTH * 0.58;
+
 const colors = {
   backgroundDeep: '#1a1a2e',
   accent: '#F72585',
@@ -16,15 +23,19 @@ const colors = {
 
 type ChatMessageBoxProps = {
   onPressReactions?: () => void;
-  onMediaPress?: (url: string, type: 'image' | 'video') => void;
+  onPressReplyPreview?: (messageId: string | number) => void;
   refreshTrigger?: number;
 } & MessageProps<IMessage>;
 
 export default function ChatMessageBox(props: ChatMessageBoxProps) {
-  const { currentMessage, position, onPressReactions, onMediaPress } = props;
+  const { currentMessage, position, onPressReactions, onPressReplyPreview } =
+    props;
+
   const msg = currentMessage as ExtendedMessage;
   const media = msg?.media;
   const isOwn = position === 'right';
+  const replyTo = msg?.replyTo;
+  const hasReply = !!replyTo;
 
   const reactionProps = {
     currentMessage: msg,
@@ -32,24 +43,38 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     onPressReactions,
   };
 
-  const handleMediaPress = useCallback(
-    (url: string, type: 'image' | 'video') => {
-      onMediaPress?.(url, type);
-    },
-    [onMediaPress],
+  const handleReplyPreviewPress = useCallback(
+    () => replyTo && onPressReplyPreview?.(replyTo._id),
+    [replyTo, onPressReplyPreview],
   );
 
-  // ── Voice ──────────────────────────────────────────────────────────────
+  const ReplySnippet = hasReply ? (
+    <ReplyPreview
+      replyTo={replyTo!}
+      isOwn={isOwn}
+      onPress={handleReplyPreviewPress}
+      style={styles.replyStretch}
+    />
+  ) : null;
+
+  // ── Voice
   if (media?.type === 'voice') {
     const audioUri = media.remoteUri ?? media.url ?? media.localUri ?? '';
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[
-            styles.mediaWrapper,
-            isOwn ? styles.alignRight : styles.alignLeft,
-          ]}
+          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
         >
+          {ReplySnippet && (
+            <View
+              style={[
+                styles.replyWrap,
+                isOwn ? styles.replyOwn : styles.replyOther,
+              ]}
+            >
+              {ReplySnippet}
+            </View>
+          )}
           <AudioPlayer
             audioPath={audioUri}
             duration={media.duration ?? 0}
@@ -63,19 +88,25 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     );
   }
 
-  // ── Image ──────────────────────────────────────────────────────────────
+  // ── Image
   if (media?.type === 'image') {
     const imageUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
     return (
       <Reaction {...reactionProps}>
-        <TouchableOpacity
-          activeOpacity={0.92}
-          onPress={() => imageUri && handleMediaPress(imageUri, 'image')}
-          style={[
-            styles.mediaWrapper,
-            isOwn ? styles.alignRight : styles.alignLeft,
-          ]}
+        <View
+          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
         >
+          {ReplySnippet && (
+            <View
+              style={[
+                styles.replyWrap,
+                isOwn ? styles.replyOwn : styles.replyOther,
+              ]}
+            >
+              {ReplySnippet}
+            </View>
+          )}
+
           <FastImage
             source={{ uri: imageUri }}
             style={styles.imageBubble}
@@ -91,20 +122,18 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               <Text style={styles.overlayText}>Upload failed</Text>
             </View>
           )}
-        </TouchableOpacity>
+        </View>
       </Reaction>
     );
   }
 
-  // ── Video ──────────────────────────────────────────────────────────────
+  // ── Video
   if (media?.type === 'video') {
     const videoUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
     const thumbUri = media.thumbnail ?? undefined;
     return (
       <Reaction {...reactionProps}>
-        <TouchableOpacity
-          activeOpacity={0.92}
-          onPress={() => videoUri && handleMediaPress(videoUri, 'video')}
+        <View
           style={[
             styles.mediaWrapper,
             isOwn ? styles.alignRight : styles.alignLeft,
@@ -137,20 +166,22 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               <Text style={styles.overlayText}>Uploading…</Text>
             </View>
           )}
-        </TouchableOpacity>
+        </View>
       </Reaction>
     );
   }
 
-  // ── Text ───────────────────────────────────────────────────────────────
+  // ── Text
   return (
     <Reaction {...reactionProps}>
       <View
         style={[
           styles.textBubble,
           isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
+          hasReply && styles.textBubbleWithReply,
         ]}
       >
+        {ReplySnippet}
         <Text style={styles.messageText}>{msg?.text ?? ''}</Text>
       </View>
     </Reaction>
@@ -158,20 +189,50 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 }
 
 const styles = StyleSheet.create({
-  alignLeft: { alignSelf: 'flex-start', marginLeft: 12 },
-  alignRight: {},
+  // ── Layout helpers
+  alignLeft: {
+    alignSelf: 'flex-start',
+    marginLeft: 12,
+  },
+  alignRight: {
+    alignSelf: 'flex-end',
+    marginRight: 12,
+  },
 
   mediaWrapper: {
     maxWidth: '90%',
     marginVertical: 2,
   },
 
-  // Text bubble
+  column: {
+    maxWidth: MAX_BUBBLE_WIDTH,
+    marginVertical: 2,
+    flexDirection: 'column',
+    gap: 3,
+  },
+  replyWrap: {
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  replyOwn: {
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
+  replyOther: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+
+  replyStretch: {
+    alignSelf: 'stretch',
+    marginBottom: 0,
+  },
+
   textBubble: {
-    maxWidth: '72%',
+    maxWidth: MAX_BUBBLE_WIDTH,
     borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 8,
+    flexDirection: 'column',
   },
   textBubbleLeft: {
     alignSelf: 'flex-start',
@@ -185,22 +246,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     borderTopRightRadius: 4,
   },
+  textBubbleWithReply: {
+    minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY,
+  },
+
   messageText: {
     color: colors.textLight,
     fontSize: 14.5,
     lineHeight: 20,
     letterSpacing: 0.1,
+    flexShrink: 1,
   },
-
-  // Image / Video bubble
   imageBubble: {
     width: 210,
     height: 210,
     borderRadius: 14,
     backgroundColor: '#1e1e2e',
   },
-
-  // Overlays
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.42)',

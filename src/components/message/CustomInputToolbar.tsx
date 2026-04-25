@@ -10,7 +10,6 @@ import {
 import {
   Plus,
   Camera,
-  Image as ImageIcon,
   Mic,
   Smile,
   ThumbsUp,
@@ -18,11 +17,15 @@ import {
   ArrowRight,
   X,
 } from 'lucide-react-native';
-import { Composer, Send as MessageSend, InputToolbarProps, IMessage } from 'react-native-gifted-chat';
+import {
+  Composer,
+  Send as MessageSend,
+  InputToolbarProps,
+  IMessage,
+} from 'react-native-gifted-chat';
 import FastImage from '@d11/react-native-fast-image';
 import VoiceRecorder from './VoiceRecorder';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { IC_PROFILE } from '../../assets';
 import { resetReplayTo } from '../../redux/features/inbox/inboxSlice';
 import { ExtendedMessage } from '../types/chat';
 import { EdgeInsets } from 'react-native-safe-area-context';
@@ -52,7 +55,9 @@ interface CustomInputToolbarProps extends InputToolbarProps<IMessage> {
 
 const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const replayTo = useAppSelector(state => state.inbox.replayTo) as ExtendedMessage | null;
+  const replayTo = useAppSelector(
+    state => state.inbox.replayTo,
+  ) as ExtendedMessage | null;
   const dispatch = useAppDispatch();
 
   // Animations
@@ -100,9 +105,12 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const isReplyImage = replayTo?.media?.type === 'image';
   const isReplyVideo = replayTo?.media?.type === 'video';
   const isReplyVoice = replayTo?.media?.type === 'voice';
-  const replyThumbUri = isReplyImage || isReplyVideo
-    ? replayTo?.media?.url ?? replayTo?.media?.remoteUri ?? replayTo?.media?.localUri
-    : undefined;
+  const replyThumbUri =
+    isReplyImage || isReplyVideo
+      ? replayTo?.media?.url ??
+        replayTo?.media?.remoteUri ??
+        replayTo?.media?.localUri
+      : undefined;
   const getReplyPreviewText = (): string => {
     if (isReplyVoice) return '🎤 Voice message';
     if (isReplyVideo) return '🎬 Video';
@@ -117,7 +125,10 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
         style={[
           styles.replyBar,
           {
-            maxHeight: replyHeight.interpolate({ inputRange: [0, 1], outputRange: [0, 72] }),
+            maxHeight: replyHeight.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 72],
+            }),
             opacity: replyHeight,
             overflow: 'hidden',
           },
@@ -161,20 +172,27 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
           <Animated.View
             style={[
               styles.leftIcons,
-              { opacity: expandAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) },
+              {
+                opacity: expandAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 0],
+                }),
+              },
             ]}
           >
             <IconButton icon={<Plus size={22} color={colorss.primary} />} />
             <TouchableOpacity onPress={props.handleCameraPress}>
               <IconButton icon={<Camera size={22} color={colorss.primary} />} />
             </TouchableOpacity>
-            <IconButton icon={<ImageIcon size={22} color={colorss.primary} />} />
             <TouchableOpacity onPress={props.onVoiceRecordingStart}>
               <IconButton icon={<Mic size={22} color={colorss.primary} />} />
             </TouchableOpacity>
           </Animated.View>
         ) : (
-          <Pressable onPress={() => setIsExpanded(false)} style={styles.collapseBtn}>
+          <Pressable
+            onPress={() => setIsExpanded(false)}
+            style={styles.collapseBtn}
+          >
             <ArrowRight size={22} color={colorss.primary} />
           </Pressable>
         )}

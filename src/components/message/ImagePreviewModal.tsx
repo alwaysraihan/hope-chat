@@ -6,7 +6,6 @@ import {
   Text,
   StyleSheet,
   Animated,
-  StatusBar,
   Dimensions,
   TouchableWithoutFeedback,
 } from 'react-native';
@@ -58,7 +57,6 @@ const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <StatusBar hidden />
       <Animated.View style={[styles.backdrop, { opacity: bgOpacity }]}>
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={StyleSheet.absoluteFillObject} />
@@ -96,7 +94,7 @@ const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.93)',
+    backgroundColor: 'rgba(0,0,0,0.90)',
     justifyContent: 'center',
     alignItems: 'center',
   },

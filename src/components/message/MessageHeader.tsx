@@ -1,6 +1,5 @@
 import React from 'react';
 import { Image, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
-import { IC_ASSISTANT } from '../../assets/bottom-tab';
 import Profile from '../../assets/raihan-sarkar.webp';
 import {
   LucideArrowLeft,
