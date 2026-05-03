@@ -1,10 +1,12 @@
 import { configureStore } from '@reduxjs/toolkit';
 import api from './api';
 import inboxSlice from './features/inbox/inboxSlice';
+import authSlice from './features/auth/authSlice';
 
 export const store = configureStore({
   reducer: {
     inbox: inboxSlice,
+    auth: authSlice,
     api: api.reducer,
   },
   middleware: getDefaultMiddleware =>

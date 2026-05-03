@@ -7,6 +7,16 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Provider } from 'react-redux';
 import { store } from './src/redux/store';
+import PublicStackNavigator from './src/navigation/PublicStackNavigator';
+import { useAppSelector } from './src/hooks/redux';
+import { selectToken } from './src/redux/features/auth/authSlice';
+
+const AppInner = () => {
+  const token = useAppSelector(selectToken);
+  if (token) return <RootNavigator />;
+
+  return <PublicStackNavigator />;
+};
 
 const App = () => {
   return (
@@ -16,7 +26,7 @@ const App = () => {
           <KeyboardProvider>
             <NavigationContainer>
               <SystemBars style={'dark'} />
-              <RootNavigator />
+              <AppInner />
             </NavigationContainer>
           </KeyboardProvider>
         </GestureHandlerRootView>

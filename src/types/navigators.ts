@@ -44,8 +44,13 @@ type MediaTabNavigatorParamList = {
   Links: undefined;
 };
 
+type PublicStackNavigatorParamList = {
+  Login: undefined;
+};
+
 export type {
   BottomTabNavigatorParamList,
   RootStackNavigatorParamList,
   MediaTabNavigatorParamList,
+  PublicStackNavigatorParamList,
 };
