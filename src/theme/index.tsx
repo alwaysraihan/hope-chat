@@ -26,6 +26,7 @@ export const colorss = {
   background: '#F4F4F4',
   surface: '#F8FAFC',
   backgroundDeep: '#e2e5ea',
+  darkBg: '#1a1a2e',
   white: '#FFFFFF',
   border: '#E5E5EA',
 

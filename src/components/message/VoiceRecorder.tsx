@@ -15,14 +15,22 @@ import AudioRecorderPlayer, {
 } from 'react-native-nitro-sound';
 import RNFS from 'react-native-fs';
 import { X, Pause, Play, Send, Mic } from 'lucide-react-native';
+
 import { checkMicrophonePermission } from '../../utils/permissions';
+import { colorss } from '../../theme';
+
+//  Types 
 
 interface VoiceRecorderProps {
   onRecordingComplete: (audioPath: string, duration: number) => void;
   onCancel: () => void;
 }
 
+//  Constants 
+
 const MIN_DURATION = 2;
+
+//  Component 
 
 const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCancel }) => {
   const [isRecording, setIsRecording] = useState(false);
@@ -40,7 +48,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
   const slideAnim = useRef(new Animated.Value(30)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Mount animation
+  // Mount slide-in
   useEffect(() => {
     Animated.parallel([
       Animated.spring(slideAnim, { toValue: 0, tension: 80, friction: 8, useNativeDriver: true }),
@@ -48,40 +56,34 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
     ]).start();
   }, []);
 
-  // Pulse while recording
+  // Pulse while active
   useEffect(() => {
     let loop: Animated.CompositeAnimation;
     if (isRecording && !isPaused) {
-      const pulse = () => {
-        loop = Animated.loop(
-          Animated.sequence([
-            Animated.parallel([
-              Animated.timing(pulseAnim, { toValue: 1.15, duration: 600, useNativeDriver: true }),
-              Animated.timing(pulseOpacity, { toValue: 0.6, duration: 600, useNativeDriver: true }),
-            ]),
-            Animated.parallel([
-              Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-              Animated.timing(pulseOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
-            ]),
+      loop = Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(pulseAnim, { toValue: 1.15, duration: 600, useNativeDriver: true }),
+            Animated.timing(pulseOpacity, { toValue: 0.6, duration: 600, useNativeDriver: true }),
           ]),
-        );
-        loop.start();
-      };
-      pulse();
+          Animated.parallel([
+            Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+            Animated.timing(pulseOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
+          ]),
+        ]),
+      );
+      loop.start();
     } else {
       pulseAnim.setValue(1);
       pulseOpacity.setValue(1);
     }
     return () => loop?.stop();
-  }, [isRecording, isPaused]);
+  }, [isRecording, isPaused, pulseAnim, pulseOpacity]);
 
-  const getFilePath = (): string => {
-    const ts = Date.now();
-    return Platform.OS === 'ios'
-      ? `${RNFS.CachesDirectoryPath}/voice_${ts}.m4a`
-      : `${RNFS.CachesDirectoryPath}/voice_${ts}.m4a`;
-  };
+  const getFilePath = (): string =>
+    `${RNFS.CachesDirectoryPath}/voice_${Date.now()}.m4a`;
 
+  //  Start recording
   const startRecording = useCallback(async () => {
     try {
       const hasPermission = await checkMicrophonePermission();
@@ -97,10 +99,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
         OutputFormatAndroid: OutputFormatAndroidType.AAC_ADTS,
       });
 
-      if (!result || result === 'Recorder stopped') {
-        onCancel();
-        return;
-      }
+      if (!result || result === 'Recorder stopped') { onCancel(); return; }
 
       setIsRecording(true);
       setIsPaused(false);
@@ -116,11 +115,10 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
 
   useEffect(() => {
     startRecording();
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
+  //  Pause / resume
   const pauseRecording = async () => {
     try {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -137,24 +135,24 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
     } catch {}
   };
 
+  //  Send
   const stopAndSend = async () => {
     if (!isRecording || !initialized || recordingTime < MIN_DURATION) return;
     try {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       const result = await audioRecorderPlayer.current.stopRecorder();
-      const finalPath = (result && result !== 'Recorder stopped') ? result : audioPath;
+      const finalPath = result && result !== 'Recorder stopped' ? result : audioPath;
       setIsRecording(false);
       setInitialized(false);
-      if (finalPath && finalPath !== 'Recorder stopped') {
-        onRecordingComplete(finalPath, recordingTime);
-      } else {
-        onCancel();
-      }
+      finalPath && finalPath !== 'Recorder stopped'
+        ? onRecordingComplete(finalPath, recordingTime)
+        : onCancel();
     } catch {
       onCancel();
     }
   };
 
+  //  Cancel
   const cancelRecording = async () => {
     try {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -165,28 +163,22 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
 
   const formatTime = (s: number): string => {
     const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec.toString().padStart(2, '0')}`;
+    return `${m}:${(s % 60).toString().padStart(2, '0')}`;
   };
 
   const readyToSend = recordingTime >= MIN_DURATION;
 
+  //  Render
   return (
     <Animated.View
-      style={[
-        styles.container,
-        { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-      ]}
+      style={[styles.container, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}
     >
       {/* Timer + status */}
       <View style={styles.statusRow}>
         <Animated.View
           style={[
             styles.recordDot,
-            {
-              transform: [{ scale: pulseAnim }],
-              opacity: isPaused ? 0.4 : pulseOpacity,
-            },
+            { transform: [{ scale: pulseAnim }], opacity: isPaused ? 0.4 : pulseOpacity },
           ]}
         />
         <Text style={styles.timer}>{formatTime(recordingTime)}</Text>
@@ -197,27 +189,28 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
 
       {/* Controls */}
       <View style={styles.controls}>
-        {/* Cancel */}
         <TouchableOpacity style={styles.cancelBtn} onPress={cancelRecording}>
-          <X size={20} color="#fff" />
+          <X size={20} color={colorss.white} />
         </TouchableOpacity>
 
-        {/* Pause / Resume */}
         <TouchableOpacity
           style={styles.pauseBtn}
           onPress={isPaused ? resumeRecording : pauseRecording}
         >
-          {isPaused ? <Play size={20} color="#fff" fill="#fff" /> : <Pause size={20} color="#fff" fill="#fff" />}
+          {isPaused
+            ? <Play size={20} color={colorss.white} fill={colorss.white} />
+            : <Pause size={20} color={colorss.white} fill={colorss.white} />}
         </TouchableOpacity>
 
-        {/* Main mic / send */}
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <TouchableOpacity
             style={[styles.mainBtn, !readyToSend && styles.mainBtnDisabled]}
             onPress={stopAndSend}
             disabled={!readyToSend}
           >
-            {readyToSend ? <Send size={22} color="#fff" /> : <Mic size={22} color="#fff" />}
+            {readyToSend
+              ? <Send size={22} color={colorss.white} />
+              : <Mic size={22} color={colorss.white} />}
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -225,9 +218,13 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
   );
 };
 
+export default React.memo(VoiceRecorder);
+
+//  Styles 
+
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colorss.white,
     borderRadius: 20,
     paddingHorizontal: 20,
     paddingVertical: 14,
@@ -250,17 +247,17 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#EF4444',
+    backgroundColor: colorss.error,
   },
   timer: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#111B21',
+    color: colorss.textPrimary,
     fontVariant: ['tabular-nums'],
   },
   statusLabel: {
     fontSize: 13,
-    color: '#667781',
+    color: colorss.textSecondary,
     marginLeft: 4,
   },
   statusWarning: {
@@ -275,7 +272,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: '#EF4444',
+    backgroundColor: colorss.error,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -283,7 +280,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: '#667781',
+    backgroundColor: colorss.textSecondary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -291,20 +288,18 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: '#00A884',
+    backgroundColor: colorss.success,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#00A884',
+    shadowColor: colorss.success,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 6,
   },
   mainBtnDisabled: {
-    backgroundColor: '#BDC3C7',
+    backgroundColor: colorss.placeholder,
     shadowOpacity: 0,
     elevation: 0,
   },
 });
-
-export default React.memo(VoiceRecorder);

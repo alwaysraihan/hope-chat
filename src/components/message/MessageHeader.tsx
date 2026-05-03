@@ -9,6 +9,8 @@ import {
 } from 'lucide-react-native';
 import { colorss } from '../../theme';
 
+//  Types
+
 interface MessageHeaderProps {
   onProfilePress: () => void;
   onBackPress: () => void;
@@ -18,6 +20,8 @@ interface MessageHeaderProps {
   status?: string;
 }
 
+//  Component
+
 const MessageHeader: React.FC<MessageHeaderProps> = ({
   onProfilePress,
   onBackPress,
@@ -25,40 +29,40 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   onVideoCall,
   name = 'Raihan Sarkar',
   status = 'Online',
-}) => {
-  return (
-    <View style={styles.container}>
-      <TouchableOpacity
-        onPress={onBackPress}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <LucideArrowLeft color="white" size={22} />
-      </TouchableOpacity>
+}) => (
+  <View style={styles.container}>
+    <TouchableOpacity
+      onPress={onBackPress}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+    >
+      <LucideArrowLeft color={colorss.white} size={22} />
+    </TouchableOpacity>
 
-      <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
-        <Image source={Profile} style={styles.avatar} />
-        <View style={styles.nameBlock}>
-          <Text style={styles.name}>{name}</Text>
-          <Text style={styles.status}>{status}</Text>
-        </View>
-      </TouchableOpacity>
-
-      <View style={styles.actions}>
-        <TouchableOpacity onPress={onAudioCall} style={styles.actionBtn}>
-          <Phone size={18} color="white" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={onVideoCall} style={styles.actionBtn}>
-          <LucideVideo size={18} color="white" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={onProfilePress} style={styles.actionBtn}>
-          <LucideEllipsisVertical size={18} color="white" />
-        </TouchableOpacity>
+    <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
+      <Image source={Profile} style={styles.avatar} />
+      <View style={styles.nameBlock}>
+        <Text style={styles.name}>{name}</Text>
+        <Text style={styles.status}>{status}</Text>
       </View>
+    </TouchableOpacity>
+
+    <View style={styles.actions}>
+      <TouchableOpacity onPress={onAudioCall} style={styles.actionBtn}>
+        <Phone size={18} color={colorss.white} />
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onVideoCall} style={styles.actionBtn}>
+        <LucideVideo size={18} color={colorss.white} />
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onProfilePress} style={styles.actionBtn}>
+        <LucideEllipsisVertical size={18} color={colorss.white} />
+      </TouchableOpacity>
     </View>
-  );
-};
+  </View>
+);
 
 export default React.memo(MessageHeader);
+
+//  Styles
 
 const styles = StyleSheet.create({
   container: {
@@ -86,7 +90,7 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   name: {
-    color: 'white',
+    color: colorss.white,
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.1,

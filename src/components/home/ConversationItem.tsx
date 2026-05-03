@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import { colors, radius, fonts, spacing, colorss } from '../../theme';
 import { IC_PROFILE } from '../../assets';
 

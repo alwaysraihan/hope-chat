@@ -2,34 +2,36 @@ import React, { useCallback } from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { IMessage, MessageProps } from 'react-native-gifted-chat';
 import FastImage from '@d11/react-native-fast-image';
+import Video from 'react-native-video';
+
 import AudioPlayer from './AudioPlayer';
 import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
 import { ExtendedMessage } from '../types/chat';
-import Video from 'react-native-video';
+import { useInbox } from '../../context/InboxContext';
+import { colorss } from '../../theme';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// Bubble can never be wider than 78% of screen
 const MAX_BUBBLE_WIDTH = SCREEN_WIDTH * 0.78;
-// When a reply preview is inside, enforce this minimum so the preview doesn't collapse
 const MIN_BUBBLE_WIDTH_WITH_REPLY = SCREEN_WIDTH * 0.58;
 
-const colors = {
-  backgroundDeep: '#1a1a2e',
-  accent: '#F72585',
-  textLight: '#f1f5f9',
-};
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ChatMessageBoxProps = {
   onPressReactions?: () => void;
-  onPressReplyPreview?: (messageId: string | number) => void;
   refreshTrigger?: number;
 } & MessageProps<IMessage>;
 
+// ─── Component ────────────────────────────────────────────────────────────────
+// onReact / onReply / onDelete / onForward / onPressReplyPreview are all
+// consumed from InboxContext — no prop drilling needed from InboxScreen.
+
 export default function ChatMessageBox(props: ChatMessageBoxProps) {
-  const { currentMessage, position, onPressReactions, onPressReplyPreview } =
-    props;
+  const { currentMessage, position, onPressReactions } = props;
+
+  const { handlePressReplyPreview } = useInbox();
 
   const msg = currentMessage as ExtendedMessage;
   const media = msg?.media;
@@ -44,8 +46,8 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   };
 
   const handleReplyPreviewPress = useCallback(
-    () => replyTo && onPressReplyPreview?.(replyTo._id),
-    [replyTo, onPressReplyPreview],
+    () => replyTo && handlePressReplyPreview(replyTo._id),
+    [replyTo, handlePressReplyPreview],
   );
 
   const ReplySnippet = hasReply ? (
@@ -57,7 +59,8 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     />
   ) : null;
 
-  // ── Voice
+  // ── Voice ──────────────────────────────────────────────────────────────────
+
   if (media?.type === 'voice') {
     const audioUri = media.remoteUri ?? media.url ?? media.localUri ?? '';
     return (
@@ -88,7 +91,8 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     );
   }
 
-  // ── Image
+  // ── Image ──────────────────────────────────────────────────────────────────
+
   if (media?.type === 'image') {
     const imageUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
     return (
@@ -106,10 +110,9 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               {ReplySnippet}
             </View>
           )}
-
           <FastImage
             source={{ uri: imageUri }}
-            style={styles.imageBubble}
+            style={styles.mediaBubble}
             resizeMode={FastImage.resizeMode.cover}
           />
           {media.uploading && (
@@ -127,7 +130,8 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     );
   }
 
-  // ── Video
+  // ── Video ──────────────────────────────────────────────────────────────────
+
   if (media?.type === 'video') {
     const videoUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
     const thumbUri = media.thumbnail ?? undefined;
@@ -139,23 +143,20 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             isOwn ? styles.alignRight : styles.alignLeft,
           ]}
         >
-          {/* Show thumbnail if available, else use Video as poster */}
           {thumbUri ? (
             <FastImage
               source={{ uri: thumbUri }}
-              style={styles.imageBubble}
+              style={styles.mediaBubble}
               resizeMode={FastImage.resizeMode.cover}
             />
           ) : (
             <Video
               source={{ uri: videoUri }}
-              style={styles.imageBubble}
+              style={styles.mediaBubble}
               paused
               resizeMode="cover"
-              poster={thumbUri}
             />
           )}
-          {/* Play overlay */}
           <View style={styles.videoPlayOverlay}>
             <View style={styles.playCircle}>
               <Text style={styles.playTriangle}>▶</Text>
@@ -171,7 +172,8 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     );
   }
 
-  // ── Text
+  // ── Text ───────────────────────────────────────────────────────────────────
+
   return (
     <Reaction {...reactionProps}>
       <View
@@ -188,44 +190,24 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  // ── Layout helpers
-  alignLeft: {
-    alignSelf: 'flex-start',
-    marginLeft: 12,
-  },
-  alignRight: {
-    alignSelf: 'flex-end',
-    marginRight: 12,
-  },
-
-  mediaWrapper: {
-    maxWidth: '90%',
-    marginVertical: 2,
-  },
-
+  alignLeft: { alignSelf: 'flex-start', marginLeft: 12 },
+  alignRight: { alignSelf: 'flex-end', marginRight: 12 },
+  mediaWrapper: { maxWidth: '90%', marginVertical: 2 },
   column: {
     maxWidth: MAX_BUBBLE_WIDTH,
     marginVertical: 2,
     flexDirection: 'column',
     gap: 3,
   },
-  replyWrap: {
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  replyOwn: {
-    backgroundColor: 'rgba(0,0,0,0.22)',
-  },
-  replyOther: {
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
+  replyWrap: { borderRadius: 10, overflow: 'hidden' },
+  replyOwn: { backgroundColor: 'rgba(0,0,0,0.22)' },
+  replyOther: { backgroundColor: 'rgba(0,0,0,0.06)' },
+  replyStretch: { alignSelf: 'stretch', marginBottom: 0 },
 
-  replyStretch: {
-    alignSelf: 'stretch',
-    marginBottom: 0,
-  },
-
+  // Text bubble
   textBubble: {
     maxWidth: MAX_BUBBLE_WIDTH,
     borderRadius: 18,
@@ -237,32 +219,33 @@ const styles = StyleSheet.create({
   textBubbleLeft: {
     alignSelf: 'flex-start',
     marginLeft: 12,
-    backgroundColor: colors.backgroundDeep,
+    backgroundColor: colorss.darkBg,
     borderTopLeftRadius: 4,
   },
   textBubbleRight: {
     alignSelf: 'flex-end',
     marginRight: 12,
-    backgroundColor: colors.accent,
+    backgroundColor: colorss.primary,
     borderTopRightRadius: 4,
   },
-  textBubbleWithReply: {
-    minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY,
-  },
-
+  textBubbleWithReply: { minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY },
   messageText: {
-    color: colors.textLight,
+    color: colorss.white,
     fontSize: 14.5,
     lineHeight: 20,
     letterSpacing: 0.1,
     flexShrink: 1,
   },
-  imageBubble: {
+
+  // Media
+  mediaBubble: {
     width: 210,
     height: 210,
     borderRadius: 14,
-    backgroundColor: '#1e1e2e',
+    backgroundColor: colorss.backgroundDeep,
   },
+
+  // Overlays
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.42)',
@@ -270,11 +253,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  overlayError: {
-    backgroundColor: 'rgba(220,38,38,0.7)',
-  },
+  overlayError: { backgroundColor: `${colorss.error}B3` },
   overlayText: {
-    color: '#fff',
+    color: colorss.white,
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.3,
@@ -297,9 +278,5 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.7)',
   },
-  playTriangle: {
-    color: '#fff',
-    fontSize: 20,
-    marginLeft: 3,
-  },
+  playTriangle: { color: colorss.white, fontSize: 20, marginLeft: 3 },
 });

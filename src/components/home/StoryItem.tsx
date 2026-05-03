@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, radius, fonts, colorss } from '../../theme';
+import { IC_PROFILE } from '../../assets';
 
 const StoryItem = ({ item, onPress }) => {
   if (item.isAdd) {
@@ -34,25 +35,17 @@ const StoryItem = ({ item, onPress }) => {
           end={{ x: 1, y: 1 }}
           style={styles.activeRing}
         >
-          <LinearGradient
-            colors={[item.bgFrom, item.bgTo]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.avatarInner}
-          >
-            <Text style={styles.emoji}>{item.emoji}</Text>
-          </LinearGradient>
+          <Image
+            source={IC_PROFILE}
+            style={{ width: 60, height: 60, borderRadius: radius.full }}
+          />
         </LinearGradient>
       ) : (
         <View style={styles.seenRing}>
-          <LinearGradient
-            colors={[item.bgFrom, item.bgTo]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.avatarInner}
-          >
-            <Text style={styles.emoji}>{item.emoji}</Text>
-          </LinearGradient>
+          <Image
+            source={IC_PROFILE}
+            style={{ width: 60, height: 60, borderRadius: radius.full }}
+          />
         </View>
       )}
       <Text style={styles.name} numberOfLines={1}>
@@ -117,7 +110,7 @@ const styles = StyleSheet.create({
   },
   addIcon: {
     fontSize: 26,
-    color: "#ffffff",
+    color: '#ffffff',
     fontWeight: fonts.bold,
     lineHeight: 28,
   },

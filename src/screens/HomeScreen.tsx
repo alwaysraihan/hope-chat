@@ -84,6 +84,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           ListHeaderComponent={ListHeader}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
+          style={{ flex: 1 }}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>No conversations found</Text>
@@ -124,6 +125,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.xl,
   },
   listContent: {
+    flexGrow: 1,
     paddingBottom: 8,
   },
   emptyState: {

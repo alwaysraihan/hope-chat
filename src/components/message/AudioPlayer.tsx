@@ -11,6 +11,9 @@ import {
 import AudioRecorderPlayer from 'react-native-nitro-sound';
 import RNFS from 'react-native-fs';
 import { colorss } from '../../theme';
+import { Pause, Play } from 'lucide-react-native';
+
+// Types
 
 interface AudioPlayerProps {
   audioPath: string;
@@ -18,8 +21,14 @@ interface AudioPlayerProps {
   remoteUri?: string | null;
   uploading?: boolean;
   createdAt?: Date | number;
-  isOwn?: boolean; // right side = own message
+  isOwn?: boolean;
 }
+
+//  Constants
+
+const BARS = 28;
+
+//  Component
 
 const AudioPlayer: React.FC<AudioPlayerProps> = ({
   audioPath,
@@ -32,7 +41,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string>('');
+  const [audioUrl, setAudioUrl] = useState('');
   const [hasError, setHasError] = useState(false);
   const [localFilePath, setLocalFilePath] = useState<string | null>(null);
 
@@ -40,12 +49,11 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const progressAnimation = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // Waveform bars - static representation
-  const BARS = 28;
   const waveHeights = useRef<number[]>(
     Array.from({ length: BARS }, () => 0.2 + Math.random() * 0.8),
   ).current;
 
+  //  Validate audio path
   const isValidAudioPath = useCallback((path: string): boolean => {
     if (!path || path.trim() === '' || path === 'Recorder stopped')
       return false;
@@ -56,14 +64,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     )
       return true;
     if (Platform.OS === 'android' && path.startsWith('/')) return true;
-    if (
-      Platform.OS === 'ios' &&
-      (path.includes('.m4a') ||
-        path.includes('.wav') ||
-        path.includes('.mp3') ||
-        path.includes('.aac'))
-    )
-      return true;
+    if (Platform.OS === 'ios' && /\.(m4a|wav|mp3|aac)/.test(path)) return true;
     return false;
   }, []);
 
@@ -83,6 +84,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     [],
   );
 
+  //  Resolve audio URL
   useEffect(() => {
     if (remoteUri && !uploading) {
       setAudioUrl(remoteUri);
@@ -95,14 +97,17 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     }
   }, [audioPath, remoteUri, uploading, isValidAudioPath]);
 
+  //  Download remote audio to cache
   useEffect(() => {
     let isMounted = true;
+
     const prepareAudio = async () => {
       if (remoteUri?.startsWith('http')) {
         const fileName =
           remoteUri.split('/').pop() || `audio_${Date.now()}.aac`;
         const localPath = `${RNFS.CachesDirectoryPath}/${fileName}`;
         const exists = await RNFS.exists(localPath);
+
         if (!exists) {
           try {
             const result = await RNFS.downloadFile({
@@ -111,7 +116,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
             }).promise;
             if (result.statusCode !== 200) throw new Error('Download failed');
           } catch {
-            if (isMounted) setLocalFilePath(null);
             return;
           }
         }
@@ -123,37 +127,31 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
         if (isMounted) setLocalFilePath(audioPath);
       }
     };
+
     prepareAudio();
     return () => {
       isMounted = false;
     };
   }, [remoteUri, audioPath]);
 
-  useEffect(() => {
-    return () => {
+  //  Stop on unmount
+  useEffect(
+    () => () => {
       stopAudio();
-    };
-  }, []);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
-  const animatePress = () => {
-    Animated.sequence([
-      Animated.timing(scaleAnim, {
-        toValue: 0.9,
-        duration: 80,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }),
-    ]).start();
-  };
-
+  //  Playback
   const startAudio = async () => {
     if (hasError || isPlaying) return;
     const fileToPlay = localFilePath || audioUrl;
-    const fileExists = await checkFileExists(fileToPlay);
-    if (!fileExists) {
+    if (!(await checkFileExists(fileToPlay))) {
       setHasError(true);
       return;
     }
+
     setIsLoading(true);
     try {
       await audioRecorderPlayer.current.startPlayer(fileToPlay);
@@ -167,11 +165,11 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
         }).start();
         if (e.currentPosition >= e.duration) stopAudio();
       });
-      setIsLoading(false);
       setIsPlaying(true);
     } catch {
-      setIsLoading(false);
       setHasError(true);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -191,10 +189,18 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   const togglePlayPause = () => {
     if (isLoading) return;
-    animatePress();
+    Animated.sequence([
+      Animated.timing(scaleAnim, {
+        toValue: 0.9,
+        duration: 80,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }),
+    ]).start();
     isPlaying ? stopAudio() : startAudio();
   };
 
+  //  Formatters
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -202,69 +208,63 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const formatMessageTime = (date: Date | number): string => {
-    const messageDate = new Date(date);
-    const now = new Date();
-    const diffH = (now.getTime() - messageDate.getTime()) / 3600000;
+    const d = new Date(date);
+    const diffH = (Date.now() - d.getTime()) / 3_600_000;
     if (diffH < 24)
-      return messageDate.toLocaleTimeString('en-US', {
+      return d.toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',
         hour12: true,
       });
     if (diffH < 48) return 'Yesterday';
-    return messageDate.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const progressRatio = duration > 0 ? currentTime / duration : 0;
-  const playedBars = Math.floor(progressRatio * BARS);
+  //  Theme colours
+  const colors = isOwn
+    ? {
+        bg: colorss.primaryDark,
+        bar: 'rgba(0,0,0,0.15)',
+        barPlayed: colorss.primary,
+        time: colorss.textSecondary,
+      }
+    : {
+        bg: colorss.surface,
+        bar: 'rgba(0,0,0,0.15)',
+        barPlayed: colorss.primary,
+        time: colorss.textSecondary,
+      };
 
-  const ownColors = {
-    bg: '#005C4B',
-    bar: 'rgba(255,255,255,0.35)',
-    barPlayed: '#FFFFFF',
-    btnBg: 'rgba(255,255,255,0.2)',
-    btnIcon: '#FFFFFF',
-    time: 'rgba(255,255,255,0.7)',
-    duration: 'rgba(255,255,255,0.6)',
-  };
-  const otherColors = {
-    bg: '#F0F0F0',
-    bar: 'rgba(0,0,0,0.15)',
-    barPlayed: '#00A884',
-    btnBg: '#00A884',
-    btnIcon: '#FFFFFF',
-    time: '#667781',
-    duration: '#667781',
-  };
-  const colors = isOwn ? ownColors : otherColors;
+  const playedBars = Math.floor(
+    (duration > 0 ? currentTime / duration : 0) * BARS,
+  );
 
+  //  Uploading state
   if (uploading) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bg }]}>
         <ActivityIndicator size="small" color={colors.barPlayed} />
-        <Text style={[styles.uploadText, { color: colors.time }]}>
+        <Text style={[styles.statusText, { color: colors.time }]}>
           Uploading…
         </Text>
       </View>
     );
   }
 
+  //  Error state
   if (hasError) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bg }]}>
-        <Text style={[styles.errorText, { color: colors.time }]}>
+        <Text style={[styles.statusText, { color: colorss.error }]}>
           ⚠ Audio unavailable
         </Text>
       </View>
     );
   }
 
+  //  Normal state
   return (
     <View style={[styles.container, { backgroundColor: colorss.white }]}>
-      {/* Play Button */}
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
         <TouchableOpacity
           style={[styles.playBtn, { backgroundColor: colorss.primary }]}
@@ -273,16 +273,15 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
           activeOpacity={0.8}
         >
           {isLoading ? (
-            <ActivityIndicator size="small" color={colors.btnIcon} />
+            <ActivityIndicator size="small" color={colorss.white} />
+          ) : isPlaying ? (
+            <Pause size={20} style={styles.playIcon} color={colorss.white} />
           ) : (
-            <Text style={[styles.playIcon, { color: colors.btnIcon }]}>
-              {isPlaying ? '⏸' : '▶'}
-            </Text>
+            <Play size={20} style={styles.playIcon} color={colorss.white} />
           )}
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Waveform */}
       <View style={styles.waveformContainer}>
         <View style={styles.waveform}>
           {waveHeights.map((h, i) => (
@@ -293,16 +292,14 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 {
                   height: 4 + h * 24,
                   backgroundColor:
-                    i < playedBars ? colors.barPlayed : otherColors.bar,
-                  opacity: isPlaying && i === playedBars ? 1 : 0.85,
+                    i < playedBars ? colors.barPlayed : colors.bar,
                 },
               ]}
             />
           ))}
         </View>
-
         <View style={styles.metaRow}>
-          <Text style={[styles.durationText, { color: colors.duration }]}>
+          <Text style={[styles.durationText, { color: colors.time }]}>
             {formatTime(isPlaying ? currentTime : duration)}
           </Text>
           {createdAt && (
@@ -315,6 +312,10 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     </View>
   );
 };
+
+export default React.memo(AudioPlayer);
+
+//  Styles
 
 const styles = StyleSheet.create({
   container: {
@@ -335,6 +336,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   playIcon: {
+    color: colorss.white,
     fontSize: 15,
     marginLeft: 2,
   },
@@ -364,15 +366,9 @@ const styles = StyleSheet.create({
   timeText: {
     fontSize: 11,
   },
-  uploadText: {
+  statusText: {
     fontSize: 13,
     marginLeft: 8,
     fontStyle: 'italic',
   },
-  errorText: {
-    fontSize: 13,
-    marginLeft: 4,
-  },
 });
-
-export default React.memo(AudioPlayer);

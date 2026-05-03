@@ -8,32 +8,47 @@ import {
 } from 'react-native';
 import { Bubble, IMessage, BubbleProps } from 'react-native-gifted-chat';
 import FastImage from '@d11/react-native-fast-image';
+
 import AudioPlayer from './AudioPlayer';
 import { ExtendedMessage } from '../types/chat';
+import { colorss } from '../../theme';
+
+//  Types
 
 interface CustomBubbleProps extends BubbleProps<IMessage> {
   onImagePress: (media: ExtendedMessage['media']) => void;
 }
 
-const CustomBubble: React.FC<CustomBubbleProps> = ({ onImagePress, ...props }) => {
+//  Component
+
+const CustomBubble: React.FC<CustomBubbleProps> = ({
+  onImagePress,
+  ...props
+}) => {
   const msg = props.currentMessage as ExtendedMessage;
   const isOwn = props.position === 'right';
 
   const StatusOverlay: React.FC = () => (
     <>
       {msg?.pending && (
-        <ActivityIndicator size="small" color="#F72585" style={styles.status} />
+        <ActivityIndicator
+          size="small"
+          color={colorss.primary}
+          style={styles.statusIcon}
+        />
       )}
       {msg?.failed && (
-        <View style={styles.status}>
+        <View style={styles.statusIcon}>
           <Text style={styles.failedText}>Failed</Text>
         </View>
       )}
     </>
   );
 
+  //  Voice
   if (msg?.media?.type === 'voice') {
-    const audioUri = msg.media.url ?? msg.media.remoteUri ?? msg.media.localUri ?? '';
+    const audioUri =
+      msg.media.url ?? msg.media.remoteUri ?? msg.media.localUri ?? '';
     return (
       <View style={styles.row}>
         <AudioPlayer
@@ -49,8 +64,10 @@ const CustomBubble: React.FC<CustomBubbleProps> = ({ onImagePress, ...props }) =
     );
   }
 
+  //  Image
   if (msg?.media?.type === 'image') {
-    const imageUri = msg.media.url ?? msg.media.remoteUri ?? msg.media.localUri ?? '';
+    const imageUri =
+      msg.media.url ?? msg.media.remoteUri ?? msg.media.localUri ?? '';
     return (
       <TouchableOpacity
         onPress={() => onImagePress(msg.media)}
@@ -68,6 +85,7 @@ const CustomBubble: React.FC<CustomBubbleProps> = ({ onImagePress, ...props }) =
     );
   }
 
+  //  Text (default)
   return (
     <View style={styles.row}>
       <Bubble {...props} />
@@ -76,25 +94,27 @@ const CustomBubble: React.FC<CustomBubbleProps> = ({ onImagePress, ...props }) =
   );
 };
 
+export default React.memo(CustomBubble);
+
+//  Styles
+
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  status: {
+  statusIcon: {
     marginLeft: 4,
   },
   image: {
     width: 180,
     height: 180,
     borderRadius: 12,
-    backgroundColor: '#eee',
+    backgroundColor: colorss.surface,
   },
   failedText: {
-    color: '#F72585',
+    color: colorss.error,
     fontSize: 12,
     fontWeight: '500',
   },
 });
-
-export default React.memo(CustomBubble);

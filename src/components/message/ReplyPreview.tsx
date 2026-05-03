@@ -7,7 +7,11 @@ import {
   ViewStyle,
 } from 'react-native';
 import FastImage from '@d11/react-native-fast-image';
+
 import { ExtendedMessage } from '../types/chat';
+import { colorss } from '../../theme';
+
+//  Types
 
 type ReplyTo = NonNullable<ExtendedMessage['replyTo']>;
 
@@ -18,6 +22,8 @@ interface ReplyPreviewProps {
   style?: ViewStyle;
 }
 
+//  Component
+
 const ReplyPreview: React.FC<ReplyPreviewProps> = ({
   replyTo,
   isOwn,
@@ -25,6 +31,7 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
   style,
 }) => {
   const mediaType = replyTo.media?.type;
+
   const thumbUri =
     mediaType === 'image' || mediaType === 'video'
       ? replyTo.media?.thumbnail ??
@@ -37,18 +44,18 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
     if (mediaType === 'voice') return '🎤  Voice message';
     if (mediaType === 'video') return '🎬  Video';
     if (mediaType === 'image') return '📷  Photo';
-    return replyTo.text
-      ? replyTo.text.length > 80
+    if (replyTo.text) {
+      return replyTo.text.length > 80
         ? replyTo.text.slice(0, 80) + '…'
-        : replyTo.text
-      : '';
+        : replyTo.text;
+    }
+    return '';
   })();
 
-  // Accent colours: left-border + sender name
-  const accentColor = isOwn ? 'rgba(255,255,255,0.7)' : '#00A884';
+  const accentColor = isOwn ? 'rgba(255,255,255,0.7)' : colorss.success;
   const bgColor = isOwn ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.07)';
-  const nameColor = isOwn ? 'rgba(255,255,255,0.9)' : '#00A884';
-  const textColor = isOwn ? 'rgba(255,255,255,0.75)' : '#667781';
+  const nameColor = isOwn ? 'rgba(255,255,255,0.9)' : colorss.success;
+  const textColor = isOwn ? 'rgba(255,255,255,0.75)' : colorss.textSecondary;
 
   return (
     <TouchableOpacity
@@ -60,9 +67,6 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
         style,
       ]}
     >
-      {/* Left accent bar */}
-      <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
-
       {/* Text section */}
       <View style={styles.textSection}>
         <Text
@@ -95,7 +99,6 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
           </View>
         )}
 
-        {/* Text / image / video label */}
         {mediaType !== 'voice' && (
           <Text
             style={[styles.previewLabel, { color: textColor }]}
@@ -125,6 +128,10 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
   );
 };
 
+export default React.memo(ReplyPreview);
+
+//  Styles
+
 const styles = StyleSheet.create({
   wrapper: {
     flexDirection: 'row',
@@ -134,12 +141,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 5,
     minHeight: 42,
-  },
-  accentBar: {
-    width: 3,
-    alignSelf: 'stretch',
-
-    display: 'none',
   },
   textSection: {
     flex: 1,
@@ -171,8 +172,6 @@ const styles = StyleSheet.create({
     width: 2.5,
     borderRadius: 1.5,
   },
-
-  // Thumbnail
   thumbWrap: {
     position: 'relative',
     width: 48,
@@ -189,10 +188,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   videoPlayIcon: {
-    color: '#fff',
+    color: colorss.white,
     fontSize: 14,
     marginLeft: 2,
   },
 });
-
-export default React.memo(ReplyPreview);

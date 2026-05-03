@@ -31,7 +31,7 @@ export const checkMicrophonePermission = async (): Promise<boolean> => {
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
+        ],
       );
       return false;
     }
@@ -41,4 +41,19 @@ export const checkMicrophonePermission = async (): Promise<boolean> => {
     console.error('Error checking microphone permission:', error);
     return false;
   }
-}; 
+};
+
+export const checkCameraPermission = async (): Promise<boolean> => {
+  const permission =
+    Platform.OS === 'ios' ? PERMISSIONS.IOS.CAMERA : PERMISSIONS.ANDROID.CAMERA;
+
+  const result = await request(permission);
+
+  if (result === RESULTS.GRANTED) {
+    console.log('Permission granted');
+    return true;
+  } else {
+    console.log('Permission denied');
+    return false;
+  }
+};

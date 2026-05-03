@@ -3,13 +3,19 @@ import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import FastImage from '@d11/react-native-fast-image';
 import { X } from 'lucide-react-native';
+
 import { ExtendedMessage } from '../types/chat';
+import { colorss } from '../../theme';
+
+//  Types 
 
 type ReplyMessageBarProps = {
   clearReply: () => void;
   message: ExtendedMessage | null;
   onReplyPress?: (messageId: string | number) => void;
 };
+
+//  Component 
 
 const ReplyMessageBar: React.FC<ReplyMessageBarProps> = ({
   clearReply,
@@ -21,21 +27,18 @@ const ReplyMessageBar: React.FC<ReplyMessageBarProps> = ({
   const isVoice = message.media?.type === 'voice';
   const isImage = message.media?.type === 'image';
   const isVideo = message.media?.type === 'video';
-  const hasMedia = isVoice || isImage || isVideo;
 
-  const previewUri = isImage || isVideo
-    ? message.media?.url || message.media?.remoteUri || message.media?.localUri
-    : null;
-
-  const previewThumbnail = isVideo ? message.media?.thumbnail : null;
+  const previewUri =
+    isImage || isVideo
+      ? message.media?.url ?? message.media?.remoteUri ?? message.media?.localUri
+      : null;
 
   const getPreviewText = (): string => {
     if (isVoice) return '🎤 Voice message';
     if (isVideo) return '🎬 Video';
     if (isImage) return '📷 Photo';
-    return message.text?.length > 80
-      ? message.text.substring(0, 80) + '…'
-      : message.text || '';
+    const t = message.text ?? '';
+    return t.length > 80 ? t.substring(0, 80) + '…' : t;
   };
 
   return (
@@ -44,10 +47,8 @@ const ReplyMessageBar: React.FC<ReplyMessageBarProps> = ({
       entering={FadeInDown.duration(200).springify()}
       exiting={FadeOutDown.duration(150)}
     >
-      {/* Accent bar */}
       <View style={styles.accentBar} />
 
-      {/* Content */}
       <TouchableOpacity
         style={styles.content}
         onPress={() => onReplyPress?.(message._id)}
@@ -62,10 +63,10 @@ const ReplyMessageBar: React.FC<ReplyMessageBarProps> = ({
       </TouchableOpacity>
 
       {/* Media thumbnail */}
-      {(isImage || isVideo) && (previewUri || previewThumbnail) && (
+      {(isImage || isVideo) && previewUri && (
         <View style={styles.thumbnailWrapper}>
           <FastImage
-            source={{ uri: previewThumbnail ?? previewUri! }}
+            source={{ uri: previewUri }}
             style={styles.thumbnail}
             resizeMode={FastImage.resizeMode.cover}
           />
@@ -83,21 +84,28 @@ const ReplyMessageBar: React.FC<ReplyMessageBarProps> = ({
         </View>
       )}
 
-      {/* Close */}
-      <TouchableOpacity onPress={clearReply} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-        <X size={18} color="#667781" />
+      <TouchableOpacity
+        onPress={clearReply}
+        style={styles.closeBtn}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <X size={18} color={colorss.textSecondary} />
       </TouchableOpacity>
     </Animated.View>
   );
 };
 
+export default React.memo(ReplyMessageBar);
+
+//  Styles 
+
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F2F5',
+    backgroundColor: colorss.surface,
     borderTopWidth: 1,
-    borderTopColor: '#E9EDEF',
+    borderTopColor: colorss.border,
     paddingHorizontal: 12,
     paddingVertical: 8,
     minHeight: 58,
@@ -106,7 +114,7 @@ const styles = StyleSheet.create({
   accentBar: {
     width: 3,
     alignSelf: 'stretch',
-    backgroundColor: '#00A884',
+    backgroundColor: colorss.success,
     borderRadius: 2,
     minHeight: 36,
   },
@@ -116,18 +124,17 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   senderName: {
-    color: '#00A884',
+    color: colorss.success,
     fontWeight: '700',
     fontSize: 13,
     letterSpacing: 0.1,
   },
   previewText: {
-    color: '#667781',
+    color: colorss.textSecondary,
     fontSize: 13,
     lineHeight: 18,
   },
   thumbnailWrapper: {
-    position: 'relative',
     borderRadius: 6,
     overflow: 'hidden',
   },
@@ -143,7 +150,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   playIcon: {
-    color: '#fff',
+    color: colorss.white,
     fontSize: 14,
   },
   voiceIcon: {
@@ -158,5 +165,3 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 });
-
-export default React.memo(ReplyMessageBar);

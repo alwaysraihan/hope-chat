@@ -11,6 +11,10 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { X } from 'lucide-react-native';
 
+import { colorss } from '../../theme';
+
+//  Types
+
 interface Reactor {
   id: string;
   name: string;
@@ -23,6 +27,8 @@ interface ReactorListProps {
   reactors?: Reactor[];
 }
 
+//  Defaults
+
 const DEFAULT_DATA: Reactor[] = [
   { id: '1', name: 'Emon Hossain', reaction: '❤️' },
   { id: '2', name: 'John Doe', reaction: '😂' },
@@ -33,7 +39,12 @@ const DEFAULT_DATA: Reactor[] = [
 
 const AVATAR_PLACEHOLDER = { uri: 'https://i.pravatar.cc/100' };
 
-export default function ReactorList({ onClose, reactors = DEFAULT_DATA }: ReactorListProps) {
+//  Component
+
+export default function ReactorList({
+  onClose,
+  reactors = DEFAULT_DATA,
+}: ReactorListProps) {
   const [activeFilter, setActiveFilter] = useState('ALL');
 
   const reactionGroups = reactors.reduce<Record<string, number>>((acc, r) => {
@@ -50,7 +61,9 @@ export default function ReactorList({ onClose, reactors = DEFAULT_DATA }: Reacto
   ];
 
   const filtered =
-    activeFilter === 'ALL' ? reactors : reactors.filter(r => r.reaction === activeFilter);
+    activeFilter === 'ALL'
+      ? reactors
+      : reactors.filter(r => r.reaction === activeFilter);
 
   const renderItem: ListRenderItem<Reactor> = ({ item }) => (
     <View style={styles.row}>
@@ -72,8 +85,11 @@ export default function ReactorList({ onClose, reactors = DEFAULT_DATA }: Reacto
 
         <View style={styles.header}>
           <Text style={styles.title}>Reactions</Text>
-          <Pressable onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <X size={20} color="#111B21" />
+          <Pressable
+            onPress={onClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <X size={20} color={colorss.textPrimary} />
           </Pressable>
         </View>
 
@@ -83,9 +99,17 @@ export default function ReactorList({ onClose, reactors = DEFAULT_DATA }: Reacto
             <Pressable
               key={opt.key}
               onPress={() => setActiveFilter(opt.key)}
-              style={[styles.chip, activeFilter === opt.key && styles.activeChip]}
+              style={[
+                styles.chip,
+                activeFilter === opt.key && styles.activeChip,
+              ]}
             >
-              <Text style={[styles.chipText, activeFilter === opt.key && styles.activeChipText]}>
+              <Text
+                style={[
+                  styles.chipText,
+                  activeFilter === opt.key && styles.activeChipText,
+                ]}
+              >
                 {opt.label}
               </Text>
             </Pressable>
@@ -105,6 +129,8 @@ export default function ReactorList({ onClose, reactors = DEFAULT_DATA }: Reacto
   );
 }
 
+//  Styles
+
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -113,7 +139,7 @@ const styles = StyleSheet.create({
   },
   sheet: {
     height: '45%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colorss.white,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 16,
@@ -123,7 +149,7 @@ const styles = StyleSheet.create({
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: colorss.border,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 14,
@@ -137,7 +163,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#111B21',
+    color: colorss.textPrimary,
   },
   filterRow: {
     flexDirection: 'row',
@@ -146,26 +172,26 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E9EDEF',
+    borderBottomColor: colorss.border,
   },
   chip: {
     paddingHorizontal: 14,
     height: 32,
     borderRadius: 999,
-    backgroundColor: '#F0F2F5',
+    backgroundColor: colorss.surface,
     justifyContent: 'center',
     alignItems: 'center',
   },
   chipText: {
     fontSize: 13,
-    color: '#667781',
+    color: colorss.textSecondary,
     fontWeight: '500',
   },
   activeChip: {
-    backgroundColor: '#00A884',
+    backgroundColor: colorss.success,
   },
   activeChipText: {
-    color: '#fff',
+    color: colorss.white,
     fontWeight: '700',
   },
   list: {
@@ -180,7 +206,7 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#E9EDEF',
+    backgroundColor: colorss.border,
   },
   userInfo: {
     flexDirection: 'row',
@@ -194,7 +220,7 @@ const styles = StyleSheet.create({
   },
   name: {
     fontSize: 14,
-    color: '#111B21',
+    color: colorss.textPrimary,
     fontWeight: '500',
   },
   emoji: {

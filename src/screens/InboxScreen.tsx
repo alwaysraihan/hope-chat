@@ -1,19 +1,21 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { View } from 'react-native';
 import { GiftedChat, Time } from 'react-native-gifted-chat';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackNavigatorParamList } from '../types/navigators';
 
+import { InboxProvider, useInbox } from '../context/InboxContext';
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import MessageHeader from '../components/message/MessageHeader';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
-import { useHelpAssistant } from '../hooks/useHelpAssistant';
 import { colorss } from '../theme';
+import { RootStackNavigatorParamList } from '../types/navigators';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 
-const InboxScreen: React.FC<Props> = ({ navigation }) => {
+// ─── Inner screen (has access to InboxContext) ────────────────────────────────
+
+const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
   const {
     messages,
     setText,
@@ -22,57 +24,25 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
     user,
     insets,
     refreshTrigger,
-    isRecording,
-    inputAnimation,
     loadingMore,
     hasMore,
-    width,
     onSend,
-    handleVoiceRecordingStart,
-    handleVoiceRecordingComplete,
-    handleVoiceRecordingCancel,
-    handleCameraPress,
     loadEarlier,
-  } = useHelpAssistant();
-
-  // Clear initialText after use
-  React.useEffect(() => {
-    if (initialText) {
-      const t = setTimeout(() => setInitialText(''), 100);
-      return () => clearTimeout(t);
-    }
+  } = useInbox();
+  // Clear initialText after GiftedChat consumes it
+  useEffect(() => {
+    if (!initialText) return;
+    const t = setTimeout(() => setInitialText(''), 100);
+    return () => clearTimeout(t);
   }, [initialText, setInitialText]);
 
-  // TODO: connect this to your FlatList/GiftedChat ref to scroll to original message
-  const handlePressReplyPreview = useCallback((messageId: string | number) => {
-    console.log('Scroll to message:', messageId);
-    // e.g. flatListRef.current?.scrollToItem({ item: messages.find(m => m._id === messageId) });
-  }, []);
+  // ── Renderers ──────────────────────────────────────────────────────────────
+  // No prop drilling needed — CustomInputToolbar and ChatMessageBox
+  // call useInbox() directly to access what they need.
 
   const renderInputToolbar = useCallback(
-    (props: any) => (
-      <CustomInputToolbar
-        {...props}
-        isRecording={isRecording}
-        onRecordingComplete={handleVoiceRecordingComplete}
-        onRecordingCancel={handleVoiceRecordingCancel}
-        onVoiceRecordingStart={handleVoiceRecordingStart}
-        inputAnimation={inputAnimation}
-        handleCameraPress={handleCameraPress}
-        insets={insets}
-        width={width}
-      />
-    ),
-    [
-      isRecording,
-      handleVoiceRecordingComplete,
-      handleVoiceRecordingCancel,
-      inputAnimation,
-      insets,
-      width,
-      handleVoiceRecordingStart,
-      handleCameraPress,
-    ],
+    (props: any) => <CustomInputToolbar {...props} />,
+    [],
   );
 
   const renderTime = useCallback((props: any) => {
@@ -82,7 +52,7 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
       <Time
         {...props}
         timeTextStyle={{
-          left: { color: '#667781' },
+          left: { color: colorss.textSecondary },
           right: { color: 'rgba(255,255,255,0.75)' },
         }}
       />
@@ -95,11 +65,12 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
         {...props}
         refreshTrigger={refreshTrigger}
         onPressReactions={() => navigation.navigate('Reactions')}
-        onPressReplyPreview={handlePressReplyPreview}
       />
     ),
-    [refreshTrigger, navigation, handlePressReplyPreview],
+    [refreshTrigger, navigation],
   );
+
+  //  Render
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colorss.primary }}>
@@ -107,10 +78,10 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
         onProfilePress={() => navigation.navigate('Profile', { userId: '1' })}
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}
         onAudioCall={() => navigation.navigate('AudioCall')}
-        onVideoCall={() => console.log('hello world')}
+        onVideoCall={() => console.log('VideoCall')}
       />
 
-      <View style={{ flex: 1, backgroundColor: '#ECE5DD' }}>
+      <View style={{ flex: 1, backgroundColor: colorss.background }}>
         <GiftedChat
           placeholder="Type here…"
           messages={messages as any[]}
@@ -141,5 +112,13 @@ const InboxScreen: React.FC<Props> = ({ navigation }) => {
     </SafeAreaView>
   );
 };
+
+// ─── Outer screen — mounts the provider, then renders the inner screen ────────
+
+const InboxScreen: React.FC<Props> = props => (
+  <InboxProvider>
+    <InboxScreenInner {...props} />
+  </InboxProvider>
+);
 
 export default React.memo(InboxScreen);

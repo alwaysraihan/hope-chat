@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -8,68 +8,54 @@ import {
   Animated,
 } from 'react-native';
 import {
-  Plus,
   Camera,
+  Image,
   Mic,
   Smile,
-  ThumbsUp,
   Send,
   ArrowRight,
   X,
+  ThumbsUp,
 } from 'lucide-react-native';
 import {
   Composer,
-  Send as MessageSend,
+  Send as GiftedSend,
   InputToolbarProps,
   IMessage,
 } from 'react-native-gifted-chat';
 import FastImage from '@d11/react-native-fast-image';
+
 import VoiceRecorder from './VoiceRecorder';
-import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { resetReplayTo } from '../../redux/features/inbox/inboxSlice';
-import { ExtendedMessage } from '../types/chat';
-import { EdgeInsets } from 'react-native-safe-area-context';
+import { useInbox } from '../../context/InboxContext';
+import { colorss } from '../../theme';
 
-// Theme
-const colorss = {
-  primary: '#F72585',
-  background: '#FFFFFF',
-  backgroundDeep: '#1a1a2e',
-  textSecondary: '#9CA3AF',
-  accent: '#F72585',
-  replyAccent: '#00A884',
-  surface: '#F0F2F5',
-};
+// ─── Component ────────────────────────────────────────────────────────────────
+// Props only carry what GiftedChat injects (text, textInputProps, etc.).
+// Everything else comes straight from InboxContext — no prop drilling.
 
-interface CustomInputToolbarProps extends InputToolbarProps<IMessage> {
-  isRecording: boolean;
-  onRecordingComplete: (path: string, duration: number) => void;
-  onRecordingCancel: () => void;
-  onVoiceRecordingStart: () => void;
-  inputAnimation: Animated.Value;
-  handleCameraPress: () => void;
-  insets: EdgeInsets;
-  width: number;
-  text: string;
-}
+const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
+  const {
+    isRecording,
+    replyTo,
+    handleCameraPress,
+    handleGalleryPress,
+    handleVoiceRecordingStart,
+    handleVoiceRecordingComplete,
+    handleVoiceRecordingCancel,
+    clearReply,
+  } = useInbox();
 
-const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const replayTo = useAppSelector(
-    state => state.inbox.replayTo,
-  ) as ExtendedMessage | null;
-  const dispatch = useAppDispatch();
 
-  // Animations
   const expandAnim = useRef(new Animated.Value(0)).current;
   const replyHeight = useRef(new Animated.Value(0)).current;
 
+  // Expand when the user starts typing
   useEffect(() => {
-    if (props.text?.trim()) {
-      setIsExpanded(true);
-    }
+    if (props.text?.trim()) setIsExpanded(true);
   }, [props.text]);
 
+  // Animate expand / collapse
   useEffect(() => {
     Animated.spring(expandAnim, {
       toValue: isExpanded ? 1 : 0,
@@ -79,44 +65,45 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
     }).start();
   }, [isExpanded, expandAnim]);
 
+  // Animate reply bar height
   useEffect(() => {
     Animated.spring(replyHeight, {
-      toValue: replayTo ? 1 : 0,
+      toValue: replyTo ? 1 : 0,
       tension: 90,
       friction: 9,
       useNativeDriver: false,
     }).start();
-  }, [replayTo, replyHeight]);
+  }, [replyTo, replyHeight]);
 
-  const handleClearReply = useCallback(() => {
-    dispatch(resetReplayTo());
-  }, [dispatch]);
-
-  if (props.isRecording) {
+  // ── Voice recording UI
+  if (isRecording) {
     return (
       <VoiceRecorder
-        onCancel={props.onRecordingCancel}
-        onRecordingComplete={props.onRecordingComplete}
+        onCancel={handleVoiceRecordingCancel}
+        onRecordingComplete={handleVoiceRecordingComplete}
       />
     );
   }
 
-  // Reply preview content
-  const isReplyImage = replayTo?.media?.type === 'image';
-  const isReplyVideo = replayTo?.media?.type === 'video';
-  const isReplyVoice = replayTo?.media?.type === 'voice';
+  // ── Reply preview helpers
+  const isReplyImage = replyTo?.media?.type === 'image';
+  const isReplyVideo = replyTo?.media?.type === 'video';
+  const isReplyVoice = replyTo?.media?.type === 'voice';
   const replyThumbUri =
     isReplyImage || isReplyVideo
-      ? replayTo?.media?.url ??
-        replayTo?.media?.remoteUri ??
-        replayTo?.media?.localUri
+      ? replyTo?.media?.url ??
+        replyTo?.media?.remoteUri ??
+        replyTo?.media?.localUri
       : undefined;
+
   const getReplyPreviewText = (): string => {
     if (isReplyVoice) return '🎤 Voice message';
     if (isReplyVideo) return '🎬 Video';
     if (isReplyImage) return '📷 Photo';
-    return replayTo?.text ?? '';
+    return replyTo?.text ?? '';
   };
+
+  const hasText = Boolean(props.text?.trim());
 
   return (
     <View style={styles.container}>
@@ -134,12 +121,12 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
           },
         ]}
       >
-        {replayTo && (
+        {replyTo && (
           <View style={styles.replyInner}>
             <View style={styles.replyAccentLine} />
             <View style={styles.replyContent}>
               <Text style={styles.replyName} numberOfLines={1}>
-                {replayTo.user?.name ?? 'User'}
+                {replyTo.user?.name ?? 'User'}
               </Text>
               <Text style={styles.replyText} numberOfLines={1}>
                 {getReplyPreviewText()}
@@ -152,14 +139,14 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
                 resizeMode={FastImage.resizeMode.cover}
               />
             ) : isReplyVoice ? (
-              <Text style={{ fontSize: 22 }}>🎤</Text>
+              <Text style={styles.replyVoiceEmoji}>🎤</Text>
             ) : null}
             <Pressable
-              onPress={handleClearReply}
+              onPress={clearReply}
               style={styles.replyClose}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <X size={16} color={colorss.textSecondary} />
+              <X size={16} color={colorss.placeholder} />
             </Pressable>
           </View>
         )}
@@ -167,7 +154,7 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
 
       {/* Input Row */}
       <View style={styles.inputRow}>
-        {/* Left icons / collapse arrow */}
+        {/* Left icons or collapse arrow */}
         {!isExpanded ? (
           <Animated.View
             style={[
@@ -180,12 +167,23 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
               },
             ]}
           >
-            <IconButton icon={<Plus size={22} color={colorss.primary} />} />
-            <TouchableOpacity onPress={props.handleCameraPress}>
-              <IconButton icon={<Camera size={22} color={colorss.primary} />} />
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={handleCameraPress}
+            >
+              <Camera size={22} color={colorss.primary} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={props.onVoiceRecordingStart}>
-              <IconButton icon={<Mic size={22} color={colorss.primary} />} />
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={handleGalleryPress}
+            >
+              <Image size={22} color={colorss.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={handleVoiceRecordingStart}
+            >
+              <Mic size={22} color={colorss.primary} />
             </TouchableOpacity>
           </Animated.View>
         ) : (
@@ -197,18 +195,18 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
           </Pressable>
         )}
 
-        {/* Text Input */}
+        {/* Text Composer */}
         <View style={styles.inputWrapper}>
           <Composer
             {...props}
             text={props.text}
             textInputProps={{
               style: styles.input,
-              placeholderTextColor: colorss.textSecondary,
+              placeholderTextColor: colorss.placeholder,
               multiline: true,
               numberOfLines: 3,
               placeholder: 'Type here…',
-              onChangeText: props.textInputProps?.onChangeText,
+              onChangeText: props?.textInputProps?.onChangeText,
             }}
           />
           <TouchableOpacity style={styles.emojiBtn}>
@@ -216,17 +214,17 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
           </TouchableOpacity>
         </View>
 
-        {/* Send / Like */}
-        {props.text?.trim() ? (
-          <MessageSend {...props} style={styles.actionBtn}>
+        {/* Send or Mic */}
+        {hasText ? (
+          <GiftedSend {...props} style={styles.actionBtn}>
             <Send size={22} color={colorss.primary} />
-          </MessageSend>
+          </GiftedSend>
         ) : (
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={props.onVoiceRecordingStart}
+            onPress={() => props?.onSend({ text: 'Like' })}
           >
-            <Mic size={22} color={colorss.primary} />
+            <ThumbsUp size={22} color={colorss.primary} />
           </TouchableOpacity>
         )}
       </View>
@@ -234,23 +232,19 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   );
 };
 
-const IconButton: React.FC<{ icon: React.ReactNode }> = ({ icon }) => (
-  <TouchableOpacity style={styles.iconBtn}>{icon}</TouchableOpacity>
-);
+export default React.memo(CustomInputToolbar);
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colorss.background,
+    backgroundColor: colorss.white,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E9EDEF',
+    borderTopColor: colorss.border,
   },
-
-  // Reply bar
-  replyBar: {
-    marginBottom: 4,
-  },
+  replyBar: { marginBottom: 4 },
   replyInner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -263,50 +257,21 @@ const styles = StyleSheet.create({
   replyAccentLine: {
     width: 3,
     alignSelf: 'stretch',
-    backgroundColor: colorss.replyAccent,
+    backgroundColor: colorss.success,
     borderRadius: 2,
     minHeight: 28,
   },
-  replyContent: {
-    flex: 1,
-    gap: 2,
-  },
-  replyName: {
-    color: colorss.replyAccent,
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  replyText: {
-    color: '#667781',
-    fontSize: 12,
-  },
-  replyThumb: {
-    width: 38,
-    height: 38,
-    borderRadius: 6,
-  },
-  replyClose: {
-    padding: 2,
-  },
+  replyContent: { flex: 1, gap: 2 },
+  replyName: { color: colorss.success, fontWeight: '700', fontSize: 12 },
+  replyText: { color: colorss.textSecondary, fontSize: 12 },
+  replyThumb: { width: 38, height: 38, borderRadius: 6 },
+  replyVoiceEmoji: { fontSize: 22 },
+  replyClose: { padding: 2 },
 
-  // Input row
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  leftIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  iconBtn: {
-    marginRight: 6,
-    padding: 4,
-  },
-  collapseBtn: {
-    padding: 4,
-    marginRight: 4,
-  },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  leftIcons: { flexDirection: 'row', alignItems: 'center' },
+  iconBtn: { marginRight: 4, padding: 5 },
+  collapseBtn: { padding: 5, marginRight: 4 },
   inputWrapper: {
     flex: 1,
     flexDirection: 'row',
@@ -319,17 +284,10 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    color: '#111B21',
+    color: colorss.textPrimary,
     fontSize: 15,
     paddingVertical: 6,
   },
-  emojiBtn: {
-    marginLeft: 8,
-    padding: 2,
-  },
-  actionBtn: {
-    padding: 6,
-  },
+  emojiBtn: { marginLeft: 8, padding: 2 },
+  actionBtn: { padding: 6 },
 });
-
-export default React.memo(CustomInputToolbar);
