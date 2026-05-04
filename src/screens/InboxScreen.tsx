@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { View } from 'react-native';
 import { GiftedChat, Time } from 'react-native-gifted-chat';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -73,7 +73,10 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
   //  Render
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colorss.primary }}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: colorss.primary }}
+      edges={['top', 'left', 'right']}
+    >
       <MessageHeader
         onProfilePress={() => navigation.navigate('Profile', { userId: '1' })}
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}

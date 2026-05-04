@@ -75,7 +75,7 @@ const StoryCard = ({ item }) => {
 
 export default function StoriesScreen() {
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Text style={styles.title}>Stories</Text>
 
       <FlatList

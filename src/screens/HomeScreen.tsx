@@ -44,7 +44,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           onPress={() => navigation.navigate('Inbox')}
           onLongPress={() => navigation.navigate('ConversationAction')}
         />
-        {index < conversations.length - 1 && <View style={styles.divider} />}
       </>
     ),
     [navigation],
@@ -68,7 +67,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         onSearch={() => {
           /* focus search bar */
@@ -84,7 +83,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           ListHeaderComponent={ListHeader}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
-          style={{ flex: 1 }}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>No conversations found</Text>
@@ -103,7 +101,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: colorss.background,
+    backgroundColor: colorss.white,
   },
   storiesList: {
     paddingHorizontal: spacing.xl,
@@ -118,11 +116,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     letterSpacing: 0.08 * 11,
     textTransform: 'uppercase',
-  },
-  divider: {
-    height: 0.5,
-    backgroundColor: '#1a1a2c',
-    marginHorizontal: spacing.xl,
   },
   listContent: {
     flexGrow: 1,

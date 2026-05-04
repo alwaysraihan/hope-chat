@@ -10,7 +10,10 @@ import {
 import React, { useState } from 'react';
 import { colors, colorss, radius } from '../theme';
 import { SearchIcon, ArrowLeft } from 'lucide-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { IC_PROFILE } from '../assets';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -53,6 +56,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   const [isOnline] = useState(true);
   const [conversationCategories, setConversationCategories] =
     useState(conversationType);
+  const { bottom } = useSafeAreaInsets();
 
   let content = (
     <FlatList
@@ -60,8 +64,11 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
       keyExtractor={item => item.toString()}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.mainListContent}
-      ListHeaderComponent={() => (
+      contentContainerStyle={[
+        styles.mainListContent,
+        { paddingBottom: bottom },
+      ]}
+      ListHeaderComponent={
         <View>
           {/* RECENT SEARCHES */}
           <View style={styles.recentSearchContainer}>
@@ -114,7 +121,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
           {/* SUGGESTED TITLE */}
           <Text style={styles.suggestedTitle}>Suggested</Text>
         </View>
-      )}
+      }
       renderItem={() => (
         <TouchableOpacity
           onPress={() => navigation.navigate('Inbox')}
@@ -134,9 +141,11 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
         keyExtractor={item => item.toString()}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.mainListContent}
-        // eslint-disable-next-line react/no-unstable-nested-components
-        ListHeaderComponent={() => (
+        contentContainerStyle={[
+          styles.mainListContent,
+          { paddingBottom: bottom },
+        ]}
+        ListHeaderComponent={
           <View style={{ flexDirection: 'row', gap: 10 }}>
             {conversationCategories.map((item, index) => (
               <TouchableOpacity
@@ -180,7 +189,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
               </TouchableOpacity>
             ))}
           </View>
-        )}
+        }
         style={{
           marginTop: 20,
         }}
@@ -198,7 +207,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity

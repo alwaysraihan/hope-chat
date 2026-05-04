@@ -28,10 +28,8 @@ import FastImage from '@d11/react-native-fast-image';
 import VoiceRecorder from './VoiceRecorder';
 import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// ─── Component ────────────────────────────────────────────────────────────────
-// Props only carry what GiftedChat injects (text, textInputProps, etc.).
-// Everything else comes straight from InboxContext — no prop drilling.
 
 const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const {
@@ -46,7 +44,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   } = useInbox();
 
   const [isExpanded, setIsExpanded] = useState(false);
-
+  const { bottom } = useSafeAreaInsets();
   const expandAnim = useRef(new Animated.Value(0)).current;
   const replyHeight = useRef(new Animated.Value(0)).current;
 
@@ -106,7 +104,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const hasText = Boolean(props.text?.trim());
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: bottom }]}>
       {/* Reply Preview Bar */}
       <Animated.View
         style={[
@@ -234,7 +232,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
 
 export default React.memo(CustomInputToolbar);
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Styles 
 
 const styles = StyleSheet.create({
   container: {

@@ -149,6 +149,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
         paddingHorizontal: 16,
         paddingVertical: 10,
       }}
+      edges={['top', 'left', 'right']}
     >
       <View
         style={{
