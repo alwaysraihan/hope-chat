@@ -13,7 +13,6 @@ const ConversationItem = ({ item, onPress, onLongPress }) => {
     >
       <View style={styles.avatarWrap}>
         <Image source={IC_PROFILE} style={styles.avatar} />
-        {item.isOnline && <View style={styles.onlineDot} />}
       </View>
 
       <View style={styles.body}>
@@ -66,17 +65,6 @@ const styles = StyleSheet.create({
   },
   avatarEmoji: {
     fontSize: 22,
-  },
-  onlineDot: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 12,
-    height: 12,
-    borderRadius: radius.full,
-    backgroundColor: colors.online,
-    borderWidth: 2.5,
-    borderColor: colors.background,
   },
   body: {
     flex: 1,

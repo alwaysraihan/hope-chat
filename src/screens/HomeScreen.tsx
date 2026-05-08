@@ -14,6 +14,7 @@ import {
 } from '../types/navigators';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { BellOff } from 'lucide-react-native';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>,
@@ -60,7 +61,22 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.storiesList}
         />
-        <Text style={styles.sectionLabel}>Messages</Text>
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingBottom: 8,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={styles.sectionLabel}>Messages</Text>
+            <BellOff size={18} color={colorss.textPrimary} />
+          </View>
+          <Text style={[styles.sectionLabel, { color: colorss.primary }]}>
+            Requests
+          </Text>
+        </View>
       </>
     ),
     [renderStory],
@@ -109,13 +125,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionLabel: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: 8,
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: fonts.semibold,
-    color: colors.textMuted,
+    color: colorss.textPrimary,
     letterSpacing: 0.08 * 11,
-    textTransform: 'uppercase',
   },
   listContent: {
     flexGrow: 1,
