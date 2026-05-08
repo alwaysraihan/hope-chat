@@ -23,19 +23,19 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
 
     switch (routeName) {
       case 'Home':
-        return <LucideMessageCircle color={iconColor} size={24} />;
+        return <LucideMessageCircle color={iconColor} size={20} />;
       case 'Story':
-        return <LucideImages color={iconColor} size={24} />;
+        return <LucideImages color={iconColor} size={20} />;
       case 'Notifications':
-        return <Bell color={iconColor} size={24} />;
+        return <Bell color={iconColor} size={20} />;
       case 'Menu':
-        return <LucideMenu color={iconColor} size={24} />;
+        return <LucideMenu color={iconColor} size={20} />;
       case 'Media':
-        return <Images color={iconColor} size={24} />;
+        return <Images color={iconColor} size={20} />;
       case 'Files':
-        return <FileText color={iconColor} size={24} />;
+        return <FileText color={iconColor} size={20} />;
       case 'Links':
-        return <Link color={iconColor} size={24} />;
+        return <Link color={iconColor} size={20} />;
       default:
         return null;
     }
@@ -46,52 +46,55 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
   return (
     <View
       style={[
-        styles.container,
         {
-          paddingBottom: bottom - 6,
+          backgroundColor: '#fff',
+          paddingHorizontal: 14,
+          paddingTop: 14,
+          paddingBottom: Math.max(bottom, 14),
         },
       ]}
     >
-      {state.routes.map((route, index) => {
-        const { options } = descriptors[route.key];
-        const label = options.tabBarLabel ? options.tabBarLabel : route.name;
-        const isFocused = state.index === index;
+      <View style={[styles.container]}>
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          const label = options.tabBarLabel ? options.tabBarLabel : route.name;
+          const isFocused = state.index === index;
 
-        const onPress = () => {
-          const event = navigation.emit({
-            type: 'tabPress',
-            target: route.key,
-            canPreventDefault: true,
-          });
+          const onPress = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
 
-          if (!isFocused && !event.defaultPrevented) {
-            navigation.navigate(route.name);
-          }
-        };
+            if (!isFocused && !event.defaultPrevented) {
+              navigation.navigate(route.name);
+            }
+          };
 
-        return (
-          <TouchableOpacity
-            key={route.key}
-            style={styles.tab}
-            onPress={onPress}
-            activeOpacity={0.7}
-          >
-            {getIcon(route.name, isFocused)}
-            <Text
-              style={[
-                styles.label,
-                {
-                  color: isFocused ? colors.pink : '#3D3B3B',
-                  fontSize: 14,
-                  marginTop: 3,
-                },
-              ]}
+          return (
+            <TouchableOpacity
+              key={route.key}
+              style={styles.tab}
+              onPress={onPress}
+              activeOpacity={0.7}
             >
-              {typeof label === 'string' ? label : ''}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+              {getIcon(route.name, isFocused)}
+              <Text
+                style={[
+                  {
+                    color: isFocused ? colors.pink : '#3D3B3B',
+                    fontSize: 14,
+                    marginTop: 2,
+                  },
+                ]}
+              >
+                {typeof label === 'string' ? label : ''}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 };
@@ -99,24 +102,18 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#efeff6',
     borderTopWidth: 0,
     borderTopColor: '#E5E5EA',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 10,
+    borderRadius: 9999,
+    padding: 4,
   },
   tab: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
     position: 'relative',
   },
   cartIconContainer: {
@@ -148,10 +145,6 @@ const styles = StyleSheet.create({
   icon: {
     fontSize: 24,
     marginBottom: 4,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '500',
   },
   notificationDot: {
     position: 'absolute',

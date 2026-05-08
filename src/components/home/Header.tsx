@@ -1,8 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
-import { colors, spacing, radius, fonts, colorss } from '../../theme';
-import { LucideKeyboard, LucideSearch } from 'lucide-react-native';
+import { spacing, radius, fonts, theme } from '../../theme';
+import { Camera, SquarePen } from 'lucide-react-native';
 
 const Header = ({ onSearch, onNewChat }) => {
   return (
@@ -14,18 +13,15 @@ const Header = ({ onSearch, onNewChat }) => {
           onPress={onSearch}
           activeOpacity={0.7}
         >
-          <LucideSearch size={18} color={colorss.primary} />
+          <Camera size={18} color={theme.textPrimary} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={onNewChat} activeOpacity={0.8}>
-          <LinearGradient
-            colors={[colors.purple, colors.purpleLight]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.newChatBtn}
-          >
-            <LucideKeyboard size={18} color={colors.white} />
-          </LinearGradient>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={onNewChat}
+          activeOpacity={0.8}
+        >
+          <SquarePen size={18} color={theme.textPrimary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -43,7 +39,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: fonts.bold,
-    color: colors.white,
+    color: theme.textPrimary,
     letterSpacing: -0.5,
   },
   actions: {
@@ -55,7 +51,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: radius.full,
-    backgroundColor: "white",
+    backgroundColor: theme.secondary,
     alignItems: 'center',
     justifyContent: 'center',
   },

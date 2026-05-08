@@ -8,7 +8,7 @@ import { InboxProvider, useInbox } from '../context/InboxContext';
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import MessageHeader from '../components/message/MessageHeader';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
-import { colorss } from '../theme';
+import { colorss, theme } from '../theme';
 import { RootStackNavigatorParamList } from '../types/navigators';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
@@ -74,7 +74,7 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
 
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: colorss.primary }}
+      style={{ flex: 1, backgroundColor: theme.surface}}
       edges={['top', 'left', 'right']}
     >
       <MessageHeader
@@ -84,7 +84,7 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
         onVideoCall={() => console.log('VideoCall')}
       />
 
-      <View style={{ flex: 1, backgroundColor: colorss.background }}>
+      <View style={{ flex: 1, backgroundColor: theme.secondary }}>
         <GiftedChat
           placeholder="Type here…"
           messages={messages as any[]}

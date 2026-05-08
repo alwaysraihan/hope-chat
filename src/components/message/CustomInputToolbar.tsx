@@ -30,7 +30,6 @@ import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-
 const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const {
     isRecording,
@@ -232,7 +231,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
 
 export default React.memo(CustomInputToolbar);
 
-// ─── Styles 
+// ─── Styles
 
 const styles = StyleSheet.create({
   container: {

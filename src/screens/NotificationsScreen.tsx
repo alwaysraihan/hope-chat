@@ -1,256 +1,358 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  Image,
+  StyleSheet,
+  FlatList,
+  SectionList,
 } from 'react-native';
+
+import {
+  ChevronLeft,
+  Settings2,
+  BookMarked,
+  CreditCard,
+  Bell,
+  Crown,
+} from 'lucide-react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Info } from 'lucide-react-native';
+import { theme } from '../theme';
 
-import { colorss } from '../theme';
-import { IC_PROFILE } from '../assets';
+// ─────────────────────────────────────────────
 
+const FILTERS = ['All', 'Remainders', 'Payment', 'Booking'];
 const NOTIFICATIONS = [
   {
-    id: '1',
-    section: 'Today',
-    name: 'Emily Johnson',
-    message: 'Liked your photo.',
-    time: '1h',
-    unread: true,
+    id: 'Today',
+    data: [
+      {
+        id: '1',
+        type: 'booking',
+        title: 'Booking confirmed!',
+        time: '10:04 am',
+        message: 'Your booking for Slot-02 is confirmed for 23. Please ',
+        highlight: 'view details',
+        suffix: ' for more info',
+        category: 'Booking',
+      },
+      {
+        id: '2',
+        type: 'payment',
+        title: 'Payment Method Saved',
+        time: '9:23 am',
+        message:
+          'Your payment method has been securely saved and is now ready to use for future transactions',
+        category: 'Payment',
+      },
+    ],
   },
   {
-    id: '2',
-    section: 'Today',
-    name: 'Michael Smith',
-    message: 'Commented: Awesome!',
-    time: '2h',
-    unread: true,
-  },
-  {
-    id: '3',
-    section: 'Today',
-    name: 'Ashley Williams',
-    message: 'Sent you a friend request.',
-    time: '4h',
-    unread: true,
-  },
-  {
-    id: '4',
-    section: 'Earlier',
-    name: 'Christopher Brown',
-    message: 'You are now friends. Tap to chat.',
-    time: '1d',
-    unread: true,
-  },
-  {
-    id: '5',
-    section: 'Earlier',
-    name: 'Jessica Davis',
-    message: 'Shared a post with you.',
-    time: '2d',
-    unread: true,
-  },
-  {
-    id: '6',
-    section: 'Earlier',
-    name: 'Daniel Miller',
-    message: 'Mentioned you in a comment.',
-    time: '3d',
-    unread: true,
-  },
-  {
-    id: '7',
-    section: 'This Week',
-    name: 'Matthew Wilson',
-    message: 'Reacted 👍 to your story.',
-    time: '5d',
-    unread: true,
-  },
-  {
-    id: '8',
-    section: 'This Week',
-    name: 'Olivia Moore',
-    message: 'Started following you.',
-    time: '6d',
-    unread: true,
-  },
-  {
-    id: '9',
-    section: 'Older',
-    name: 'David Taylor',
-    message: 'Updated profile picture.',
-    time: '1w',
-    unread: true,
-  },
-  {
-    id: '10',
-    section: 'Older',
-    name: 'Sophia Anderson',
-    message: 'Liked your comment.',
-    time: '2w',
-    unread: true,
+    id: 'Earlier',
+    data: [
+      {
+        id: '3',
+        type: 'bell',
+        title: 'Session reminder',
+        time: '10:04 am',
+        message:
+          "You have an upcoming session. Don't forget to show up on time!",
+        category: 'Remainders',
+      },
+      {
+        id: '4',
+        type: 'bell',
+        title: 'Session cancelled',
+        time: '9:23 am',
+        message: 'Your booking has been cancelled. You can ',
+        highlight: 'reschedule',
+        suffix: ' anytime',
+        category: 'Remainders',
+      },
+      {
+        id: '5',
+        type: 'payment',
+        title: 'Payment successful',
+        time: '9:45 am',
+        message:
+          'Thank you for your purchase! A confirmation email has been sent to your address.',
+        category: 'Payment',
+      },
+      {
+        id: '6',
+        type: 'crown',
+        title: 'Goal Achieved',
+        time: '9:45 am',
+        message: "Great job! You've attended your 30th class in your journey",
+        category: 'All',
+      },
+    ],
   },
 ];
 
-const NotificationsScreen = () => {
-  const todayItems = NOTIFICATIONS.filter(n => n.section === 'Today');
-  const earlierItems = NOTIFICATIONS.filter(n => n.section !== 'Today');
+// ─────────────────────────────────────────────
 
-  const renderItem = item => (
-    <TouchableOpacity key={item.id} style={styles.item} activeOpacity={0.7}>
-      {item.isSystem ? (
-        <View style={styles.systemIcon}>
-          <Info size={20} color={colorss.textPrimary} />
-        </View>
-      ) : (
-        <Image
-          source={IC_PROFILE}
-          style={{ width: 52, height: 52, borderRadius: 26 }}
-        />
-      )}
+const ICONS = {
+  booking: BookMarked,
+  payment: CreditCard,
+  bell: Bell,
+  crown: Crown,
+};
 
-      <View style={styles.itemContent}>
-        <Text style={styles.itemText}>
-          <Text style={styles.itemName}>{item.name} </Text>
-          <Text style={styles.itemMsg}>{item.message}</Text>
-        </Text>
+// ─────────────────────────────────────────────
 
-        <Text style={[styles.itemTime, item.unread && styles.itemTimeUnread]}>
-          · {item.time}
-        </Text>
-      </View>
-
-      {item.unread && <View style={styles.unreadDot} />}
-    </TouchableOpacity>
-  );
+const NotifIcon = ({ type }) => {
+  const Icon = ICONS[type] || Bell;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Notifications</Text>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* TODAY */}
-        {todayItems.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>Today</Text>
-            {todayItems.map(renderItem)}
-          </>
-        )}
-
-        {/* EARLIER */}
-        {earlierItems.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>Earlier</Text>
-            {earlierItems.map(renderItem)}
-          </>
-        )}
-
-        <View style={{ height: 30 }} />
-      </ScrollView>
-    </SafeAreaView>
+    <View style={styles.iconContainer}>
+      <Icon size={20} color={theme.textPrimary} strokeWidth={1.8} />
+    </View>
   );
 };
 
-export default NotificationsScreen;
+// ─────────────────────────────────────────────
+
+const NotificationItem = React.memo(({ item, isLast }) => {
+  return (
+    <View style={[styles.notificationItem, !isLast && styles.divider]}>
+      <NotifIcon type={item.type} />
+
+      <View style={styles.notificationContent}>
+        <View style={styles.notificationHeader}>
+          <Text style={styles.notificationTitle}>{item.title}</Text>
+
+          <Text style={styles.notificationTime}>{item.time}</Text>
+        </View>
+
+        <Text style={styles.notificationText}>
+          {item.message}
+
+          {item.highlight && (
+            <Text style={styles.notificationLink}>{item.highlight}</Text>
+          )}
+
+          {item.suffix}
+        </Text>
+      </View>
+    </View>
+  );
+});
+
+// ─────────────────────────────────────────────
+
+export default function NotificationsScreen() {
+  const [activeFilter, setActiveFilter] = useState('All');
+
+  const filteredSections = useMemo(() => {
+    return NOTIFICATIONS.map(section => ({
+      ...section,
+      data:
+        activeFilter === 'All'
+          ? section.data
+          : section.data.filter(
+              item => item.category === activeFilter || item.category === 'All',
+            ),
+    })).filter(section => section.data.length > 0);
+  }, [activeFilter]);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.iconButton}>
+          <ChevronLeft size={24} color={theme.textPrimary} />
+        </TouchableOpacity>
+
+        <Text style={styles.headerTitle}>Notifications</Text>
+
+        <TouchableOpacity style={styles.iconButton}>
+          <Settings2 size={22} color={theme.textPrimary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Notifications */}
+      <SectionList
+        ListHeaderComponent={
+          <FlatList
+            data={FILTERS}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={item => item}
+            contentContainerStyle={styles.filterContainer}
+            renderItem={({ item }) => {
+              const active = activeFilter === item;
+
+              return (
+                <TouchableOpacity
+                  onPress={() => setActiveFilter(item)}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      active && styles.filterTextActive,
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        }
+        sections={filteredSections}
+        keyExtractor={item => item.id}
+        stickySectionHeadersEnabled={false}
+        contentContainerStyle={styles.sectionContainer}
+        showsVerticalScrollIndicator={false}
+        renderSectionHeader={({ section }) => (
+          <Text style={styles.sectionTitle}>{section.id}</Text>
+        )}
+        renderItem={({ item, index, section }) => (
+          <NotificationItem
+            item={item}
+            isLast={index === section.data.length - 1}
+          />
+        )}
+      />
+    </SafeAreaView>
+  );
+}
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: theme.background,
   },
 
+  // Header
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colorss.border,
-    backgroundColor: colorss.white,
-  },
-
-  title: {
-    color: colorss.textPrimary,
-    fontSize: 26,
-    fontWeight: '700',
-  },
-
-  sectionLabel: {
-    color: colorss.textSecondary,
-    fontSize: 14,
-    fontWeight: '600',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 6,
-  },
-
-  item: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 12,
+    paddingVertical: 12,
   },
 
-  systemIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colorss.backgroundDeep,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  avatar: {
-    backgroundColor: colorss.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  avatarText: {
-    color: colorss.white,
-    fontSize: 16,
+  headerTitle: {
+    flex: 1,
+    fontSize: 22,
     fontWeight: '700',
+    color: theme.textPrimary,
+    letterSpacing: -0.4,
   },
 
-  itemContent: {
+  iconButton: {
+    padding: 6,
+  },
+
+  // Filters
+  filterContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 18,
+    gap: 10,
+  },
+
+  filterChip: {
+    minHeight: 38,
+    paddingHorizontal: 18,
+
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.border,
+
+    backgroundColor: theme.white,
+
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  filterChipActive: {
+    backgroundColor: theme.textPrimary,
+    borderColor: theme.textPrimary,
+  },
+
+  filterText: {
+    fontSize: 13,
+    fontWeight: '500',
+
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+
+    color: theme.textSecondary,
+  },
+
+  filterTextActive: {
+    color: theme.white,
+  },
+
+  // Sections
+  sectionContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 30,
+  },
+
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: theme.textPrimary,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+
+  // Notification Item
+  notificationItem: {
+    flexDirection: 'row',
+    gap: 14,
+    paddingVertical: 16,
+  },
+
+  divider: {
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
+
+  iconContainer: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: theme.purpleLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  notificationContent: {
     flex: 1,
   },
 
-  itemText: {
+  notificationHeader: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 4,
+  },
+
+  notificationTitle: {
+    flex: 1,
     fontSize: 14,
-    lineHeight: 20,
-  },
-
-  itemName: {
-    color: colorss.textPrimary,
     fontWeight: '700',
+    color: theme.textPrimary,
   },
 
-  itemMsg: {
-    color: colorss.textSecondary,
-  },
-
-  itemTime: {
-    color: colorss.textSecondary,
+  notificationTime: {
     fontSize: 12,
-    marginTop: 2,
+    color: theme.textMuted,
   },
 
-  itemTimeUnread: {
-    color: colorss.primary,
-    fontWeight: '600',
+  notificationText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: theme.textSecondary,
   },
 
-  unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colorss.primary,
+  notificationLink: {
+    fontWeight: '700',
+    color: theme.textPrimary,
+    textDecorationLine: 'underline',
   },
 });

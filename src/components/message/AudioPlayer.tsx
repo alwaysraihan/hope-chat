@@ -10,8 +10,9 @@ import {
 } from 'react-native';
 import AudioRecorderPlayer from 'react-native-nitro-sound';
 import RNFS from 'react-native-fs';
-import { colorss } from '../../theme';
+import { colorss, theme } from '../../theme';
 import { Pause, Play } from 'lucide-react-native';
+import formatMessageTime from '../../utils/formatMessageTime';
 
 // Types
 
@@ -207,19 +208,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const formatMessageTime = (date: Date | number): string => {
-    const d = new Date(date);
-    const diffH = (Date.now() - d.getTime()) / 3_600_000;
-    if (diffH < 24)
-      return d.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
-    if (diffH < 48) return 'Yesterday';
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
   //  Theme colours
   const colors = isOwn
     ? {
@@ -264,7 +252,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   //  Normal state
   return (
-    <View style={[styles.container, { backgroundColor: colorss.white }]}>
+    <View style={[styles.container]}>
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
         <TouchableOpacity
           style={[styles.playBtn, { backgroundColor: colorss.primary }]}

@@ -4,8 +4,8 @@ import MenuScreen from '../screens/MenuScreen';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import CustomTabBar from '../components/CustomTabBar';
 import { BottomTabNavigatorParamList } from '../types/navigators';
-import StoryScreen from '../screens/StoryScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
+import StatusScreen from '../screens/StatusScreen';
 
 const TabNavigator = createBottomTabNavigator<BottomTabNavigatorParamList>();
 const BottomTabNavigator = () => {
@@ -15,7 +15,7 @@ const BottomTabNavigator = () => {
       screenOptions={{ headerShown: false }}
     >
       <TabNavigator.Screen name="Home" component={HomeScreen} />
-      <TabNavigator.Screen name="Story" component={StoryScreen} />
+      <TabNavigator.Screen name="Story" component={StatusScreen} />
       <TabNavigator.Screen
         name="Notifications"
         component={NotificationsScreen}

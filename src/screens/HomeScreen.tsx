@@ -6,7 +6,7 @@ import StoryItem from '../components/home/StoryItem';
 import ConversationItem from '../components/home/ConversationItem';
 import SearchBar from '../components/home/SearchBar';
 import { stories, conversations } from '../data/mockData';
-import { colors, spacing, fonts, colorss } from '../theme';
+import { colors, spacing, fonts, colorss, theme } from '../theme';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import {
   BottomTabNavigatorParamList,
@@ -14,6 +14,7 @@ import {
 } from '../types/navigators';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { BellOff } from 'lucide-react-native';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>,
@@ -37,7 +38,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const renderConversation = useCallback(
-    ({ item, index }) => (
+    ({ item }) => (
       <>
         <ConversationItem
           item={item}
@@ -60,7 +61,21 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.storiesList}
         />
-        <Text style={styles.sectionLabel}>Messages</Text>
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: spacing.md,
+            paddingBottom: 8,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={styles.sectionLabel}>Messages</Text>
+            <BellOff size={16} color={colorss.textPrimary} />
+          </View>
+          <Text style={[styles.sectionLabel, styles.requests]}>Requests</Text>
+        </View>
       </>
     ),
     [renderStory],
@@ -97,7 +112,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colorss.primary,
+    backgroundColor: theme.white,
   },
   container: {
     flex: 1,
@@ -109,13 +124,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionLabel: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: 8,
-    fontSize: 11,
-    fontWeight: fonts.semibold,
-    color: colors.textMuted,
-    letterSpacing: 0.08 * 11,
-    textTransform: 'uppercase',
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.textPrimary,
+  },
+  requests: {
+    color: theme.primary,
   },
   listContent: {
     flexGrow: 1,

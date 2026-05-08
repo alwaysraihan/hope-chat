@@ -26,7 +26,7 @@ import { useInbox } from '../../context/InboxContext';
 import { ExtendedMessage, Anchor } from '../types/chat';
 import { colorss } from '../../theme';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+//  Types
 
 type ReactionProps = {
   currentMessage: ExtendedMessage;
@@ -42,12 +42,12 @@ type ActionButton = {
   onPress: () => void;
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+//  Constants
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const EMOJIS = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
 
-// ─── Component ────────────────────────────────────────────────────────────────
+//  Component
 // All message actions (react, reply, delete, forward) come from InboxContext.
 // No callback props needed from the parent.
 
@@ -72,7 +72,7 @@ export default function Reaction({
 
   const media = currentMessage?.media;
 
-  // ── Animations
+  //  Animations
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const trayScale = useRef(new Animated.Value(0.85)).current;
   const trayOpacity = useRef(new Animated.Value(0)).current;
@@ -80,7 +80,7 @@ export default function Reaction({
   const sheetTranslateY = useRef(new Animated.Value(60)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
 
-  // ── Open / close tray ─────────────────────────────────────────────────────
+  //  Open / close tray
 
   const openTray = useCallback(() => {
     setTrayVisible(true);
@@ -176,7 +176,7 @@ export default function Reaction({
     ],
   );
 
-  // ── Long press → open tray
+  //  Long press → open tray
   const handleLongPress = useCallback(() => {
     swipeRef.current?.close();
     wrapRef.current?.measure((_x, _y, w, h, pageX, pageY) => {
@@ -185,7 +185,7 @@ export default function Reaction({
     });
   }, [openTray]);
 
-  // ── Swipe to reply
+  //  Swipe to reply
   const dispatchReply = useCallback(() => {
     handleReply(currentMessage);
   }, [currentMessage, handleReply]);
@@ -206,7 +206,7 @@ export default function Reaction({
     [isRight, dispatchReply],
   );
 
-  // ── Emoji reaction
+  //  Emoji reaction
   const handleEmojiPress = useCallback(
     (emoji: string) => {
       closeTray(() => handleReact(emoji, currentMessage));
@@ -214,7 +214,7 @@ export default function Reaction({
     [closeTray, handleReact, currentMessage],
   );
 
-  // ── Media preview
+  //  Media preview
   const handleMediaPress = useCallback(() => {
     if (media?.type === 'image' || media?.type === 'video') {
       setPreviewUrl(media.remoteUri ?? media.url ?? '');
@@ -222,7 +222,7 @@ export default function Reaction({
     }
   }, [media]);
 
-  // ── Action buttons (all wired to context functions)
+  //  Action buttons (all wired to context functions)
   const actions: ActionButton[] = [
     {
       id: 'reply',
@@ -260,7 +260,7 @@ export default function Reaction({
     },
   ];
 
-  // ── Tray positioning
+  //  Tray positioning
 
   const trayStyle = anchor
     ? {
@@ -271,7 +271,7 @@ export default function Reaction({
       }
     : { top: 0, left: 10 };
 
-  // ── Reaction badge summary
+  //  Reaction badge summary
   const hasReactions =
     currentMessage.reactions && currentMessage.reactions.length > 0;
   const reactionSummary = hasReactions
@@ -291,7 +291,7 @@ export default function Reaction({
     </View>
   );
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  //  Render
   return (
     <View ref={wrapRef} collapsable={false} style={[styles.wrapper]}>
       {/* Context sheet modal */}
@@ -385,13 +385,7 @@ export default function Reaction({
         renderLeftActions={isRight ? undefined : swipeAction}
         renderRightActions={isRight ? swipeAction : undefined}
       >
-        <View
-          style={[
-            styles.row,
-            isRight ? styles.rowRight : styles.rowLeft,
-            hasReactions && styles.wrapperWithReaction,
-          ]}
-        >
+        <View style={[styles.row, hasReactions && styles.wrapperWithReaction]}>
           <Pressable onLongPress={handleLongPress} onPress={handleMediaPress}>
             {children}
           </Pressable>
@@ -429,7 +423,7 @@ export default function Reaction({
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+//  Styles
 
 const styles = StyleSheet.create({
   wrapper: { marginBottom: 6 },
@@ -468,7 +462,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 14,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
     paddingHorizontal: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
@@ -484,9 +477,9 @@ const styles = StyleSheet.create({
   },
   actionItem: { flex: 1, alignItems: 'center', gap: 6, paddingVertical: 4 },
   actionIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     backgroundColor: '#FDE8F3',
     justifyContent: 'center',
     alignItems: 'center',
@@ -501,8 +494,6 @@ const styles = StyleSheet.create({
 
   // Swipe row
   row: { position: 'relative' },
-  rowLeft: { alignSelf: 'flex-start', marginLeft: 12 },
-  rowRight: { alignSelf: 'flex-end', marginRight: 12 },
   swipeAction: {
     justifyContent: 'center',
     alignItems: 'center',

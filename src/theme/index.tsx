@@ -39,6 +39,28 @@ export const colorss = {
   error: '#EF4444',
 };
 
+export const theme = {
+  primary: '#5468F3',
+
+  background: '#FFFFFF',
+  surface: '#F8FAFC',
+  card: '#FFFFFF',
+
+  border: '#E5E7EB',
+
+  textPrimary: '#10182B',
+  textSecondary: '#64748B',
+  textMuted: '#9CA3AF',
+
+  white: '#FFFFFF',
+
+  success: '#22C55E',
+  warning: '#F59E0B',
+  danger: '#EF4444',
+
+  purpleLight: '#F5F3FF',
+};
+
 export const fonts = {
   regular: '400' as const,
   medium: '500' as const,

@@ -5,22 +5,20 @@ import { colors, radius, fonts, colorss } from '../../theme';
 import { IC_PROFILE } from '../../assets';
 
 const StoryItem = ({ item, onPress }) => {
-  if (item.isAdd) {
-    return (
-      <TouchableOpacity
-        style={styles.container}
-        onPress={onPress}
-        activeOpacity={0.7}
-      >
-        <View style={styles.addRing}>
-          <View style={styles.addAvatar}>
-            <Text style={styles.addIcon}>+</Text>
-          </View>
-        </View>
-        <Text style={styles.addName}>Add</Text>
-      </TouchableOpacity>
-    );
-  }
+  // if (item.isAdd) {
+  //   return (
+  //     <TouchableOpacity
+  //       style={styles.container}
+  //       onPress={onPress}
+  //       activeOpacity={0.7}
+  //     >
+  //       <View style={styles.addAvatar}>
+  //         <Text style={styles.addIcon}>+</Text>
+  //       </View>
+  //       <Text style={styles.addName}>Add</Text>
+  //     </TouchableOpacity>
+  //   );
+  // }
 
   return (
     <TouchableOpacity
@@ -28,26 +26,10 @@ const StoryItem = ({ item, onPress }) => {
       onPress={onPress}
       activeOpacity={0.7}
     >
-      {item.active ? (
-        <LinearGradient
-          colors={['#7C3AED', '#EC4899', '#F59E0B']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.activeRing}
-        >
-          <Image
-            source={IC_PROFILE}
-            style={{ width: 60, height: 60, borderRadius: radius.full }}
-          />
-        </LinearGradient>
-      ) : (
-        <View style={styles.seenRing}>
-          <Image
-            source={IC_PROFILE}
-            style={{ width: 60, height: 60, borderRadius: radius.full }}
-          />
-        </View>
-      )}
+      <View style={styles.avatarWrap}>
+        <Image source={IC_PROFILE} style={styles.avatar} />
+        {item.active && <View style={styles.onlineDot} />}
+      </View>
       <Text style={styles.name} numberOfLines={1}>
         {item.name}
       </Text>
@@ -78,24 +60,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addRing: {
+  addAvatar: {
     width: 62,
     height: 62,
     borderRadius: radius.full,
-    borderWidth: 2,
-    borderColor: '#3a3a54',
-    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colorss.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  addAvatar: {
-    width: '100%',
-    height: '100%',
+
+  avatarWrap: {
+    position: 'relative',
+  },
+  avatar: {
+    width: 52,
+    height: 52,
     borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 3,
+    right: 3,
+    width: 10,
+    height: 10,
+    borderRadius: radius.full,
+    backgroundColor: colors.online,
+  },
+
   avatarInner: {
     width: '100%',
     height: '100%',

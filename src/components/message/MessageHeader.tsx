@@ -7,7 +7,7 @@ import {
   LucideVideo,
   Phone,
 } from 'lucide-react-native';
-import { colorss } from '../../theme';
+import { colorss, theme } from '../../theme';
 
 //  Types
 
@@ -35,7 +35,7 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
       onPress={onBackPress}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
     >
-      <LucideArrowLeft color={colorss.white} size={22} />
+      <LucideArrowLeft color={theme.textPrimary} size={22} />
     </TouchableOpacity>
 
     <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
@@ -47,14 +47,11 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
     </TouchableOpacity>
 
     <View style={styles.actions}>
-      <TouchableOpacity onPress={onAudioCall} style={styles.actionBtn}>
-        <Phone size={18} color={colorss.white} />
-      </TouchableOpacity>
       <TouchableOpacity onPress={onVideoCall} style={styles.actionBtn}>
-        <LucideVideo size={18} color={colorss.white} />
+        <LucideVideo size={16} color={theme.textPrimary} />
       </TouchableOpacity>
-      <TouchableOpacity onPress={onProfilePress} style={styles.actionBtn}>
-        <LucideEllipsisVertical size={18} color={colorss.white} />
+      <TouchableOpacity onPress={onAudioCall} style={styles.actionBtn}>
+        <Phone size={16} color={theme.textPrimary} />
       </TouchableOpacity>
     </View>
   </View>
@@ -66,12 +63,14 @@ export default React.memo(MessageHeader);
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colorss.primary,
-    paddingVertical: 10,
+    backgroundColor: theme.white,
+    paddingVertical: 16,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
   },
   profile: {
     flex: 1,
@@ -90,13 +89,13 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   name: {
-    color: colorss.white,
+    color: theme.textPrimary,
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.1,
   },
   status: {
-    color: 'rgba(255,255,255,0.75)',
+    color: theme.textSecondary,
     fontSize: 12,
   },
   actions: {
@@ -105,8 +104,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   actionBtn: {
-    padding: 7,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    padding: 9,
+    backgroundColor: theme.secondary,
     borderRadius: 20,
   },
 });

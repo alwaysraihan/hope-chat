@@ -46,6 +46,7 @@ type MediaTabNavigatorParamList = {
 
 type PublicStackNavigatorParamList = {
   Login: undefined;
+  ForgotPassword: undefined;
 };
 
 export type {

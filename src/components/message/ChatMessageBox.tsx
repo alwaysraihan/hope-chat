@@ -9,22 +9,24 @@ import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
 import { ExtendedMessage } from '../types/chat';
 import { useInbox } from '../../context/InboxContext';
-import { colorss } from '../../theme';
+import { colorss, theme } from '../../theme';
+import { CheckCheck } from 'lucide-react-native';
+import formatMessageTime from '../../utils/formatMessageTime';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+//  Constants
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_BUBBLE_WIDTH = SCREEN_WIDTH * 0.78;
 const MIN_BUBBLE_WIDTH_WITH_REPLY = SCREEN_WIDTH * 0.58;
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+//  Types
 
 type ChatMessageBoxProps = {
   onPressReactions?: () => void;
   refreshTrigger?: number;
 } & MessageProps<IMessage>;
 
-// ─── Component ────────────────────────────────────────────────────────────────
+//  Component
 // onReact / onReply / onDelete / onForward / onPressReplyPreview are all
 // consumed from InboxContext — no prop drilling needed from InboxScreen.
 
@@ -59,14 +61,17 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     />
   ) : null;
 
-  // ── Voice ──────────────────────────────────────────────────────────────────
+  //  Voice
 
   if (media?.type === 'voice') {
     const audioUri = media.remoteUri ?? media.url ?? media.localUri ?? '';
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={[
+            styles.column,
+            isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
+          ]}
         >
           {ReplySnippet && (
             <View
@@ -91,14 +96,18 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     );
   }
 
-  // ── Image ──────────────────────────────────────────────────────────────────
+  //  Image
 
   if (media?.type === 'image') {
     const imageUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={[
+            styles.column,
+            isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
+            { borderRadius: 14 },
+          ]}
         >
           {ReplySnippet && (
             <View
@@ -125,12 +134,24 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               <Text style={styles.overlayText}>Upload failed</Text>
             </View>
           )}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              justifyContent: 'flex-end',
+              paddingHorizontal: 8,
+            }}
+          >
+            <Text>{formatMessageTime(msg.createdAt as Date)}</Text>
+            <CheckCheck size={16} />
+          </View>
         </View>
       </Reaction>
     );
   }
 
-  // ── Video ──────────────────────────────────────────────────────────────────
+  //  Video
 
   if (media?.type === 'video') {
     const videoUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
@@ -140,7 +161,8 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
         <View
           style={[
             styles.mediaWrapper,
-            isOwn ? styles.alignRight : styles.alignLeft,
+            isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
+            { borderRadius: 14 },
           ]}
         >
           {thumbUri ? (
@@ -167,12 +189,24 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               <Text style={styles.overlayText}>Uploading…</Text>
             </View>
           )}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              justifyContent: 'flex-end',
+              paddingHorizontal: 8,
+            }}
+          >
+            <Text>{formatMessageTime(msg.createdAt as Date)}</Text>
+            <CheckCheck size={16} />
+          </View>
         </View>
       </Reaction>
     );
   }
 
-  // ── Text ───────────────────────────────────────────────────────────────────
+  //  Text
 
   return (
     <Reaction {...reactionProps}>
@@ -184,13 +218,31 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
         ]}
       >
         {ReplySnippet}
-        <Text style={styles.messageText}>{msg?.text ?? ''}</Text>
+        <Text
+          style={[
+            styles.messageText,
+            isOwn ? { color: theme.white } : { color: theme.textPrimary },
+          ]}
+        >
+          {msg?.text ?? ''}
+        </Text>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            justifyContent: 'flex-end',
+          }}
+        >
+          <Text>{formatMessageTime(msg.createdAt as Date)}</Text>
+          <CheckCheck size={16} />
+        </View>
       </View>
     </Reaction>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+//  Styles
 
 const styles = StyleSheet.create({
   alignLeft: { alignSelf: 'flex-start', marginLeft: 12 },
@@ -201,6 +253,7 @@ const styles = StyleSheet.create({
     marginVertical: 2,
     flexDirection: 'column',
     gap: 3,
+    borderRadius: 18,
   },
   replyWrap: { borderRadius: 10, overflow: 'hidden' },
   replyOwn: { backgroundColor: 'rgba(0,0,0,0.22)' },
@@ -219,18 +272,17 @@ const styles = StyleSheet.create({
   textBubbleLeft: {
     alignSelf: 'flex-start',
     marginLeft: 12,
-    backgroundColor: colorss.darkBg,
+    backgroundColor: theme.white,
     borderTopLeftRadius: 4,
   },
   textBubbleRight: {
     alignSelf: 'flex-end',
     marginRight: 12,
-    backgroundColor: colorss.primary,
+    backgroundColor: theme.primary,
     borderTopRightRadius: 4,
   },
   textBubbleWithReply: { minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY },
   messageText: {
-    color: colorss.white,
     fontSize: 14.5,
     lineHeight: 20,
     letterSpacing: 0.1,

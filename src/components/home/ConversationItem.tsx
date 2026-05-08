@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
-import { colors, radius, fonts, spacing, colorss } from '../../theme';
+import { colors, radius, fonts, spacing, colorss, theme } from '../../theme';
 import { IC_PROFILE } from '../../assets';
 
 const ConversationItem = ({ item, onPress, onLongPress }) => {
@@ -69,14 +69,12 @@ const styles = StyleSheet.create({
   },
   onlineDot: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 12,
-    height: 12,
+    bottom: 3,
+    right: 3,
+    width: 10,
+    height: 10,
     borderRadius: radius.full,
     backgroundColor: colors.online,
-    borderWidth: 2.5,
-    borderColor: colors.background,
   },
   body: {
     flex: 1,
@@ -113,7 +111,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   badge: {
-    backgroundColor: colorss.primary,
+    backgroundColor: theme.primary,
     minWidth: 20,
     height: 20,
     borderRadius: radius.full,

@@ -1,6 +1,5 @@
-
-export const stories= [
-  { id: '0', isAdd: true },
+export const stories = [
+  // { id: '0', isAdd: true },
   {
     id: '1',
     name: 'Priya',
