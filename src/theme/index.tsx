@@ -23,7 +23,7 @@ export const colorss = {
   primaryLight: '#FF7FA8',
   primaryDark: '#CC3E70',
 
-  background: '#F4F4F4',
+  background: '#F8F8F8',
   surface: '#F8FAFC',
   backgroundDeep: '#e2e5ea',
   darkBg: '#1a1a2e',

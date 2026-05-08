@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import { colors, radius, fonts, colorss } from '../../theme';
 import { IC_PROFILE } from '../../assets';
 
@@ -23,34 +22,12 @@ const StoryItem = ({ item, onPress }) => {
   }
 
   return (
-    <TouchableOpacity
-      style={styles.container}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      {item.active ? (
-        <LinearGradient
-          colors={['#7C3AED', '#EC4899', '#F59E0B']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.activeRing}
-        >
-          <Image
-            source={IC_PROFILE}
-            style={{ width: 60, height: 60, borderRadius: radius.full }}
-          />
-        </LinearGradient>
-      ) : (
-        <View style={styles.seenRing}>
-          <Image
-            source={IC_PROFILE}
-            style={{ width: 60, height: 60, borderRadius: radius.full }}
-          />
-        </View>
-      )}
-      <Text style={styles.name} numberOfLines={1}>
-        {item.name}
-      </Text>
+    <TouchableOpacity style={styles.recentItem}>
+      <View style={styles.avatarWrap}>
+        <Image source={IC_PROFILE} style={styles.avatar} />
+        {item.active && <View style={styles.onlineDot} />}
+      </View>
+      <Text style={styles.recentName}>Raihan</Text>
     </TouchableOpacity>
   );
 };
@@ -59,31 +36,38 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     gap: 6,
-    width: 62,
+    width: 52,
+    height: 52,
   },
-  activeRing: {
-    width: 62,
-    height: 62,
-    borderRadius: radius.full,
-    padding: 2.5,
+  recentItem: {
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  seenRing: {
-    width: 62,
-    height: 62,
+  recentName: {
+    fontSize: 14,
+    color: colorss.textPrimary,
+    marginTop: 4,
+  },
+  avatarWrap: {
+    position: 'relative',
+  },
+  avatar: {
+    width: 52,
+    height: 52,
     borderRadius: radius.full,
-    padding: 2.5,
-    backgroundColor: '#2a2a3d',
-    alignItems: 'center',
-    justifyContent: 'center',
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 12,
+    height: 12,
+    borderRadius: radius.full,
+    backgroundColor: colors.online,
   },
   addRing: {
-    width: 62,
-    height: 62,
+    width: 52,
+    height: 52,
     borderRadius: radius.full,
-    borderWidth: 2,
-    borderColor: '#3a3a54',
     borderStyle: 'dashed',
     backgroundColor: colorss.primary,
     alignItems: 'center',

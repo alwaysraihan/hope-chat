@@ -97,7 +97,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colorss.primary,
+    backgroundColor: colorss.white,
   },
   container: {
     flex: 1,
