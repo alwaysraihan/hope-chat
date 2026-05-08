@@ -81,7 +81,7 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
         onProfilePress={() => navigation.navigate('Profile', { userId: '1' })}
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}
         onAudioCall={() => navigation.navigate('AudioCall')}
-        onVideoCall={() => console.log('VideoCall')}
+        onVideoCall={() => navigation.navigate('VideoCall')}
       />
 
       <View style={{ flex: 1, backgroundColor: colorss.background }}>

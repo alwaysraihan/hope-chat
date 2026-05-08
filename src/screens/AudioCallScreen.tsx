@@ -1,72 +1,169 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ChevronLeft,
-  Plus,
-  MoreVertical,
-  Camera,
   Mic,
-  UserPlus,
   Volume2,
   PhoneOff,
+  MessageCircle,
 } from 'lucide-react-native';
+
+import {
+  createAgoraRtcEngine,
+  ChannelProfileType,
+  ClientRoleType,
+} from 'react-native-agora';
 
 import { colorss } from '../theme';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackNavigatorParamList } from '../types/navigators';
+import { IC_PROFILE } from '../assets';
+import FastImage from '@d11/react-native-fast-image';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'AudioCall'>;
 
+const appId = 'YOUR_AGORA_APP_ID';
+const channelName = 'audioCallChannel';
+const token = 'YOUR_TEMP_TOKEN';
+
 const AudioCallScreen: React.FC<Props> = ({ navigation }) => {
+  const profileImage = true;
+
+  const [isMuted, setIsMuted] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [callStatus, setCallStatus] = useState('Calling...');
+  const [remoteUid, setRemoteUid] = useState<number | null>(null);
+
+  const actions = [
+    {
+      Icon: Volume2,
+      label: 'Speaker',
+      onPress: () => toggleSpeaker(),
+    },
+    {
+      Icon: Mic,
+      label: 'Mute',
+      onPress: () => toggleMute(),
+    },
+    {
+      Icon: PhoneOff,
+      label: 'End',
+      onPress: () => endCall(),
+    },
+  ];
+
+  const engine = createAgoraRtcEngine();
+
+  useEffect(() => {
+    initializeAgora();
+
+    return () => {
+      engine.leaveChannel();
+      engine.release();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const initializeAgora = async () => {
+    engine.initialize({
+      appId,
+    });
+
+    engine.setChannelProfile(ChannelProfileType.ChannelProfileCommunication);
+
+    engine.enableAudio();
+
+    engine.disableVideo();
+
+    engine.registerEventHandler({
+      onJoinChannelSuccess: () => {
+        setCallStatus('Calling...');
+      },
+
+      onUserJoined: (_connection, uid) => {
+        setRemoteUid(uid);
+        setCallStatus('Connected');
+      },
+
+      onUserOffline: () => {
+        setRemoteUid(null);
+        setCallStatus('Call Ended');
+      },
+    });
+
+    engine.joinChannel(token, channelName, 0, {
+      clientRoleType: ClientRoleType.ClientRoleBroadcaster,
+    });
+  };
+
+  const toggleMute = () => {
+    const newState = !isMuted;
+    setIsMuted(newState);
+    engine.muteLocalAudioStream(newState);
+  };
+
+  const toggleSpeaker = () => {
+    const newState = !isSpeakerOn;
+    setIsSpeakerOn(newState);
+    engine.setEnableSpeakerphone(newState);
+  };
+
+  const endCall = () => {
+    engine.leaveChannel();
+    navigation.goBack();
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
+        {/* Top Bar */}
         <View style={styles.topBar}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={endCall}>
             <ChevronLeft size={28} color={colorss.white} />
           </TouchableOpacity>
 
           <View style={styles.topRight}>
             <TouchableOpacity style={styles.iconBtn}>
-              <Plus size={18} color={colorss.white} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn}>
-              <MoreVertical size={18} color={colorss.white} />
+              <MessageCircle
+                size={18}
+                fill={colorss.white}
+                color={colorss.white}
+              />
             </TouchableOpacity>
           </View>
         </View>
 
+        {/* User Info */}
         <View style={styles.userInfo}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>MD</Text>
-          </View>
+          {profileImage ? (
+            <FastImage source={IC_PROFILE} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>MD</Text>
+            </View>
+          )}
 
           <Text style={styles.name}>MD Emon Hossain</Text>
-          <Text style={styles.status}>Calling...</Text>
+
+          <Text style={styles.status}>{callStatus}</Text>
         </View>
 
+        {/* Actions */}
         <View style={styles.actions}>
-          {[
-            { Icon: Camera, label: 'Camera' },
-            { Icon: Mic, label: 'Mute' },
-            { Icon: UserPlus, label: 'Share' },
-            { Icon: Volume2, label: 'Speaker' },
-          ].map(({ Icon, label }) => (
-            <View key={label} style={styles.actionItem}>
-              <TouchableOpacity style={styles.actionBtn}>
-                <Icon size={22} color={colorss.white} />
-              </TouchableOpacity>
-              <Text style={styles.actionLabel}>{label}</Text>
-            </View>
-          ))}
-        </View>
+          {actions.map(({ Icon, label, onPress }) => {
+            const style = label === 'End' ? styles.endBtn : styles.actionBtn;
 
-        <View style={styles.endWrapper}>
-          <TouchableOpacity style={styles.endBtn}>
-            <PhoneOff size={26} color={colorss.white} />
-          </TouchableOpacity>
-          <Text style={styles.endText}>End</Text>
+            return (
+              <View key={label} style={styles.actionItem}>
+                <TouchableOpacity style={style} onPress={onPress}>
+                  <Icon size={22} color={colorss.white} />
+                </TouchableOpacity>
+
+                <Text style={styles.actionLabel}>{label}</Text>
+              </View>
+            );
+          })}
         </View>
       </View>
     </SafeAreaView>
@@ -76,7 +173,10 @@ const AudioCallScreen: React.FC<Props> = ({ navigation }) => {
 export default AudioCallScreen;
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colorss.primaryDark },
+  safeArea: {
+    flex: 1,
+    backgroundColor: colorss.primaryDark,
+  },
 
   container: {
     flex: 1,
@@ -91,7 +191,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  topRight: { flexDirection: 'row', gap: 10 },
+  topRight: {
+    flexDirection: 'row',
+    gap: 10,
+  },
 
   iconBtn: {
     width: 34,
@@ -102,12 +205,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  userInfo: { alignItems: 'center', marginTop: 32 },
+  userInfo: {
+    alignItems: 'center',
+    marginTop: 60,
+  },
 
   avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
     backgroundColor: colorss.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -123,22 +229,27 @@ const styles = StyleSheet.create({
     color: colorss.white,
     fontSize: 24,
     fontWeight: '700',
-    marginTop: 14,
+    marginTop: 16,
   },
 
   status: {
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: 4,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 6,
+    fontSize: 15,
   },
 
   actions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     marginTop: 'auto',
-    marginBottom: 20,
+    marginBottom: 40,
+    marginHorizontal: 20,
   },
 
-  actionItem: { alignItems: 'center', gap: 6 },
+  actionItem: {
+    alignItems: 'center',
+    gap: 8,
+  },
 
   actionBtn: {
     width: 58,
@@ -149,13 +260,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  actionLabel: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 11,
-  },
-
-  endWrapper: { alignItems: 'center' },
-
   endBtn: {
     width: 64,
     height: 64,
@@ -165,8 +269,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  endText: {
+  actionLabel: {
     color: 'rgba(255,255,255,0.7)',
-    marginTop: 6,
+    fontSize: 11,
   },
 });

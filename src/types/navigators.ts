@@ -36,6 +36,7 @@ type RootStackNavigatorParamList = {
   Settings: undefined;
   MessageRequests: undefined;
   Reactions: undefined;
+  VideoCall: undefined;
 };
 
 type MediaTabNavigatorParamList = {

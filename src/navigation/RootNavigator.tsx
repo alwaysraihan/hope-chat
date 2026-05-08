@@ -26,6 +26,7 @@ import MessagePermissionsScreen from '../screens/MessagePermissionsScreen';
 import RestrictUserScreen from '../screens/RestrictUserScreen';
 import MessageRequestsScreen from '../screens/MessegeRequestScreen';
 import ReactionsScreen from '../screens/ReactionsScreen';
+import VideoCallScreen from '../screens/VideoCallScreen';
 
 const RootStack = createNativeStackNavigator<RootStackNavigatorParamList>();
 
@@ -66,6 +67,7 @@ const StackNavigator = () => {
         component={TypingIndicatorScreen}
       />
       <RootStack.Screen name="AudioCall" component={AudioCallScreen} />
+      <RootStack.Screen name="VideoCall" component={VideoCallScreen} />
       <RootStack.Screen
         name="DisappearingMessages"
         component={DisappearingMessagesScreen}

@@ -1,12 +1,7 @@
 import React from 'react';
 import { Image, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import Profile from '../../assets/raihan-sarkar.webp';
-import {
-  LucideArrowLeft,
-  LucideEllipsisVertical,
-  LucideVideo,
-  Phone,
-} from 'lucide-react-native';
+import { LucideVideo, Phone, ChevronLeft } from 'lucide-react-native';
 import { colorss } from '../../theme';
 
 //  Types
@@ -29,36 +24,50 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   onVideoCall,
   name = 'Raihan Sarkar',
   status = 'Online',
-}) => (
-  <View style={styles.container}>
-    <TouchableOpacity
-      onPress={onBackPress}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-    >
-      <LucideArrowLeft color={colorss.white} size={22} />
-    </TouchableOpacity>
+}) => {
+  const actions = [
+    {
+      Icon: Phone,
+      label: 'Audio Call',
+      onPress: onAudioCall,
+    },
+    {
+      Icon: LucideVideo,
+      label: 'Video Call',
+      onPress: onVideoCall,
+    },
+  ];
+  return (
+    <View style={styles.container}>
+      <TouchableOpacity
+        onPress={onBackPress}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <ChevronLeft color={colorss.white} size={22} />
+      </TouchableOpacity>
 
-    <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
-      <Image source={Profile} style={styles.avatar} />
-      <View style={styles.nameBlock}>
-        <Text style={styles.name}>{name}</Text>
-        <Text style={styles.status}>{status}</Text>
+      <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
+        <Image source={Profile} style={styles.avatar} />
+        <View style={styles.nameBlock}>
+          <Text style={styles.name}>{name}</Text>
+          <Text style={styles.status}>{status}</Text>
+        </View>
+      </TouchableOpacity>
+
+      <View style={styles.actions}>
+        {actions.map(({ Icon, onPress }, index) => (
+          <TouchableOpacity
+            key={index}
+            onPress={onPress}
+            style={styles.actionBtn}
+          >
+            <Icon size={18} color={colorss.white} />
+          </TouchableOpacity>
+        ))}
       </View>
-    </TouchableOpacity>
-
-    <View style={styles.actions}>
-      <TouchableOpacity onPress={onAudioCall} style={styles.actionBtn}>
-        <Phone size={18} color={colorss.white} />
-      </TouchableOpacity>
-      <TouchableOpacity onPress={onVideoCall} style={styles.actionBtn}>
-        <LucideVideo size={18} color={colorss.white} />
-      </TouchableOpacity>
-      <TouchableOpacity onPress={onProfilePress} style={styles.actionBtn}>
-        <LucideEllipsisVertical size={18} color={colorss.white} />
-      </TouchableOpacity>
     </View>
-  </View>
-);
+  );
+};
 
 export default React.memo(MessageHeader);
 
