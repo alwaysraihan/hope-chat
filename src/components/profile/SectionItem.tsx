@@ -3,10 +3,14 @@ import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { colorss } from '../../theme';
 
 const SectionItem = ({ item }) => {
+  const borderBottom = ['Nicknames', 'Create group', 'Block'];
+  const style = borderBottom.includes(item.title)
+    ? {}
+    : { borderBottomWidth: 1, borderBottomColor: colorss.border };
   return (
-    <TouchableOpacity onPress={item.onPress} style={styles.row}>
-      {item.image}
+    <TouchableOpacity onPress={item.onPress} style={[styles.row, style]}>
       <Text style={styles.rowText}>{item.title}</Text>
+      {item.image}
     </TouchableOpacity>
   );
 };
@@ -24,12 +28,13 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
-    paddingVertical: 6,
+    paddingVertical: 12,
   },
 
   rowText: {
-    fontSize: 15,
+    fontSize: 17,
     color: colorss.textPrimary,
     fontWeight: '500',
   },

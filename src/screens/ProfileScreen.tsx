@@ -2,26 +2,17 @@ import { SectionList, StyleSheet, Text, View } from 'react-native';
 import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  ALargeSmall,
-  AlertTriangle,
-  ArrowDownToLine,
-  Bell,
-  BlocksIcon,
-  CircleSlash,
-  ClockFading,
-  Eye,
-  ImageIcon,
+  ChevronRight,
+  CircleSlash2,
   LucideBell,
   LucidePalette,
-  LucidePersonStanding,
   LucidePhone,
   LucideVideo,
-  Pin,
-  Shield,
+  Search,
   ThumbsUp,
-  Trash2,
-  TypeIcon,
+  User,
   Users,
+  UserX,
 } from 'lucide-react-native';
 import { colorss } from '../theme';
 
@@ -47,38 +38,38 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       data: [
         {
           id: 1,
-          title: 'Theme',
-          image: <LucidePalette size={22} color={colorss.primary} />,
-          type: 'switch',
+          title: 'Color',
+          image: <LucidePalette size={24} color={colorss.primary} />,
+
           onPress: () => {
             navigation.navigate('Theme');
           },
         },
         {
           id: 2,
-          title: 'Quick reaction',
-          image: <ThumbsUp size={22} color={colorss.primary} />,
-          type: 'switch',
+          title: 'Emoji',
+          image: <ThumbsUp size={24} color={colorss.primary} />,
+
           onPress: () => {},
         },
         {
           id: 3,
           title: 'Nicknames',
-          image: <LucidePalette size={22} color={colorss.primary} />,
-          type: 'switch',
+          image: <ChevronRight size={24} color={colorss.primary} />,
+
           onPress: () => {
             navigation.navigate('Nicknames');
           },
         },
-        {
-          id: 4,
-          title: 'Word effects',
-          image: <ALargeSmall size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('WordEffects');
-          },
-        },
+        // {
+        //   id: 4,
+        //   title: 'Word effects',
+        //   image: <ALargeSmall size={24} color={colorss.primary} />,
+        //
+        //   onPress: () => {
+        //     navigation.navigate('WordEffects');
+        //   },
+        // },
       ],
     },
     {
@@ -86,129 +77,89 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       title: 'More actions',
       data: [
         {
+          id: 6,
+          title: 'Search in Conversation',
+          image: <Search size={24} color={colorss.primary} />,
+
+          onPress: () => {},
+        },
+        {
           id: 1,
-          title: 'Create group with',
-          image: <Users size={22} color={colorss.primary} />,
-          type: 'switch',
+          title: 'Create group',
+          image: <Users size={24} color={colorss.primary} />,
+
           onPress: () => {
             navigation.navigate('NewGroup');
           },
         },
-        {
-          id: 2,
-          title: 'View media, files, and links',
-          image: <ImageIcon size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('MediaTab', { screen: 'Media' });
-          },
-        },
-        {
-          id: 3,
-          title: 'Auto-save photos',
-          image: <ArrowDownToLine size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('AutoSavePhotos');
-          },
-        },
-        {
-          id: 4,
-          title: 'Pinned messages',
-          image: <Pin size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('PinnedMessages');
-          },
-        },
-        {
-          id: 5,
-          title: 'Notification & sounds',
-          image: <Bell size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('NotificationsSounds');
-          },
-        },
+
+        // {
+        //   id: 2,
+        //   title: 'View media, files, and links',
+        //   image: <ImageIcon size={24} color={colorss.primary} />,
+        //
+        //   onPress: () => {
+        //     navigation.navigate('MediaTab', { screen: 'Media' });
+        //   },
+        // },
+        // {
+        //   id: 3,
+        //   title: 'Auto-save photos',
+        //   image: <ArrowDownToLine size={24} color={colorss.primary} />,
+        //
+        //   onPress: () => {
+        //     navigation.navigate('AutoSavePhotos');
+        //   },
+        // },
+        // {
+        //   id: 4,
+        //   title: 'Pinned messages',
+        //   image: <Pin size={24} color={colorss.primary} />,
+        //
+        //   onPress: () => {
+        //     navigation.navigate('PinnedMessages');
+        //   },
+        // },
+        // {
+        //   id: 5,
+        //   title: 'Notification & sounds',
+        //   image: <Bell size={24} color={colorss.primary} />,
+        //
+        //   onPress: () => {
+        //     navigation.navigate('NotificationsSounds');
+        //   },
+        // },
       ],
     },
     {
       id: 3,
-      title: 'Privacy & support',
+      title: 'Privacy',
       data: [
         {
           id: 1,
-          title: 'Message permissions',
+          title: 'Notifications',
           image: (
-            <Shield fill={colorss.primary} size={22} color={colorss.primary} />
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={{ fontSize: 17, color: colorss.textSecondary }}>
+                On
+              </Text>
+              <ChevronRight size={24} color={colorss.border} />
+            </View>
           ),
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('MessagePermissions');
-          },
         },
         {
-          id: 4,
-          title: 'Blocked users',
-          image: <BlocksIcon size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('BlockedUser');
-          },
+          id: 2,
+          title: 'Ignore Messages',
+          image: <CircleSlash2 size={24} color={colorss.primary} />,
+
+          onPress: () => {},
         },
         {
-          id: 5,
-          title: 'Read Receipts',
-          image: <Eye size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('ReadReceipts');
-          },
-        },
-        {
-          id: 7,
-          title: 'Disappearing messages',
-          image: <ClockFading size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('DisappearingMessages');
-          },
-        },
-        {
-          id: 8,
-          title: 'Restrict',
-          image: <CircleSlash size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('RestrictUser');
-          },
-        },
-        {
-          id: 11,
-          title: 'Report a problem',
-          image: <AlertTriangle size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('ReportProblem');
-          },
-        },
-        {
-          id: 6,
-          title: 'Typing indicator',
-          image: <TypeIcon size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            navigation.navigate('TypingIndicator');
-          },
-        },
-        {
-          id: 9,
-          title: 'Delete account',
-          image: <Trash2 size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {
-            setVisibleDeleteChatModal(true);
-          },
+          id: 3,
+          title: 'Block',
+          image: <UserX size={24} color={colorss.primary} />,
+
+          onPress: () => {},
         },
       ],
     },
@@ -218,7 +169,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     {
       id: 1,
       name: 'Audio',
-      icon: <LucidePhone fill={'white'} stroke={'white'} />,
+      icon: <LucidePhone fill={colorss.primary} stroke={colorss.primary} />,
       onPress: () => {
         navigation.navigate('AudioCall');
       },
@@ -226,19 +177,19 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     {
       id: 2,
       name: 'Video',
-      icon: <LucideVideo fill={'white'} stroke={'white'} />,
+      icon: <LucideVideo fill={colorss.primary} stroke={colorss.primary} />,
       onPress: () => {},
     },
     {
       id: 3,
       name: 'Profile',
-      icon: <LucidePersonStanding fill={'white'} stroke={'white'} />,
+      icon: <User fill={colorss.primary} stroke={colorss.primary} />,
       onPress: () => {},
     },
     {
       id: 4,
       name: 'Mute',
-      icon: <LucideBell fill={'white'} stroke={'white'} />,
+      icon: <LucideBell fill={colorss.primary} stroke={colorss.primary} />,
       onPress: () => setVisibleMuteModal(true),
     },
   ];
@@ -286,13 +237,17 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       <SectionList
         sections={sectionsData}
         keyExtractor={item => item.id.toString()}
-        ListHeaderComponent={<ProfileHeader actionButton={actionButton} />}
+        ListHeaderComponent={
+          <ProfileHeader
+            actionButton={actionButton}
+            onBackPress={() => navigation.goBack()}
+          />
+        }
         renderItem={({ item }) => <SectionItem item={item} />}
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionHeader}>{section.title}</Text>
-        )}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-        SectionSeparatorComponent={() => <View style={{ height: 20 }} />}
+        renderSectionHeader={({ section }) => {
+          if (section.id === 1) return null;
+          return <Text style={styles.sectionHeader}>{section.title}</Text>;
+        }}
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       />
@@ -341,8 +296,9 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     fontSize: 14,
-    color: colorss.primaryLight,
+    color: colorss.textSecondary,
     marginBottom: 6,
     marginTop: 10,
+    textTransform: 'uppercase',
   },
 });

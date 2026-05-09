@@ -1,17 +1,24 @@
-import { LucideArrowLeft, LucideSettings } from 'lucide-react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { IC_PROFILE } from '../../assets';
 import { colorss } from '../../theme';
 
-const ProfileHeader = ({ actionButton }) => {
+const ProfileHeader = ({ actionButton, onBackPress }) => {
   return (
     <View>
       {/* Top Bar */}
       <View style={styles.topRow}>
-        <TouchableOpacity>
-          <LucideArrowLeft />
+        <TouchableOpacity
+          hitSlop={{
+            left: 8,
+            right: 8,
+            top: 8,
+            bottom: 8,
+          }}
+          onPress={onBackPress}
+        >
+          <ChevronLeft />
         </TouchableOpacity>
-        <LucideSettings />
       </View>
 
       {/* Profile */}
@@ -69,7 +76,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: colorss.primary,
+    backgroundColor: colorss.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
