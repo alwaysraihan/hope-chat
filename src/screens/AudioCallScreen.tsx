@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -13,6 +14,7 @@ import {
   PhoneOff,
 } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useSelector } from 'react-redux';
 import {
   AudioSession,
   LiveKitRoom,
@@ -24,7 +26,9 @@ import { colorss } from '../theme';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import FastImage from '@d11/react-native-fast-image';
 import { IC_PROFILE } from '../assets';
-import { LIVEKIT_URL, LIVEKIT_DEV_TOKEN } from '../config/livekit';
+import { selectHopenityProfile } from '../redux/features/auth/authSlice';
+import { LIVEKIT_FALLBACK_ROOM } from '../config/livekit';
+import { useLiveKitCredentials } from '../hooks/useLiveKitCredentials';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'AudioCall'>;
 
@@ -84,6 +88,8 @@ function AudioStage({
 }
 
 const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
+  const profile = useSelector(selectHopenityProfile);
+
   useEffect(() => {
     const run = async () => {
       await AudioSession.startAudioSession();
@@ -94,34 +100,51 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
     };
   }, []);
 
-  const displayName =
-    route.params?.displayName ?? route.params?.liveKitRoom ?? 'Voice';
-  const token = LIVEKIT_DEV_TOKEN;
+  const calleeName =
+    route.params?.displayName ??
+    route.params?.liveKitRoom ??
+    LIVEKIT_FALLBACK_ROOM;
+
+  const { loading, serverUrl, token, error, reload } = useLiveKitCredentials({
+    room: route.params?.liveKitRoom,
+    identity: profile?.userId ?? undefined,
+    displayName: profile?.displayName ?? undefined,
+  });
 
   return (
     <SafeAreaView style={styles.outer}>
       <View style={styles.container}>
-        {typeof token === 'string' && token.length > 0 ? (
+        {loading ? (
+          <View style={styles.centerWrap}>
+            <ActivityIndicator color={colorss.white} size="large" />
+            <Text style={styles.statusText}>Connecting voice…</Text>
+          </View>
+        ) : typeof serverUrl === 'string' &&
+          serverUrl.length > 0 &&
+          typeof token === 'string' &&
+          token.length > 0 ? (
           <LiveKitRoom
-            serverUrl={LIVEKIT_URL}
+            serverUrl={serverUrl}
             token={token}
             connect={true}
             audio={true}
             video={false}
             onDisconnected={() => navigation.goBack()}
           >
-            <AudioStage navigation={navigation} displayName={displayName} />
+            <AudioStage navigation={navigation} displayName={calleeName} />
           </LiveKitRoom>
         ) : (
           <SafeAreaView style={styles.missingWrap}>
-            <Text style={styles.missingTitle}>LiveKit audio</Text>
+            <Text style={styles.missingTitle}>Cannot start voice call</Text>
             <Text style={styles.missingBody}>
-              Configure LIVEKIT_DEV_TOKEN in src/config/livekit.ts. Run LiveKit OSS
-              (see https://github.com/livekit/livekit) or LiveKit Cloud, then connect
-              with a room token.
+              {error ??
+                'No LiveKit token or signaling URL — check LIVEKIT_* values in `.env`.'}
             </Text>
+            <TouchableOpacity style={styles.backGhost} onPress={reload}>
+              <Text style={styles.backGhostText}>Retry mint</Text>
+            </TouchableOpacity>
             <TouchableOpacity
-              style={styles.backGhost}
+              style={[styles.backGhost, { marginTop: 12 }]}
               onPress={() => navigation.goBack()}
             >
               <Text style={styles.backGhostText}>Close</Text>
@@ -207,6 +230,16 @@ const styles = StyleSheet.create({
   actionLabel: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 11,
+  },
+  centerWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  statusText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 15,
   },
   missingWrap: {
     flex: 1,
