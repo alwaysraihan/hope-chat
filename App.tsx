@@ -9,13 +9,18 @@ import { Provider } from 'react-redux';
 import { store } from './src/redux/store';
 import PublicStackNavigator from './src/navigation/PublicStackNavigator';
 import { useAppSelector } from './src/hooks/redux';
-import { selectToken } from './src/redux/features/auth/authSlice';
+import { selectHopeChatLoggedIn } from './src/redux/features/auth/authSlice';
+import { ChatsProvider } from './src/context/ChatsContext';
 
 const AppInner = () => {
-  const token = useAppSelector(selectToken);
-  if (token) return <RootNavigator />;
+  const loggedIn = useAppSelector(selectHopeChatLoggedIn);
+  if (!loggedIn) return <PublicStackNavigator />;
 
-  return <PublicStackNavigator />;
+  return (
+    <ChatsProvider>
+      <RootNavigator />
+    </ChatsProvider>
+  );
 };
 
 const App = () => {

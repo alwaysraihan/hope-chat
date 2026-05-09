@@ -9,7 +9,13 @@ type BottomTabNavigatorParamList = {
 
 type RootStackNavigatorParamList = {
   BottomTab: NavigatorScreenParams<BottomTabNavigatorParamList>;
-  Inbox: undefined;
+  Inbox: {
+    conversationId: string;
+    displayName?: string;
+    avatarUrl?: string | null;
+    token?: string;
+    liveKitRoom?: string;
+  };
   Profile: {
     userId: string;
   };
@@ -23,7 +29,10 @@ type RootStackNavigatorParamList = {
   AutoSavePhotos: undefined;
   Nicknames: undefined;
   MediaTab: NavigatorScreenParams<MediaTabNavigatorParamList>;
-  AudioCall: undefined;
+  AudioCall: {
+    displayName?: string;
+    liveKitRoom?: string;
+  };
   NewGroup: undefined;
   TypingIndicator: undefined;
   BlockedUser: undefined;
@@ -36,7 +45,10 @@ type RootStackNavigatorParamList = {
   Settings: undefined;
   MessageRequests: undefined;
   Reactions: undefined;
-  VideoCall: undefined;
+  VideoCall: {
+    displayName?: string;
+    liveKitRoom?: string;
+  };
 };
 
 type MediaTabNavigatorParamList = {
@@ -47,6 +59,7 @@ type MediaTabNavigatorParamList = {
 
 type PublicStackNavigatorParamList = {
   Login: undefined;
+  ForgotPassword: undefined;
 };
 
 export type {

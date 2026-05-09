@@ -13,7 +13,6 @@ import React, {
 import {
   Alert,
   Animated,
-  Dimensions,
   useWindowDimensions,
   View,
   ViewStyle,
@@ -34,204 +33,14 @@ import {
   checkMicrophonePermission,
 } from '../utils/permissions';
 
+import { CHAT_SCREEN_WIDTH } from '../data/chatTemplates';
+
+// Re-export for tests / tooling that imported from this module
+export { DEFAULT_MESSAGES } from '../data/chatTemplates';
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 20;
-
-// ─── Default mock data ────────────────────────────────────────────────────────
-
-const SUPPORT_USER = { _id: 'support', name: 'Raihan Sarkar' };
-const ME = { _id: '1', name: 'You' };
-
-const now = Date.now();
-const t = (offsetMinutes: number) => new Date(now - offsetMinutes * 60_000);
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-export const DEFAULT_MESSAGES: ExtendedMessage[] = [
-  // ── Day-old text messages (load-earlier page)
-  {
-    _id: 'old-1',
-    text: 'Hey! Welcome to support 👋',
-    createdAt: t(60 * 24 + 30),
-    user: SUPPORT_USER,
-  },
-  {
-    _id: 'old-2',
-    text: 'Hi! I need help with my recent order.',
-    createdAt: t(60 * 24 + 25),
-    user: ME,
-  },
-  {
-    _id: 'old-3',
-    text: 'Sure, could you share your order number?',
-    createdAt: t(60 * 24 + 20),
-    user: SUPPORT_USER,
-  },
-
-  // ── Today — plain text
-  {
-    _id: 'txt-1',
-    text: 'Good morning! Just following up on our earlier chat.',
-    createdAt: t(55),
-    user: SUPPORT_USER,
-  },
-  {
-    _id: 'txt-2',
-    text: 'Good morning! Yes, my order #ORD-20489 still shows "Processing".',
-    createdAt: t(53),
-    user: ME,
-  },
-
-  // ── Reply to a text message
-  {
-    _id: 'reply-1',
-    text: "I checked and it's been dispatched — should arrive by tomorrow.",
-    createdAt: t(50),
-    user: SUPPORT_USER,
-    replyTo: {
-      _id: 'txt-2',
-      text: 'Good morning! Yes, my order #ORD-20489 still shows "Processing".',
-      user: ME,
-    },
-  },
-
-  // ── Message with reactions
-  {
-    _id: 'react-1',
-    text: 'That is great news, thank you so much! 🙏',
-    createdAt: t(48),
-    user: ME,
-    reactions: [
-      { emoji: '❤️', userId: 'support' },
-      { emoji: '👍', userId: 'support' },
-    ],
-  },
-
-  // ── Image message (remote)
-  {
-    _id: 'img-1',
-    text: '',
-    createdAt: t(40),
-    user: SUPPORT_USER,
-    media: {
-      type: 'image',
-      url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600',
-      remoteUri:
-        'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600',
-    },
-  },
-  {
-    _id: 'img-caption',
-    text: 'Here is a photo of the item you ordered.',
-    createdAt: t(39),
-    user: SUPPORT_USER,
-  },
-
-  // ── My image reply
-  {
-    _id: 'img-2',
-    text: '',
-    createdAt: t(35),
-    user: ME,
-    media: {
-      type: 'image',
-      url: 'https://images.unsplash.com/photo-1585386959984-a4155224a1ad?w=600',
-      remoteUri:
-        'https://images.unsplash.com/photo-1585386959984-a4155224a1ad?w=600',
-    },
-  },
-
-  // ── Video message
-  {
-    _id: 'vid-1',
-    text: '',
-    createdAt: t(30),
-    user: SUPPORT_USER,
-    media: {
-      type: 'video',
-      url: 'https://www.w3schools.com/html/mov_bbb.mp4',
-      remoteUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
-      thumbnail:
-        'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=400',
-    },
-  },
-
-  // ── Voice message (support)
-  {
-    _id: 'voice-1',
-    text: '',
-    createdAt: t(22),
-    user: SUPPORT_USER,
-    media: {
-      type: 'voice',
-      remoteUri:
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
-      url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
-      duration: 18,
-    },
-  },
-
-  // ── Voice message reply (me)
-  {
-    _id: 'voice-2',
-    text: '',
-    createdAt: t(18),
-    user: ME,
-    media: {
-      type: 'voice',
-      remoteUri:
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
-      url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
-      duration: 9,
-    },
-    replyTo: {
-      _id: 'voice-1',
-      text: '',
-      media: {
-        type: 'voice',
-        remoteUri:
-          'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
-        duration: 18,
-      },
-      user: SUPPORT_USER,
-    },
-  },
-
-  // ── Image with reply
-  {
-    _id: 'img-reply-1',
-    text: 'Is this the correct size guide?',
-    createdAt: t(12),
-    user: ME,
-    replyTo: {
-      _id: 'img-1',
-      text: '',
-      media: {
-        type: 'image',
-        url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600',
-      },
-      user: SUPPORT_USER,
-    },
-  },
-
-  // ── Long text message
-  {
-    _id: 'long-1',
-    text: "Yes, that's the correct size guide. Our products run true to size, but if you're between sizes we always recommend going up. Feel free to reach out anytime if you have more questions — we're here 24/7!",
-    createdAt: t(10),
-    user: SUPPORT_USER,
-    reactions: [{ emoji: '😊', userId: '1' }],
-  },
-
-  // ── Most recent — pending (just sent)
-  {
-    _id: 'latest-1',
-    text: 'Perfect, I will go with size M then. Thanks!',
-    createdAt: t(1),
-    user: ME,
-    pending: false,
-  },
-];
 
 // ─── Context shape ────────────────────────────────────────────────────────────
 
@@ -305,9 +114,17 @@ export function useInbox(): InboxContextValue {
 
 interface InboxProviderProps {
   children: React.ReactNode;
+  /** When set, replaces the default seeded thread (e.g. chosen from home list). */
+  seedMessages?: ExtendedMessage[];
+  /** Stable id for pagination / future API (must match conversation list id). */
+  conversationId?: string;
 }
 
-export function InboxProvider({ children }: InboxProviderProps) {
+export function InboxProvider({
+  children,
+  seedMessages,
+  conversationId: _conversationId,
+}: InboxProviderProps) {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -315,7 +132,8 @@ export function InboxProvider({ children }: InboxProviderProps) {
   const swipeRef = useRef<any>(null);
 
   // ── Auth / user
-  const user = useAppSelector(state => state.auth?.user) ?? { _id: '1' };
+  const user =
+    useAppSelector(state => state.auth.giftedChatUser) ?? { _id: '1', name: 'You' };
 
   // ── Redux reply state
   const replyTo = useAppSelector(
@@ -359,8 +177,15 @@ export function InboxProvider({ children }: InboxProviderProps) {
   // ─── Initial load ──────────────────────────────────────────────────────────
 
   useEffect(() => {
-    fetchMessages(1);
-  }, []);
+    pageRef.current = 1;
+    const base = seedMessages?.length ? seedMessages : [];
+
+    setLoadingMore(false);
+    setAllMessages(base);
+    setMessages([...base].reverse());
+    setHasMore(false);
+    // TODO: when API exists, use _conversationId + page > 1 inside fetchMessages.
+  }, [_conversationId, seedMessages]);
 
   // ─── Fetch messages ────────────────────────────────────────────────────────
 
@@ -368,17 +193,11 @@ export function InboxProvider({ children }: InboxProviderProps) {
     setLoadingMore(page > 1);
 
     try {
-      // TODO: replace with real API call
-      // const data = await api.getMessages({ page, limit: PAGE_SIZE });
-      // const fetched: ExtendedMessage[] = data.messages;
-      // setHasMore(data.hasMore);
-
-      // ── Default seed data (remove once API is connected)
-      const fetched: ExtendedMessage[] = page === 1 ? DEFAULT_MESSAGES : [];
+      // TODO: replace with real API — use _conversationId when wiring backend
+      const fetched: ExtendedMessage[] = [];
 
       if (page === 1) {
         setAllMessages(fetched);
-        // GiftedChat renders newest-first, so reverse the chronological array
         setMessages([...fetched].reverse());
       } else {
         setAllMessages(prev => [...fetched, ...prev]);
@@ -544,7 +363,14 @@ export function InboxProvider({ children }: InboxProviderProps) {
 
       const updated = alreadyReacted
         ? existing.filter(r => !(r.userId === uid && r.emoji === emoji))
-        : [...existing, { emoji, userId: uid }];
+        : [
+            ...existing,
+            {
+              emoji,
+              userId: uid,
+              userName: typeof user.name === 'string' ? user.name : 'You',
+            },
+          ];
 
       updateMessage(msg._id, { reactions: updated });
 
@@ -676,7 +502,7 @@ export function InboxProvider({ children }: InboxProviderProps) {
         const trayStyle = {
           top: pageY - 68,
           ...(isRight
-            ? { right: Math.max(10, SCREEN_WIDTH - pageX - w) }
+            ? { right: Math.max(10, CHAT_SCREEN_WIDTH - pageX - w) }
             : { left: Math.max(10, pageX) }),
         };
         console.log(trayStyle);

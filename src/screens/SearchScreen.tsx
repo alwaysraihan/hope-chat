@@ -22,6 +22,7 @@ import {
   BottomTabNavigatorParamList,
   RootStackNavigatorParamList,
 } from '../types/navigators';
+import { useChats } from '../context/ChatsContext';
 
 type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackNavigatorParamList, 'Search'>,
@@ -52,6 +53,17 @@ const conversationType = [
 ];
 
 const SearchScreen: React.FC<Props> = ({ navigation }) => {
+  const { conversations } = useChats();
+  const goInbox = () => {
+    const c = conversations[0];
+    navigation.navigate('Inbox', {
+      conversationId: c?.id ?? '1',
+      displayName: c?.name ?? 'Chat',
+      avatarUrl: c?.avatarUrl,
+      liveKitRoom: `call_${c?.id ?? '1'}`,
+    });
+  };
+
   const [value, onChangeText] = useState('');
   const [isOnline] = useState(true);
   const [conversationCategories, setConversationCategories] =
@@ -86,7 +98,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.recentGrid}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item => (
                 <TouchableOpacity
-                  onPress={() => navigation.navigate('Inbox')}
+                  onPress={goInbox}
                   key={item}
                   style={styles.recentItem}
                 >
@@ -124,7 +136,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
       }
       renderItem={() => (
         <TouchableOpacity
-          onPress={() => navigation.navigate('Inbox')}
+          onPress={goInbox}
           style={styles.suggestedItem}
         >
           <Image source={IC_PROFILE} style={styles.suggestedAvatar} />
@@ -195,7 +207,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
         }}
         renderItem={() => (
           <TouchableOpacity
-            onPress={() => navigation.navigate('Inbox')}
+            onPress={goInbox}
             style={styles.suggestedItem}
           >
             <Image source={IC_PROFILE} style={styles.suggestedAvatar} />

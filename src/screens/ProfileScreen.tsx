@@ -220,14 +220,22 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       name: 'Audio',
       icon: <LucidePhone fill={'white'} stroke={'white'} />,
       onPress: () => {
-        navigation.navigate('AudioCall');
+        navigation.navigate('AudioCall', {
+          displayName: 'Profile',
+          liveKitRoom: 'call_profile',
+        });
       },
     },
     {
       id: 2,
       name: 'Video',
       icon: <LucideVideo fill={'white'} stroke={'white'} />,
-      onPress: () => {},
+      onPress: () => {
+        navigation.navigate('VideoCall', {
+          displayName: 'Profile',
+          liveKitRoom: 'call_profile',
+        });
+      },
     },
     {
       id: 3,

@@ -1,9 +1,30 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, radius, fonts, spacing, colorss } from '../../theme';
 import { IC_PROFILE } from '../../assets';
+import FastImage from '@d11/react-native-fast-image';
 
-const ConversationItem = ({ item, onPress, onLongPress }) => {
+type Item = {
+  id: string;
+  name: string;
+  emoji?: string;
+  preview: string;
+  time: string;
+  unreadCount: number;
+  isTyping?: boolean;
+  isUnread?: boolean;
+  avatarUrl?: string | null;
+};
+
+const ConversationItem = ({
+  item,
+  onPress,
+  onLongPress,
+}: {
+  item: Item;
+  onPress?: () => void;
+  onLongPress?: () => void;
+}) => {
   return (
     <TouchableOpacity
       style={styles.container}
@@ -12,7 +33,11 @@ const ConversationItem = ({ item, onPress, onLongPress }) => {
       onLongPress={onLongPress}
     >
       <View style={styles.avatarWrap}>
-        <Image source={IC_PROFILE} style={styles.avatar} />
+        {item.avatarUrl ? (
+          <FastImage source={{ uri: item.avatarUrl }} style={styles.avatar} />
+        ) : (
+          <FastImage source={IC_PROFILE} style={styles.avatar} />
+        )}
       </View>
 
       <View style={styles.body}>
@@ -62,9 +87,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  avatarEmoji: {
-    fontSize: 22,
   },
   body: {
     flex: 1,

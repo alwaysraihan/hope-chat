@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect } from 'react';
-import { View } from 'react-native';
-import { GiftedChat, Time } from 'react-native-gifted-chat';
+import { View, Text } from 'react-native';
+import {
+  GiftedChat,
+  IMessage,
+  MessageProps,
+  Time,
+  TimeProps,
+} from 'react-native-gifted-chat';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -10,12 +16,15 @@ import MessageHeader from '../components/message/MessageHeader';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
 import { colorss } from '../theme';
 import { RootStackNavigatorParamList } from '../types/navigators';
+import type { ConversationSummary } from '../context/ChatsContext';
+import { useChats } from '../context/ChatsContext';
+import type { ExtendedMessage } from '../components/types/chat';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 
-// ─── Inner screen (has access to InboxContext) ────────────────────────────────
-
-const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
+const InboxScreenInner: React.FC<
+  Props & { conversation: ConversationSummary }
+> = ({ navigation, route, conversation }) => {
   const {
     messages,
     setText,
@@ -29,23 +38,24 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
     onSend,
     loadEarlier,
   } = useInbox();
-  // Clear initialText after GiftedChat consumes it
+
   useEffect(() => {
     if (!initialText) return;
     const t = setTimeout(() => setInitialText(''), 100);
     return () => clearTimeout(t);
   }, [initialText, setInitialText]);
 
-  // ── Renderers ──────────────────────────────────────────────────────────────
-  // No prop drilling needed — CustomInputToolbar and ChatMessageBox
-  // call useInbox() directly to access what they need.
+  const audioRoom =
+    route.params.liveKitRoom ?? `call_${conversation.id}`;
+  const peerName =
+    route.params.displayName ?? conversation.name;
 
   const renderInputToolbar = useCallback(
-    (props: any) => <CustomInputToolbar {...props} />,
+    (p: unknown) => <CustomInputToolbar {...(p as object)} />,
     [],
   );
 
-  const renderTime = useCallback((props: any) => {
+  const renderTime = useCallback((props: TimeProps<IMessage>) => {
     const msg = props.currentMessage;
     if (!msg || msg._id === 'system-logo' || msg.system) return null;
     return (
@@ -60,7 +70,7 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
   }, []);
 
   const renderMessage = useCallback(
-    (props: any) => (
+    (props: MessageProps<IMessage>) => (
       <ChatMessageBox
         {...props}
         refreshTrigger={refreshTrigger}
@@ -70,31 +80,49 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
     [refreshTrigger, navigation],
   );
 
-  //  Render
-
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colorss.primary }}
       edges={['top', 'left', 'right']}
     >
       <MessageHeader
-        onProfilePress={() => navigation.navigate('Profile', { userId: '1' })}
+        name={peerName}
+        avatarUri={route.params.avatarUrl ?? conversation.avatarUrl}
+        onProfilePress={() =>
+          navigation.navigate('Profile', {
+            userId: conversation.id,
+          })
+        }
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}
-        onAudioCall={() => navigation.navigate('AudioCall')}
-        onVideoCall={() => navigation.navigate('VideoCall')}
+        onAudioCall={() =>
+          navigation.navigate('AudioCall', {
+            displayName: peerName,
+            liveKitRoom: audioRoom,
+          })
+        }
+        onVideoCall={() =>
+          navigation.navigate('VideoCall', {
+            displayName: peerName,
+            liveKitRoom: audioRoom,
+          })
+        }
       />
 
       <View style={{ flex: 1, backgroundColor: colorss.background }}>
         <GiftedChat
           placeholder="Type here…"
-          messages={messages as any[]}
+          messages={messages as unknown as IMessage[]}
           {...(initialText ? { text: initialText } : {})}
-          onSend={(msgs: any) => onSend(msgs)}
-          // @ts-ignore
+          onSend={(msgs: IMessage[]) =>
+            onSend(msgs as ExtendedMessage[])
+          }
           onInputTextChanged={setText}
-          user={{ _id: user?._id || '1' }}
+          user={{
+            _id: user?._id || '1',
+            name: typeof user?.name === 'string' ? user.name : undefined,
+          }}
           renderTime={renderTime}
-          renderAvatar={null}
+          renderAvatar={() => null}
           maxComposerHeight={100}
           alwaysShowSend
           renderInputToolbar={renderInputToolbar}
@@ -116,12 +144,34 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
   );
 };
 
-// ─── Outer screen — mounts the provider, then renders the inner screen ────────
+const InboxGate: React.FC<Props> = props => {
+  const { conversations } = useChats();
+  const id = props.route.params.conversationId;
+  const conv = conversations.find(c => c.id === id);
 
-const InboxScreen: React.FC<Props> = props => (
-  <InboxProvider>
-    <InboxScreenInner {...props} />
-  </InboxProvider>
-);
+  if (!conv) {
+    return (
+      <SafeAreaView
+        style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+      >
+        <Text style={{ color: colorss.textSecondary }}>
+          Conversation not found.
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <InboxProvider
+      key={conv.id}
+      conversationId={conv.id}
+      seedMessages={conv.messages}
+    >
+      <InboxScreenInner {...props} conversation={conv} />
+    </InboxProvider>
+  );
+};
+
+const InboxScreen: React.FC<Props> = p => <InboxGate {...p} />;
 
 export default React.memo(InboxScreen);

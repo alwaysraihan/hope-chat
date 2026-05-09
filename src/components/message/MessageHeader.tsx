@@ -3,8 +3,7 @@ import { Image, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import Profile from '../../assets/raihan-sarkar.webp';
 import { LucideVideo, Phone, ChevronLeft } from 'lucide-react-native';
 import { colorss } from '../../theme';
-
-//  Types
+import FastImage from '@d11/react-native-fast-image';
 
 interface MessageHeaderProps {
   onProfilePress: () => void;
@@ -13,9 +12,8 @@ interface MessageHeaderProps {
   onVideoCall?: () => void;
   name?: string;
   status?: string;
+  avatarUri?: string | null;
 }
-
-//  Component
 
 const MessageHeader: React.FC<MessageHeaderProps> = ({
   onProfilePress,
@@ -24,6 +22,7 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   onVideoCall,
   name = 'Raihan Sarkar',
   status = 'Online',
+  avatarUri,
 }) => {
   const actions = [
     {
@@ -47,7 +46,11 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
       </TouchableOpacity>
 
       <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
-        <Image source={Profile} style={styles.avatar} />
+        {avatarUri ? (
+          <FastImage source={{ uri: avatarUri }} style={styles.avatar} />
+        ) : (
+          <Image source={Profile} style={styles.avatar} />
+        )}
         <View style={styles.nameBlock}>
           <Text style={styles.name}>{name}</Text>
           <Text style={styles.status}>{status}</Text>
@@ -70,8 +73,6 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
 };
 
 export default React.memo(MessageHeader);
-
-//  Styles
 
 const styles = StyleSheet.create({
   container: {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -7,51 +7,75 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  TextInput,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
+import FastImage from '@d11/react-native-fast-image';
 
 import { colorss } from '../theme';
 import hopenityLogo from '../assets/hopenity.png';
 import { PublicStackNavigatorParamList } from '../types/navigators';
 import { useAppDispatch } from '../hooks/redux';
-import { setToken } from '../redux/features/auth/authSlice';
+import { setHopenitySession } from '../redux/features/auth/authSlice';
+import {
+  readPersistedHopenityUser,
+  displayNameFromBlob,
+  avatarFromBlob,
+  type HopenityPersistedUserBlob,
+} from '../services/hopenitySharedAuth';
+import {
+  canOpenHopenity,
+  openHopenityBestEffort,
+  openPlayStore,
+} from '../services/hopenityLinking';
+import {
+  PLAY_STORE_WEB_URL,
+  HOPENITY_PACKAGE_ID,
+} from '../constants/hopenity';
 
 type Props = NativeStackScreenProps<PublicStackNavigatorParamList, 'Login'>;
 
-interface InputProps {
-  placeholder: string;
-  secureTextEntry?: boolean;
-  value: string;
-  onChangeText: (text: string) => void;
-  keyboardType?: 'default' | 'email-address' | 'phone-pad';
-}
-
-const AppInput: React.FC<InputProps> = ({
-  placeholder,
-  secureTextEntry = false,
-  value,
-  onChangeText,
-  keyboardType = 'default',
-}) => (
-  <TextInput
-    style={styles.input}
-    placeholder={placeholder}
-    placeholderTextColor={colorss.placeholder}
-    secureTextEntry={secureTextEntry}
-    value={value}
-    onChangeText={onChangeText}
-    keyboardType={keyboardType}
-    autoCapitalize="none"
-  />
-);
-
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
   const dispatch = useAppDispatch();
+  const [loading, setLoading] = useState(true);
+  const [canOpenPartner, setCanOpenPartner] = useState<boolean | null>(null);
+  const [peeked, setPeeked] = useState<HopenityPersistedUserBlob | null>(null);
+
+  const peekSession = useCallback(() => {
+    setLoading(true);
+    try {
+      setPeeked(readPersistedHopenityUser());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        peekSession();
+        setCanOpenPartner(await canOpenHopenity());
+      })();
+      return undefined;
+    }, [peekSession]),
+  );
+
+  const activeBlob = peeked;
+  const loggedInViaShare =
+    (!!activeBlob?.token &&
+      typeof activeBlob.token === 'string' &&
+      activeBlob.token.length > 0) ||
+    (!!activeBlob?.user && typeof activeBlob.user === 'object');
+
+  const name = displayNameFromBlob(activeBlob);
+  const avatar = avatarFromBlob(activeBlob);
+
+  const onContinue = () => {
+    if (activeBlob) dispatch(setHopenitySession({ blob: activeBlob }));
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -67,32 +91,98 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
             <Image source={hopenityLogo} style={styles.logo} />
           </View>
 
-          <View style={styles.formGroup}>
-            <AppInput
-              placeholder="Mobile number or email address"
-              value={identifier}
-              onChangeText={setIdentifier}
-              keyboardType="email-address"
-            />
+          <Text style={styles.title}>Hope Chat</Text>
+          <Text style={styles.subtitle}>
+            Sign in with your Hopenity account. On iOS, your session can be read
+            from the shared App Group vault when both apps enable{' '}
+            <Text style={styles.mono}>group.com.hopenity.shared</Text>.
+          </Text>
 
-            <AppInput
-              placeholder="Password"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
-          </View>
-
-          <TouchableOpacity
-            onPress={() => {
-              if (!identifier || !password) return;
-              dispatch(setToken(identifier));
-            }}
-            style={styles.primaryBtn}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.primaryBtnText}>Log in</Text>
-          </TouchableOpacity>
+          {loading ? (
+            <View style={styles.centerRow}>
+              <ActivityIndicator color={colorss.primary} />
+              <Text style={styles.hint}>Checking Hopenity session…</Text>
+            </View>
+          ) : loggedInViaShare ? (
+            <View style={styles.card}>
+              {avatar ? (
+                <FastImage source={{ uri: avatar }} style={styles.profile} />
+              ) : (
+                <View style={styles.profilePlaceholder}>
+                  <Text style={styles.profileInitial}>
+                    {name.trim().charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text style={styles.continueLabel}>Continue as</Text>
+              <Text style={styles.profileName}>{name}</Text>
+              <TouchableOpacity
+                onPress={onContinue}
+                style={styles.primaryBtn}
+                activeOpacity={0.88}
+              >
+                <Text style={styles.primaryBtnText}>Continue</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => peekSession()}
+                style={styles.secondary}
+              >
+                <Text style={styles.secondaryText}>Refresh session</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Sign in required</Text>
+              <Text style={styles.cardBody}>
+                Open Hopenity and log in once. Come back here and tap Refresh
+                session. If the app is not installed yet, download it below.
+              </Text>
+              {canOpenPartner === false ? (
+                <TouchableOpacity
+                  onPress={() => openPlayStore()}
+                  style={styles.primaryBtn}
+                  activeOpacity={0.88}
+                >
+                  <Text style={styles.primaryBtnText}>
+                    Install Hopenity from Play Store
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    onPress={() =>
+                      openHopenityBestEffort().then(() =>
+                        setTimeout(peekSession, 800),
+                      )
+                    }
+                    style={styles.primaryBtn}
+                    activeOpacity={0.88}
+                  >
+                    <Text style={styles.primaryBtnText}>
+                      Open Hopenity to sign in
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => openPlayStore()}
+                    style={styles.outlineBtn}
+                  >
+                    <Text style={styles.outlineBtnText}>Get app from Store</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+              <Text style={styles.storeHint}>
+                Android package{' '}
+                <Text style={styles.mono}>{HOPENITY_PACKAGE_ID}</Text> ·{' '}
+                {PLAY_STORE_WEB_URL}
+              </Text>
+              <TouchableOpacity
+                onPress={() => peekSession()}
+                style={styles.secondary}
+              >
+                <Text style={styles.secondaryText}>Refresh session</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <TouchableOpacity
             onPress={() => navigation.navigate('ForgotPassword')}
@@ -101,9 +191,6 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.linkText}>Forgotten password?</Text>
           </TouchableOpacity>
 
-          <View style={{ flex: 1 }} />
-
-          <Text style={styles.footerText}>Softollyo</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -117,70 +204,158 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colorss.white,
   },
-
   content: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 92,
+    paddingTop: 48,
     paddingBottom: 32,
   },
-
   logoWrapper: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 24,
   },
-
   logo: {
-    width: 100,
-    height: 100,
+    width: 88,
+    height: 88,
     resizeMode: 'contain',
     borderRadius: 9999,
   },
-
-  formGroup: {
-    gap: 12,
-    marginBottom: 16,
-  },
-
-  input: {
-    backgroundColor: colorss.background,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: Platform.OS === 'ios' ? 16 : 14,
-    fontSize: 16,
+  title: {
+    fontSize: 26,
+    fontWeight: '800',
+    textAlign: 'center',
     color: colorss.textPrimary,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colorss.textSecondary,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  mono: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+  },
+  micro: {
+    textAlign: 'center',
+    color: colorss.textSecondary,
+    marginTop: 16,
+  },
+  hint: {
+    marginLeft: 10,
+    color: colorss.textSecondary,
+    fontSize: 14,
+  },
+  card: {
+    backgroundColor: colorss.background,
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colorss.primary,
   },
-
+  profile: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+  },
+  profilePlaceholder: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    backgroundColor: colorss.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileInitial: {
+    color: colorss.white,
+    fontSize: 36,
+    fontWeight: '800',
+  },
+  continueLabel: {
+    marginTop: 14,
+    color: colorss.textSecondary,
+    fontSize: 13,
+  },
+  profileName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colorss.textPrimary,
+    marginTop: 4,
+    marginBottom: 14,
+    textAlign: 'center',
+  },
   primaryBtn: {
     backgroundColor: colorss.primary,
     borderRadius: 50,
-    paddingVertical: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
     alignItems: 'center',
+    alignSelf: 'stretch',
   },
-
   primaryBtnText: {
     color: colorss.white,
     fontSize: 16,
     fontWeight: '700',
   },
-
+  outlineBtn: {
+    marginTop: 12,
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: colorss.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+  },
+  outlineBtnText: {
+    color: colorss.primary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  secondary: {
+    marginTop: 14,
+    padding: 10,
+  },
+  secondaryText: {
+    color: colorss.primary,
+    fontWeight: '700',
+  },
   linkWrapper: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 24,
   },
-
   linkText: {
     color: colorss.textSecondary,
     fontSize: 15,
     fontWeight: '700',
   },
-
-  footerText: {
-    textAlign: 'center',
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colorss.textPrimary,
+    marginBottom: 8,
+    alignSelf: 'flex-start',
+  },
+  cardBody: {
+    fontSize: 14,
     color: colorss.textSecondary,
-    fontSize: 16,
-    fontWeight: '500',
+    lineHeight: 20,
+    marginBottom: 16,
+    alignSelf: 'stretch',
+  },
+  centerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 24,
+  },
+  storeHint: {
+    fontSize: 11,
+    color: colorss.textSecondary,
+    textAlign: 'center',
+    marginTop: 12,
   },
 });

@@ -1,11 +1,10 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, Text, FlatList, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Header from '../components/home/Header';
 import StoryItem from '../components/home/StoryItem';
 import ConversationItem from '../components/home/ConversationItem';
 import SearchBar from '../components/home/SearchBar';
-import { stories, conversations } from '../data/mockData';
 import { colors, spacing, fonts, colorss } from '../theme';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import {
@@ -15,6 +14,7 @@ import {
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BellOff } from 'lucide-react-native';
+import { useChats } from '../context/ChatsContext';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>,
@@ -22,10 +22,24 @@ type Props = CompositeScreenProps<
 >;
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const handleStoryPress = useCallback((item: { isAdd: any; name: any }) => {
+  const { conversations } = useChats();
+
+  const stories = useMemo(() => {
+    const dynamic = conversations.slice(0, 7).map(c => ({
+      id: `story_${c.id}`,
+      name: c.name.split(' ')[0],
+      emoji: c.emoji ?? '💬',
+      bgFrom: c.bgFrom ?? '#2d1060',
+      bgTo: c.bgTo ?? '#5b21b6',
+      active: !!c.isOnline,
+    }));
+    return [{ id: '0', isAdd: true }, ...dynamic];
+  }, [conversations]);
+
+  const handleStoryPress = useCallback((item: { isAdd?: boolean; name?: string }) => {
     if (item.isAdd) {
       Alert.alert('Add Story', 'Open camera to add a story');
-    } else {
+    } else if (item.name) {
       Alert.alert('View Story', `Viewing ${item.name}'s story`);
     }
   }, []);
@@ -38,11 +52,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const renderConversation = useCallback(
-    ({ item, index }) => (
+    ({ item }) => (
       <>
         <ConversationItem
           item={item}
-          onPress={() => navigation.navigate('Inbox')}
+          onPress={() =>
+            navigation.navigate('Inbox', {
+              conversationId: item.id,
+              displayName: item.name,
+              avatarUrl: item.avatarUrl,
+              liveKitRoom: `call_${item.id}`,
+            })
+          }
           onLongPress={() => navigation.navigate('ConversationAction')}
         />
       </>
@@ -56,7 +77,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         <FlatList
           data={stories}
           renderItem={renderStory}
-          keyExtractor={item => item.id}
+          keyExtractor={story => story.id}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.storiesList}
@@ -79,7 +100,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </>
     ),
-    [renderStory],
+    [renderStory, stories],
   );
 
   return (
@@ -96,6 +117,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           data={conversations}
           renderItem={renderConversation}
           keyExtractor={item => item.id}
+          extraData={conversations.length}
           ListHeaderComponent={ListHeader}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
