@@ -9,7 +9,9 @@ type BottomTabNavigatorParamList = {
 
 type RootStackNavigatorParamList = {
   BottomTab: NavigatorScreenParams<BottomTabNavigatorParamList>;
-  Inbox: undefined;
+  Inbox: {
+    conversationId: string;
+  };
   Profile: {
     userId: string;
   };

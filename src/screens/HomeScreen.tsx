@@ -42,7 +42,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       <>
         <ConversationItem
           item={item}
-          onPress={() => navigation.navigate('Inbox')}
+          onPress={() =>
+            navigation.navigate('Inbox', {
+              conversationId: item.id,
+            })
+          }
           onLongPress={() => navigation.navigate('ConversationAction')}
         />
       </>
