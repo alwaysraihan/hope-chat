@@ -15,6 +15,7 @@ import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
 import { navigationRef } from './src/navigation/navigationRef';
 import { consumePendingIncomingCall } from './src/services/incomingCall/navigateIncomingCall';
+import BootSplash from 'react-native-bootsplash';
 
 const AppInner = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
@@ -42,7 +43,10 @@ const App = () => {
           <KeyboardProvider>
             <NavigationContainer
               ref={navigationRef}
-              onReady={consumePendingIncomingCall}
+              onReady={() => {
+                consumePendingIncomingCall();
+                BootSplash.hide({ fade: true });
+              }}
             >
               <SystemBars style={'dark'} />
               <AppInner />

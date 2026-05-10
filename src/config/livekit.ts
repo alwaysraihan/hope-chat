@@ -110,6 +110,34 @@ export function getLiveKitRoomCallOptions(): Partial<RoomOptions> {
   };
 }
 
+/**
+ * Video call screen only — stricter Android tuning than voice calls.
+ * Forced H.264 + adaptive stream has been a frequent MediaCodec SIGSEGV on OEM devices; we let
+ * the SDK negotiate VP8 when `videoCodec` is omitted, and simplify subscriber work.
+ */
+export function getLiveKitVideoCallRoomOptions(): Partial<RoomOptions> {
+  const base = getLiveKitRoomCallOptions();
+  if (Platform.OS !== 'android') {
+    return base;
+  }
+  return {
+    ...base,
+    adaptiveStream: false,
+    dynacast: false,
+    videoCaptureDefaults: {
+      resolution: VideoPresets.h180.resolution,
+      frameRate: 15,
+    },
+    publishDefaults: {
+      ...base.publishDefaults,
+      simulcast: false,
+      /** Omit default — many Android crashes are OEM H.264 encoders; VP8 SW path is slower but safer. */
+      videoCodec: undefined,
+      degradationPreference: 'maintain-framerate',
+    },
+  };
+}
+
 /** @deprecated Prefer `getLiveKitRoomCallOptions()` if you need a fresh read after JS reload. */
 export const liveKitRoomCallOptions: Partial<RoomOptions> =
   getLiveKitRoomCallOptions();

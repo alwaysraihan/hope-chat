@@ -305,10 +305,11 @@ function AudioStage({
 
 const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
   const safePop = useSafeSingleNavigationPop(navigation as never);
-  const { onDisconnected, onError, onEncryptionError } = useLiveKitSessionEnd({
-    callLabel: 'Voice call',
-    safePop,
-  });
+  const { onDisconnected, onError, onEncryptionError, forceEndCallWithAlert } =
+    useLiveKitSessionEnd({
+      callLabel: 'Voice call',
+      safePop,
+    });
   const profile = useAppSelector(selectHopenityProfile);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const liveKitIdentity = useMemo(
@@ -386,16 +387,12 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
             onEncryptionError={onEncryptionError}
             onMediaDeviceFailure={failure => {
               console.warn('[AudioCall] media device', failure);
-              try {
-                Alert.alert(
-                  'Microphone',
-                  typeof failure === 'string'
-                    ? failure
-                    : 'Could not access microphone — check permissions and try again.',
-                );
-              } catch {
-                /* */
-              }
+              forceEndCallWithAlert(
+                'Microphone',
+                typeof failure === 'string'
+                  ? failure
+                  : 'Could not access microphone — check permissions and try again.',
+              );
             }}
           >
             <CallRoomErrorBoundary title="Voice call error" onClose={safePop}>

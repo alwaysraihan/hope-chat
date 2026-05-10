@@ -1,6 +1,7 @@
 import React, { type ReactNode } from 'react';
 import { Alert } from 'react-native';
 
+import { navigationRef } from '../navigation/navigationRef';
 import { stringifyUnknownError } from '../utils/liveKitErrorFormat';
 
 type Props = { children: ReactNode; title: string; onClose: () => void };
@@ -33,7 +34,13 @@ export class CallRoomErrorBoundary extends React.Component<Props, State> {
     try {
       this.props.onClose();
     } catch {
-      /* navigation */
+      try {
+        if (navigationRef.isReady()) {
+          navigationRef.navigate('BottomTab', { screen: 'Home' });
+        }
+      } catch {
+        /* */
+      }
     }
   }
 

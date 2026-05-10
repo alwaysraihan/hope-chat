@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import type { DisconnectReason } from 'livekit-client';
 
 import { describeDisconnectReason } from '../utils/liveKitDisconnectReason';
+import type { DisconnectUiAction } from '../utils/liveKitDisconnectReason';
 import { shortErrorMessage, stringifyUnknownError } from '../utils/liveKitErrorFormat';
 import { shouldDismissCallScreenOnLiveKitError } from '../utils/liveKitErrorPolicy';
 
@@ -39,72 +40,139 @@ export function useLiveKitSessionEnd({ callLabel, safePop }: Options) {
     [safePop],
   );
 
+  /** If anything in our disconnect UI throws, still leave the call screen. */
+  const endCallScreenOnly = useCallback(() => {
+    endOnce(() => {});
+  }, [endOnce]);
+
   const onDisconnected = useCallback(
     (reason?: DisconnectReason) => {
-      const ui = describeDisconnectReason(reason);
       try {
-        console.warn(`[${callLabel}] disconnected`, ui.logLabel, reason);
-      } catch {
-        /* */
-      }
-      endOnce(() => {
-        if (ui.showAlert) {
-          Alert.alert(ui.title, ui.body);
+        let ui: DisconnectUiAction;
+        try {
+          ui = describeDisconnectReason(reason);
+        } catch {
+          ui = {
+            showAlert: false,
+            title: '',
+            body: '',
+            logLabel: 'describeDisconnectReason_failed',
+          };
         }
-      });
+        try {
+          console.warn(`[${callLabel}] disconnected`, ui.logLabel, reason);
+        } catch {
+          /* */
+        }
+        endOnce(() => {
+          if (ui.showAlert) {
+            try {
+              Alert.alert(ui.title, ui.body);
+            } catch {
+              /* */
+            }
+          }
+        });
+      } catch {
+        endCallScreenOnly();
+      }
     },
-    [callLabel, endOnce],
+    [callLabel, endOnce, endCallScreenOnly],
   );
 
   const onError = useCallback(
     (e: Error) => {
       try {
-        console.error(`[${callLabel}] LiveKit onError`, stringifyUnknownError(e));
-      } catch {
-        /* */
-      }
-      if (shouldDismissCallScreenOnLiveKitError(e)) {
-        endOnce(() => {
+        try {
+          console.error(`[${callLabel}] LiveKit onError`, stringifyUnknownError(e));
+        } catch {
+          /* */
+        }
+        let dismiss = false;
+        try {
+          dismiss = shouldDismissCallScreenOnLiveKitError(e);
+        } catch {
+          dismiss = true;
+        }
+        if (dismiss) {
+          endOnce(() => {
+            try {
+              Alert.alert(
+                'Could not connect',
+                shortErrorMessage(e) ||
+                  'Check your internet connection and try again.',
+              );
+            } catch {
+              /* */
+            }
+          });
+          return;
+        }
+        try {
           Alert.alert(
-            'Could not connect',
+            callLabel,
             shortErrorMessage(e) ||
-              'Check your internet connection and try again.',
+              'A media error occurred. You can keep trying or end the call.',
           );
-        });
-        return;
-      }
-      try {
-        Alert.alert(
-          callLabel,
-          shortErrorMessage(e) ||
-            'A media error occurred. You can keep trying or end the call.',
-        );
+        } catch {
+          /* */
+        }
       } catch {
-        /* */
+        endCallScreenOnly();
       }
     },
-    [callLabel, endOnce],
+    [callLabel, endOnce, endCallScreenOnly],
   );
 
   const onEncryptionError = useCallback(
     (e: Error) => {
       try {
-        console.error(
-          `[${callLabel}] encryption error`,
-          stringifyUnknownError(e),
-        );
+        try {
+          console.error(
+            `[${callLabel}] encryption error`,
+            stringifyUnknownError(e),
+          );
+        } catch {
+          /* */
+        }
+        endOnce(() => {
+          try {
+            Alert.alert(
+              callLabel,
+              'Encryption could not be established. The call will end.',
+            );
+          } catch {
+            /* */
+          }
+        });
       } catch {
-        /* */
+        endCallScreenOnly();
       }
-      endOnce(() => {
-        Alert.alert(
-          callLabel,
-          'Encryption could not be established. The call will end.',
-        );
-      });
     },
-    [callLabel, endOnce],
+    [callLabel, endOnce, endCallScreenOnly],
   );
 
-  return { onDisconnected, onError, onEncryptionError };
+  /**
+   * Microphone / camera could not open — end the call screen so the user is never stuck
+   * on a broken native pipeline (still cannot catch native SIGSEGV).
+   */
+  const forceEndCallWithAlert = useCallback(
+    (title: string, body: string) => {
+      endOnce(() => {
+        try {
+          Alert.alert(title, body);
+        } catch {
+          /* */
+        }
+      });
+    },
+    [endOnce],
+  );
+
+  return {
+    onDisconnected,
+    onError,
+    onEncryptionError,
+    forceEndCallWithAlert,
+  };
 }

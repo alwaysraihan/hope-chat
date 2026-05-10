@@ -51,7 +51,7 @@ import { normalizeChatUserId } from '../utils/chatUserId';
 import { CallRoomErrorBoundary } from '../components/CallRoomErrorBoundary';
 import {
   LIVEKIT_FALLBACK_ROOM,
-  getLiveKitRoomCallOptions,
+  getLiveKitVideoCallRoomOptions,
   liveKitRoomConnectOptions,
 } from '../config/livekit';
 import { useLiveKitCredentials } from '../hooks/useLiveKitCredentials';
@@ -65,10 +65,10 @@ import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
 
 /**
- * Android: connect with audio-only from LiveKitRoom, then enable camera in VideoStage after
- * signal settles — avoids mic+camera+encoder starting in the same tick (native crash).
+ * Must be literally false on Android so `useLiveKitRoom` does not publish camera on
+ * SignalConnected (see logs: mic+camera in one offer = crash). iOS keeps normal behavior.
  */
-const ANDROID_STAGGER_CAMERA_PUBLISH = Platform.OS === 'android';
+const PUBLISH_VIDEO_ON_LIVEKIT_CONNECT = Platform.OS === 'ios';
 
 /** Avoid mounting track/camera hooks until LiveKit is connected (reduces startup crashes). */
 function VideoCallGate({
@@ -77,6 +77,7 @@ function VideoCallGate({
   displayName,
   peerAvatarUrl,
   outcomeOpts,
+  forceEndCallWithAlert,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
@@ -87,6 +88,7 @@ function VideoCallGate({
     peerUserId?: string;
     callDirection?: 'outgoing' | 'incoming';
   };
+  forceEndCallWithAlert: (title: string, body: string) => void;
 }) {
   const room = useRoomContext();
   const cs = useConnectionState(room);
@@ -204,6 +206,7 @@ function VideoCallGate({
       displayName={displayName}
       peerAvatarUrl={peerAvatarUrl}
       tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
+      forceEndCallWithAlert={forceEndCallWithAlert}
     />
   );
 }
@@ -214,12 +217,14 @@ function VideoStage({
   displayName,
   peerAvatarUrl,
   tryEmitOutgoingWithoutConnect,
+  forceEndCallWithAlert,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
   displayName: string;
   peerAvatarUrl?: string | null;
   tryEmitOutgoingWithoutConnect: () => void;
+  forceEndCallWithAlert: (title: string, body: string) => void;
 }) {
   const room = useRoomContext();
   const {
@@ -256,7 +261,7 @@ function VideoStage({
   const [androidVideoSurfacesReady, setAndroidVideoSurfacesReady] = useState(
     Platform.OS !== 'android',
   );
-  /** Android: enable camera after interactions + delay, then mount RTCViews (single pipeline). */
+  /** Android: never auto-open camera. Let the call connect first; camera is user-initiated. */
   useEffect(() => {
     if (Platform.OS !== 'android') {
       return;
@@ -266,16 +271,7 @@ function VideoStage({
       await new Promise<void>(resolve => {
         InteractionManager.runAfterInteractions(() => resolve());
       });
-      await new Promise<void>(r => setTimeout(r, 280));
-      if (cancelled) {
-        return;
-      }
-      try {
-        await room.localParticipant.setCameraEnabled(true);
-      } catch (e) {
-        console.warn('[VideoCall] Android staggered camera', e);
-      }
-      await new Promise<void>(r => setTimeout(r, 520));
+      await new Promise<void>(r => setTimeout(r, 900));
       if (!cancelled) {
         setAndroidVideoSurfacesReady(true);
       }
@@ -321,10 +317,23 @@ function VideoStage({
   }, [localParticipant, isMicrophoneEnabled]);
 
   const toggleCam = useCallback(() => {
+    if (Platform.OS === 'android') {
+      forceEndCallWithAlert(
+        'Video unavailable',
+        'Camera video is temporarily disabled on this Android build because the native camera pipeline is crashing. The call will close instead of crashing the app.',
+      );
+      return;
+    }
     localParticipant
       .setCameraEnabled(!isCameraEnabled)
-      .catch(err => console.warn('[VideoCall] camera toggle', err));
-  }, [localParticipant, isCameraEnabled]);
+      .catch(err => {
+        console.warn('[VideoCall] camera toggle', err);
+        forceEndCallWithAlert(
+          'Camera failed',
+          'Could not start the camera safely. The call will close so the app stays stable.',
+        );
+      });
+  }, [forceEndCallWithAlert, localParticipant, isCameraEnabled]);
 
   const toggleScreenShare = useCallback(() => {
     localParticipant
@@ -507,12 +516,14 @@ function VideoStage({
             <VideoOff size={22} color={colorss.white} />
           )}
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.ctrlBtn, isScreenShareEnabled ? styles.ctrlHighlight : null]}
-          onPress={toggleScreenShare}
-        >
-          <MonitorUp size={22} color={colorss.white} />
-        </TouchableOpacity>
+        {Platform.OS !== 'android' ? (
+          <TouchableOpacity
+            style={[styles.ctrlBtn, isScreenShareEnabled ? styles.ctrlHighlight : null]}
+            onPress={toggleScreenShare}
+          >
+            <MonitorUp size={22} color={colorss.white} />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <View style={styles.bottomBar}>
@@ -526,10 +537,11 @@ function VideoStage({
 
 const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
   const safePop = useSafeSingleNavigationPop(navigation as never);
-  const { onDisconnected, onError, onEncryptionError } = useLiveKitSessionEnd({
-    callLabel: 'Video call',
-    safePop,
-  });
+  const { onDisconnected, onError, onEncryptionError, forceEndCallWithAlert } =
+    useLiveKitSessionEnd({
+      callLabel: 'Video call',
+      safePop,
+    });
   const profile = useAppSelector(selectHopenityProfile);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const liveKitIdentity = useMemo(
@@ -581,6 +593,16 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
     displayName: profile?.displayName ?? undefined,
   });
 
+  useEffect(() => {
+    if (__DEV__ && Platform.OS === 'android') {
+      console.log(
+        '[VideoCall] Android join: LiveKitRoom video=',
+        PUBLISH_VIDEO_ON_LIVEKIT_CONNECT,
+        '(must be false — camera starts only from VideoStage)',
+      );
+    }
+  }, []);
+
   return (
     <View style={styles.container}>
       {loading ? (
@@ -598,24 +620,21 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
           token={token}
           connect={true}
           audio={true}
-          video={!ANDROID_STAGGER_CAMERA_PUBLISH}
-          options={getLiveKitRoomCallOptions()}
+          video={PUBLISH_VIDEO_ON_LIVEKIT_CONNECT}
+          screen={false}
+          options={getLiveKitVideoCallRoomOptions()}
           connectOptions={liveKitRoomConnectOptions}
           onDisconnected={onDisconnected}
           onError={onError}
           onEncryptionError={onEncryptionError}
           onMediaDeviceFailure={failure => {
             console.warn('[VideoCall] media device', failure);
-            try {
-              Alert.alert(
-                'Camera or microphone',
-                typeof failure === 'string'
-                  ? failure
-                  : 'Could not access camera or mic — check permissions and try again.',
-              );
-            } catch {
-              /* */
-            }
+            forceEndCallWithAlert(
+              'Camera or microphone',
+              typeof failure === 'string'
+                ? failure
+                : 'Could not access camera or mic — check permissions and try again.',
+            );
           }}
         >
           <CallRoomErrorBoundary title="Video call error" onClose={safePop}>
@@ -624,6 +643,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
               safePop={safePop}
               displayName={calleeName}
               peerAvatarUrl={route.params?.avatarUrl}
+              forceEndCallWithAlert={forceEndCallWithAlert}
               outcomeOpts={{
                 conversationId: route.params?.conversationId,
                 peerUserId: route.params?.peerUserId,

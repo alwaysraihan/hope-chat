@@ -3,6 +3,7 @@ import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
 import LivekitReactNative
+import RNBootSplash
 
 import FirebaseCore
 
@@ -39,6 +40,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 
 class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
+  override func customizeRootView(_ rootView: RCTRootView!) {
+    super.customizeRootView(rootView)
+    RNBootSplash.initWithStoryboard("BootSplash", rootView: rootView)
+  }
+
   override func sourceURL(for bridge: RCTBridge) -> URL? {
     self.bundleURL()
   }
