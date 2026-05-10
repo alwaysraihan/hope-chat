@@ -13,11 +13,11 @@ const OptionModal = ({
 }) => {
   return (
     <Modal transparent animationType="fade" visible={visible}>
-      <View style={styles.centerModal}>
+      <View style={styles.overlay}>
         <View style={styles.modalBox}>
           <Text style={styles.modalTitle}>{title}</Text>
 
-          <View style={{ gap: 16, marginVertical: 20 }}>
+          <View style={styles.optionList}>
             {data.map(item => (
               <Pressable
                 key={item.id}
@@ -25,17 +25,17 @@ const OptionModal = ({
                 style={styles.optionRow}
               >
                 <Radio selected={selected === item.id} />
-                <Text>{item.title}</Text>
+                <Text style={styles.optionText}>{item.title}</Text>
               </Pressable>
             ))}
           </View>
 
           <View style={styles.modalActions}>
-            <Pressable onPress={onCancel}>
+            <Pressable onPress={onCancel} hitSlop={8}>
               <Text style={styles.cancel}>Cancel</Text>
             </Pressable>
 
-            <Pressable onPress={onConfirm}>
+            <Pressable onPress={onConfirm} hitSlop={8}>
               <Text style={styles.ok}>OK</Text>
             </Pressable>
           </View>
@@ -48,47 +48,64 @@ const OptionModal = ({
 export default OptionModal;
 
 const styles = StyleSheet.create({
-  centerModal: {
+  overlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingHorizontal: 32,
   },
 
   modalBox: {
-    width: '85%',
-    backgroundColor: colorss.background,
-    borderRadius: 12,
-    padding: 20,
+    width: '100%',
+    backgroundColor: colorss.white,
+    borderRadius: 16,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 20,
   },
 
   modalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
+    letterSpacing: -0.1,
     color: colorss.textPrimary,
+  },
+
+  optionList: {
+    gap: 14,
+    marginTop: 20,
+    marginBottom: 24,
   },
 
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
+  },
+
+  optionText: {
+    fontSize: 15,
+    fontWeight: '400',
+    color: colorss.textPrimary,
+    flex: 1,
   },
 
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 16,
+    gap: 24,
   },
 
   cancel: {
     color: colorss.accent,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '500',
   },
 
   ok: {
     color: colorss.accent,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
   },
 });

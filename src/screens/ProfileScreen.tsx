@@ -22,6 +22,7 @@ import OptionModal from '../components/profile/OptionModal';
 import ProfileHeader from '../components/profile/ProfileHeader';
 import SectionItem from '../components/profile/SectionItem';
 import DeleteChat from '../components/profile/DeleteChat';
+
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Profile'>;
 
 const ProfileScreen: React.FC<Props> = ({ navigation }) => {
@@ -39,37 +40,21 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         {
           id: 1,
           title: 'Color',
-          image: <LucidePalette size={24} color={colorss.primary} />,
-
-          onPress: () => {
-            navigation.navigate('Theme');
-          },
+          image: <LucidePalette size={22} color={colorss.primary} />,
+          onPress: () => navigation.navigate('Theme'),
         },
         {
           id: 2,
           title: 'Emoji',
-          image: <ThumbsUp size={24} color={colorss.primary} />,
-
+          image: <ThumbsUp size={22} color={colorss.primary} />,
           onPress: () => {},
         },
         {
           id: 3,
           title: 'Nicknames',
-          image: <ChevronRight size={24} color={colorss.primary} />,
-
-          onPress: () => {
-            navigation.navigate('Nicknames');
-          },
+          image: <ChevronRight size={22} color={colorss.primary} />,
+          onPress: () => navigation.navigate('Nicknames'),
         },
-        // {
-        //   id: 4,
-        //   title: 'Word effects',
-        //   image: <ALargeSmall size={24} color={colorss.primary} />,
-        //
-        //   onPress: () => {
-        //     navigation.navigate('WordEffects');
-        //   },
-        // },
       ],
     },
     {
@@ -79,56 +64,15 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         {
           id: 6,
           title: 'Search in Conversation',
-          image: <Search size={24} color={colorss.primary} />,
-
+          image: <Search size={22} color={colorss.primary} />,
           onPress: () => {},
         },
         {
           id: 1,
           title: 'Create group',
-          image: <Users size={24} color={colorss.primary} />,
-
-          onPress: () => {
-            navigation.navigate('NewGroup');
-          },
+          image: <Users size={22} color={colorss.primary} />,
+          onPress: () => navigation.navigate('NewGroup'),
         },
-
-        // {
-        //   id: 2,
-        //   title: 'View media, files, and links',
-        //   image: <ImageIcon size={24} color={colorss.primary} />,
-        //
-        //   onPress: () => {
-        //     navigation.navigate('MediaTab', { screen: 'Media' });
-        //   },
-        // },
-        // {
-        //   id: 3,
-        //   title: 'Auto-save photos',
-        //   image: <ArrowDownToLine size={24} color={colorss.primary} />,
-        //
-        //   onPress: () => {
-        //     navigation.navigate('AutoSavePhotos');
-        //   },
-        // },
-        // {
-        //   id: 4,
-        //   title: 'Pinned messages',
-        //   image: <Pin size={24} color={colorss.primary} />,
-        //
-        //   onPress: () => {
-        //     navigation.navigate('PinnedMessages');
-        //   },
-        // },
-        // {
-        //   id: 5,
-        //   title: 'Notification & sounds',
-        //   image: <Bell size={24} color={colorss.primary} />,
-        //
-        //   onPress: () => {
-        //     navigation.navigate('NotificationsSounds');
-        //   },
-        // },
       ],
     },
     {
@@ -139,26 +83,22 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           id: 1,
           title: 'Notifications',
           image: (
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ fontSize: 17, color: colorss.textSecondary }}>
-                On
-              </Text>
-              <ChevronRight size={24} color={colorss.border} />
+            <View style={styles.notifRight}>
+              <Text style={styles.notifText}>On</Text>
+              <ChevronRight size={20} color={colorss.border} />
             </View>
           ),
         },
         {
           id: 2,
           title: 'Ignore Messages',
-          image: <CircleSlash2 size={24} color={colorss.primary} />,
-
+          image: <CircleSlash2 size={22} color={colorss.primary} />,
           onPress: () => {},
         },
         {
           id: 3,
           title: 'Block',
-          image: <UserX size={24} color={colorss.primary} />,
-
+          image: <UserX size={22} color={colorss.primary} />,
           onPress: () => {},
         },
       ],
@@ -170,9 +110,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       id: 1,
       name: 'Audio',
       icon: <LucidePhone fill={colorss.primary} stroke={colorss.primary} />,
-      onPress: () => {
-        navigation.navigate('AudioCall');
-      },
+      onPress: () => navigation.navigate('AudioCall'),
     },
     {
       id: 2,
@@ -195,41 +133,17 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   ];
 
   const muteOptions = [
-    {
-      id: 1,
-      title: 'Mute message notifications',
-    },
-    {
-      id: 2,
-      title: 'Mute call notifications',
-    },
-    {
-      id: 3,
-      title: 'Mute message and call notifications',
-    },
+    { id: 1, title: 'Mute message notifications' },
+    { id: 2, title: 'Mute call notifications' },
+    { id: 3, title: 'Mute message and call notifications' },
   ];
 
   const muteDurationData = [
-    {
-      id: 1,
-      title: 'For 15 minutes',
-    },
-    {
-      id: 2,
-      title: 'For 1 hour',
-    },
-    {
-      id: 3,
-      title: 'For 8 hours',
-    },
-    {
-      id: 4,
-      title: 'For 24 hours',
-    },
-    {
-      id: 5,
-      title: 'Until I turn it off',
-    },
+    { id: 1, title: 'For 15 minutes' },
+    { id: 2, title: 'For 1 hour' },
+    { id: 3, title: 'For 8 hours' },
+    { id: 4, title: 'For 24 hours' },
+    { id: 5, title: 'Until I turn it off' },
   ];
 
   return (
@@ -248,11 +162,10 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           if (section.id === 1) return null;
           return <Text style={styles.sectionHeader}>{section.title}</Text>;
         }}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Mute type */}
       <OptionModal
         visible={visibleMuteModal}
         title="Mute this chat?"
@@ -266,7 +179,6 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         }}
       />
 
-      {/* Mute duration */}
       <OptionModal
         visible={muteDurationModal}
         title="Select duration"
@@ -274,10 +186,9 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         selected={muteDuration}
         onSelect={setMuteDuration}
         onCancel={() => setMuteDurationModal(false)}
-        onConfirm={() => {
-          setMuteDurationModal(false);
-        }}
+        onConfirm={() => setMuteDurationModal(false)}
       />
+
       <DeleteChat
         visible={visibleDeleteChatModal}
         onCancel={() => setVisibleDeleteChatModal(false)}
@@ -294,11 +205,24 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.white,
     paddingHorizontal: 16,
   },
+  listContent: {
+    paddingBottom: 40,
+  },
   sectionHeader: {
-    fontSize: 14,
-    color: colorss.textSecondary,
-    marginBottom: 6,
-    marginTop: 10,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.7,
     textTransform: 'uppercase',
+    color: colorss.textSecondary,
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  notifRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  notifText: {
+    fontSize: 15,
+    color: colorss.textSecondary,
   },
 });

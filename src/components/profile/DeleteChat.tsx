@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
-
 import { colorss } from '../../theme';
 
 const DeleteChat = ({ visible, onCancel }) => {
@@ -27,7 +26,7 @@ const DeleteChat = ({ visible, onCancel }) => {
 
             <View style={styles.divider} />
 
-            <TouchableOpacity style={styles.btn} onPress={() => onCancel()}>
+            <TouchableOpacity style={styles.btn} onPress={onCancel}>
               <Text style={styles.deleteText}>Delete</Text>
             </TouchableOpacity>
           </View>
@@ -42,16 +41,16 @@ export default DeleteChat;
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 28,
   },
 
   dialog: {
     backgroundColor: colorss.white,
-    borderRadius: 18,
-    paddingTop: 26,
+    borderRadius: 20,
+    paddingTop: 28,
     paddingHorizontal: 24,
     paddingBottom: 0,
     width: '100%',
@@ -60,21 +59,23 @@ const styles = StyleSheet.create({
 
   dialogTitle: {
     color: colorss.textPrimary,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
-    marginBottom: 12,
+    letterSpacing: -0.2,
+    marginBottom: 10,
   },
 
   dialogBody: {
     color: colorss.textSecondary,
     fontSize: 15,
     lineHeight: 22,
-    marginBottom: 24,
+    fontWeight: '400',
+    marginBottom: 28,
   },
 
   actions: {
     flexDirection: 'row',
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colorss.border,
   },
 
@@ -85,7 +86,7 @@ const styles = StyleSheet.create({
   },
 
   divider: {
-    width: 1,
+    width: StyleSheet.hairlineWidth,
     backgroundColor: colorss.border,
   },
 

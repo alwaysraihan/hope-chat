@@ -4,11 +4,13 @@ import { colorss } from '../../theme';
 
 const SectionItem = ({ item }) => {
   const borderBottom = ['Nicknames', 'Create group', 'Block'];
-  const style = borderBottom.includes(item.title)
-    ? {}
-    : { borderBottomWidth: 1, borderBottomColor: colorss.border };
+  const hasBorder = !borderBottom.includes(item.title);
+
   return (
-    <TouchableOpacity onPress={item.onPress} style={[styles.row, style]}>
+    <TouchableOpacity
+      onPress={item.onPress}
+      style={[styles.row, hasBorder && styles.rowBorder]}
+    >
       <Text style={styles.rowText}>{item.title}</Text>
       {item.image}
     </TouchableOpacity>
@@ -18,24 +20,23 @@ const SectionItem = ({ item }) => {
 export default SectionItem;
 
 const styles = StyleSheet.create({
-  sectionHeader: {
-    fontSize: 14,
-    color: colorss.primaryLight,
-    marginBottom: 6,
-    marginTop: 10,
-  },
-
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    paddingVertical: 12,
+    paddingVertical: 13,
+  },
+
+  rowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colorss.border,
   },
 
   rowText: {
-    fontSize: 17,
-    color: colorss.textPrimary,
+    fontSize: 16,
     fontWeight: '500',
+    color: colorss.textPrimary,
+    flex: 1,
   },
 });
