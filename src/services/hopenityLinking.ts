@@ -6,14 +6,15 @@ import {
   PLAY_STORE_WEB_URL,
 } from '../constants/hopenity';
 
-const ANDROID_LAUNCH_INTENT = `intent://hopenity#Intent;scheme=https;package=${HOPENITY_PACKAGE_ID};end`;
+const ANDROID_LAUNCH_INTENT = `intent://hopenity.com/#Intent;scheme=hopenity;package=${HOPENITY_PACKAGE_ID};end`;
+const ANDROID_HOPENITY_URI = 'hopenity://hopenity.com/';
 
 export async function canOpenHopenity(): Promise<boolean> {
   try {
     if (Platform.OS === 'ios') {
       return await Linking.canOpenURL(HOPENITY_IOS_SCHEME);
     }
-    return await Linking.canOpenURL(ANDROID_LAUNCH_INTENT);
+    return await Linking.canOpenURL(ANDROID_HOPENITY_URI);
   } catch {
     return false;
   }
@@ -23,14 +24,12 @@ export async function openHopenityBestEffort(): Promise<void> {
   const candidates =
     Platform.OS === 'ios'
       ? [HOPENITY_IOS_SCHEME]
-      : [`${HOPENITY_PACKAGE_ID}://`, ANDROID_LAUNCH_INTENT];
+      : [ANDROID_HOPENITY_URI, `${HOPENITY_PACKAGE_ID}://`, ANDROID_LAUNCH_INTENT];
 
   for (const url of candidates) {
     try {
-      // eslint-disable-next-line no-await-in-loop
       const ok = await Linking.canOpenURL(url);
       if (ok) {
-        // eslint-disable-next-line no-await-in-loop
         await Linking.openURL(url);
         return;
       }

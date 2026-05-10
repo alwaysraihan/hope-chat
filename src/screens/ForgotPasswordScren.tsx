@@ -11,13 +11,9 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { PublicStackNavigatorParamList } from '../types/navigators';
 import { colorss } from '../theme';
 
-type Props = NativeStackScreenProps<
-  PublicStackNavigatorParamList,
-  'ForgotPassword'
->;
+type Props = NativeStackScreenProps<Record<string, undefined>, 'ForgotPassword'>;
 
 interface InputProps {
   placeholder: string;

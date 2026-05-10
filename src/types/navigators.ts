@@ -7,7 +7,25 @@ type BottomTabNavigatorParamList = {
   Notifications: undefined;
 };
 
-type RootStackNavigatorParamList = {
+type AuthNavigatorParamList = {
+  Login: undefined;
+  EmailLogin: undefined;
+  ForgotPassword: undefined;
+  DeviceApprovalWait: {
+    requestToken: string;
+    deviceName?: string;
+    expiresAt?: string;
+    message?: string;
+    approvalStatus?: string;
+    retryPayload?: {
+      email?: string;
+      phoneNumber?: string;
+      password: string;
+    };
+  };
+};
+
+type RootStackNavigatorParamList = AuthNavigatorParamList & {
   BottomTab: NavigatorScreenParams<BottomTabNavigatorParamList>;
   Inbox: {
     conversationId: string;
@@ -57,10 +75,7 @@ type MediaTabNavigatorParamList = {
   Links: undefined;
 };
 
-type PublicStackNavigatorParamList = {
-  Login: undefined;
-  ForgotPassword: undefined;
-};
+type PublicStackNavigatorParamList = AuthNavigatorParamList;
 
 export type {
   BottomTabNavigatorParamList,

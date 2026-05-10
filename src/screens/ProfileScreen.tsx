@@ -16,6 +16,7 @@ import {
   LucidePersonStanding,
   LucidePhone,
   LucideVideo,
+  LogIn,
   Pin,
   Shield,
   ThumbsUp,
@@ -87,6 +88,15 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
       data: [
         {
           id: 1,
+          title: 'Hopenity login',
+          image: <LogIn size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => {
+            navigation.navigate('Login');
+          },
+        },
+        {
+          id: 2,
           title: 'Create group with',
           image: <Users size={22} color={colorss.primary} />,
           type: 'switch',

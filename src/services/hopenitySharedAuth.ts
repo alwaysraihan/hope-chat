@@ -5,19 +5,18 @@ import { NativeModules, Platform } from 'react-native';
 const AUTH_MMKV_ID = 'hopenity-auth';
 const AUTH_ENCRYPTION_KEY = 'hopenity-auth!1';
 
-function iosSharedDirectory(): string | undefined {
+function sharedMMKVDirectory(): string | undefined {
   try {
-    const p =
-      NativeModules.CrossAppAuthStorage?.getSharedMMKVDirectorySync?.();
+    const p = NativeModules.CrossAppAuthStorage?.getSharedMMKVDirectorySync?.();
     return typeof p === 'string' && p.length > 0 ? p : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** MMKV instance readable on iOS when both apps use App Group `group.com.hopenity.shared`. */
+/** MMKV instance for Hopenity auth data. Falls back to regular storage if shared directory unavailable. */
 export function createHopeChatHopenityMMKV() {
-  const sharedRoot = Platform.OS === 'ios' ? iosSharedDirectory() : undefined;
+  const sharedRoot = sharedMMKVDirectory();
 
   if (sharedRoot) {
     return createMMKV({
@@ -27,8 +26,9 @@ export function createHopeChatHopenityMMKV() {
     });
   }
 
+  // Fallback to regular MMKV storage when sharedUserId is not configured
   return createMMKV({
-    id: `${AUTH_MMKV_ID}-hope-local`,
+    id: AUTH_MMKV_ID,
     encryptionKey: AUTH_ENCRYPTION_KEY,
   });
 }
@@ -58,6 +58,24 @@ export function readPersistedHopenityUser(): HopenityPersistedUserBlob | null {
   } catch {
     return null;
   }
+}
+
+export function persistHopenityUser(blob: HopenityPersistedUserBlob | null): boolean {
+  try {
+    const storage = createHopeChatHopenityMMKV();
+    if (blob == null) {
+      storage.delete('user');
+      return true;
+    }
+    storage.set('user', JSON.stringify(blob));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearPersistedHopenityUser(): boolean {
+  return persistHopenityUser(null);
 }
 
 export function displayNameFromBlob(b: HopenityPersistedUserBlob | null): string {

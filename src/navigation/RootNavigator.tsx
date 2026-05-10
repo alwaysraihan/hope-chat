@@ -16,6 +16,8 @@ import NicknamesScreen from '../screens/NicknamesScreen';
 import MediaTabNavigator from './MediaTabNavigator';
 import { NewGroupScreen } from '../screens/NewGroupScreen';
 import ReadReceiptsScreen from '../screens/ReadReceiptsScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScren';
+import LoginScreen from '../screens/LoginScreen';
 import BlockUserScreen from '../screens/BlockUserScreen';
 import AudioCallScreen from '../screens/AudioCallScreen';
 import TypingIndicatorScreen from '../screens/TypingIndicatorScreen';
@@ -27,6 +29,8 @@ import RestrictUserScreen from '../screens/RestrictUserScreen';
 import MessageRequestsScreen from '../screens/MessegeRequestScreen';
 import ReactionsScreen from '../screens/ReactionsScreen';
 import VideoCallScreen from '../screens/VideoCallScreen';
+import EmailLoginScreen from '../screens/EmailLoginScreen';
+import DeviceApprovalWaitScreen from '../screens/DeviceApprovalWaitScreen';
 
 const RootStack = createNativeStackNavigator<RootStackNavigatorParamList>();
 
@@ -37,6 +41,13 @@ const StackNavigator = () => {
       screenOptions={{ headerShown: false }}
     >
       <RootStack.Screen name="BottomTab" component={BottomTabNavigator} />
+      <RootStack.Screen name="Login" component={LoginScreen} />
+      <RootStack.Screen name="EmailLogin" component={EmailLoginScreen} />
+      <RootStack.Screen
+        name="DeviceApprovalWait"
+        component={DeviceApprovalWaitScreen}
+      />
+      <RootStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       <RootStack.Screen name="MediaTab" component={MediaTabNavigator} />
       <RootStack.Screen name="Inbox" component={InboxScreen} />
       <RootStack.Screen name="Profile" component={ProfileScreen} />

@@ -92,15 +92,21 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // Use the same keystore as Hopenity for SharedUserId compatibility
+            storeFile file("my-upload-key.keystore")
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "hopenity@#Raihan"
+            keyAlias "my-key-alias"
+            keyPassword System.getenv("KEY_PASSWORD") ?: "hopenity@#Raihan"
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Use release keystore for proper SharedUserId compatibility
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

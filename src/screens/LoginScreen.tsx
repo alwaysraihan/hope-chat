@@ -17,7 +17,6 @@ import FastImage from '@d11/react-native-fast-image';
 
 import { colorss } from '../theme';
 import hopenityLogo from '../assets/hopenity.png';
-import { PublicStackNavigatorParamList } from '../types/navigators';
 import { useAppDispatch } from '../hooks/redux';
 import { setHopenitySession } from '../redux/features/auth/authSlice';
 import {
@@ -36,7 +35,7 @@ import {
   HOPENITY_PACKAGE_ID,
 } from '../constants/hopenity';
 
-type Props = NativeStackScreenProps<PublicStackNavigatorParamList, 'Login'>;
+type Props = NativeStackScreenProps<Record<string, undefined>, 'Login'>;
 
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
@@ -190,6 +189,12 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
           >
             <Text style={styles.linkText}>Forgotten password?</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('EmailLogin')}
+            style={styles.secondaryBtn}
+          >
+            <Text style={styles.secondaryText}>Login with email or phone</Text>
+          </TouchableOpacity>
 
         </ScrollView>
       </KeyboardAvoidingView>
@@ -318,6 +323,15 @@ const styles = StyleSheet.create({
   secondary: {
     marginTop: 14,
     padding: 10,
+  },
+  secondaryBtn: {
+    marginTop: 20,
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: colorss.primary,
+    paddingVertical: 14,
+    alignItems: 'center',
+    alignSelf: 'stretch',
   },
   secondaryText: {
     color: colorss.primary,

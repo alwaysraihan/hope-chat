@@ -7,6 +7,28 @@
 
     <queries>
       <package android:name="com.hopenity" />
+      <intent>
+        <action android:name="android.intent.action.VIEW" />
+        <data android:scheme="content" />
+      </intent>
+      <intent>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="hopenity" />
+      </intent>
+      <intent>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="https" android:host="hopenity.com" />
+      </intent>
+      <intent>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="https" android:host="www.hopenity.com" />
+      </intent>
     </queries>
 
     <application
