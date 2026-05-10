@@ -6,6 +6,7 @@ import CustomTabBar from '../components/CustomTabBar';
 import { BottomTabNavigatorParamList } from '../types/navigators';
 import StoryScreen from '../screens/StoryScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 
 const TabNavigator = createBottomTabNavigator<BottomTabNavigatorParamList>();
 const BottomTabNavigator = () => {
@@ -20,7 +21,7 @@ const BottomTabNavigator = () => {
         name="Notifications"
         component={NotificationsScreen}
       />
-      <TabNavigator.Screen name="Menu" component={MenuScreen} />
+      <TabNavigator.Screen name="Menu" component={SettingsScreen} />
     </TabNavigator.Navigator>
   );
 };
