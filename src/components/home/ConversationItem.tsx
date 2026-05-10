@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, radius, fonts, spacing, colorss } from '../../theme';
-import { IC_PROFILE } from '../../assets';
 import FastImage from '@d11/react-native-fast-image';
 
 type Item = {
@@ -36,7 +35,11 @@ const ConversationItem = ({
         {item.avatarUrl ? (
           <FastImage source={{ uri: item.avatarUrl }} style={styles.avatar} />
         ) : (
-          <FastImage source={IC_PROFILE} style={styles.avatar} />
+          <View style={[styles.avatar, styles.avatarInitialWrap]}>
+            <Text style={styles.avatarInitial}>
+              {(item.name ?? '?').trim().charAt(0).toUpperCase() || '?'}
+            </Text>
+          </View>
         )}
       </View>
 
@@ -87,6 +90,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarInitialWrap: {
+    backgroundColor: colorss.primary,
+  },
+  avatarInitial: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: fonts.bold,
   },
   body: {
     flex: 1,

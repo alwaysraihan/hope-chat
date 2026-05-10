@@ -1,26 +1,21 @@
-import {
-  FlatList,
-  Image,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import React from 'react';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useMemo } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, colorss, fonts, radius, spacing } from '../theme';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { ArrowLeft, EllipsisVertical, X } from 'lucide-react-native';
-import { conversations } from '../data/mockData';
-import { IC_PROFILE } from '../assets';
+import FastImage from '@d11/react-native-fast-image';
+import type { ConversationSummary } from '../context/ChatsContext';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Archive'>;
 
+/** Placeholder until archive folder is wired to the Hopenity API. */
 const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
+  const archived: ConversationSummary[] = useMemo(() => [], []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerLeft}
@@ -35,20 +30,30 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* LIST */}
       <FlatList
-        data={conversations}
-        keyExtractor={(_, index) => index.toString()}
+        data={archived}
+        keyExtractor={item => item.id}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            <Text style={styles.emptyTitle}>No archived chats</Text>
+            <Text style={styles.emptyBody}>
+              Archived conversations will appear here when that folder is available
+              from your account.
+            </Text>
+          </View>
+        }
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.container} activeOpacity={0.7}>
-            {/* AVATAR */}
             <View style={styles.avatarWrap}>
-              <Image source={IC_PROFILE} style={styles.avatar} />
-              {item.isOnline && <View style={styles.onlineDot} />}
+              {item.avatarUrl ? (
+                <FastImage source={{ uri: item.avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarPh]} />
+              )}
+              {item.isOnline ? <View style={styles.onlineDot} /> : null}
             </View>
 
-            {/* BODY */}
             <View style={styles.body}>
               <Text style={styles.name} numberOfLines={1}>
                 {item.name}
@@ -73,7 +78,6 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             </View>
 
-            {/* RIGHT ACTION */}
             <View style={styles.rightAction}>
               <TouchableOpacity style={styles.closeBtn}>
                 <X size={18} color={colorss.textPrimary} />
@@ -116,9 +120,27 @@ const styles = StyleSheet.create({
     color: colorss.textPrimary,
   },
 
+  emptyWrap: {
+    paddingTop: 48,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: fonts.semibold,
+    color: colorss.textPrimary,
+    marginBottom: 8,
+  },
+  emptyBody: {
+    fontSize: 14,
+    color: colorss.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
   /* LIST */
   listContent: {
     gap: 10,
+    flexGrow: 1,
   },
 
   /* ITEM */
@@ -135,6 +157,9 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: radius.full,
+  },
+  avatarPh: {
+    backgroundColor: colorss.border,
   },
 
   onlineDot: {

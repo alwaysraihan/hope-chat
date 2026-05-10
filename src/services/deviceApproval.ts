@@ -1,4 +1,4 @@
-const BASE_URL = 'https://api.hopenity.com';
+import { API_BASE_URL } from '../config/env';
 
 export type DeviceApprovalStatusResponse = {
   requestToken: string;
@@ -12,7 +12,7 @@ export async function fetchDeviceApprovalStatus(
   requestToken: string
 ): Promise<DeviceApprovalStatusResponse> {
   const response = await fetch(
-    `${BASE_URL}/api/v1/auth/device-approvals/${encodeURIComponent(
+    `${API_BASE_URL}/api/v1/auth/device-approvals/${encodeURIComponent(
       requestToken
     )}/status`,
     {

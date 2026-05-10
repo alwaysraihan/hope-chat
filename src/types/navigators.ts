@@ -1,5 +1,7 @@
 import { NavigatorScreenParams } from '@react-navigation/native';
 
+import type { ConversationSummary } from '../context/ChatsContext';
+
 type BottomTabNavigatorParamList = {
   Home: undefined;
   Menu: undefined;
@@ -33,6 +35,8 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     avatarUrl?: string | null;
     token?: string;
     liveKitRoom?: string;
+    /** When opened from Requests (chat not yet in ACTIVE inbox cache). */
+    seedConversation?: ConversationSummary;
   };
   Profile: {
     userId: string;
@@ -50,6 +54,10 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   AudioCall: {
     displayName?: string;
     liveKitRoom?: string;
+    avatarUrl?: string | null;
+    conversationId?: string;
+    peerUserId?: string;
+    callDirection?: 'outgoing' | 'incoming';
   };
   NewGroup: undefined;
   TypingIndicator: undefined;
@@ -59,14 +67,29 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   RestrictUser: undefined;
   ReportProblem: undefined;
   MessagePermissions: undefined;
-  DisappearingMessages: undefined;
+  DisappearingMessages: { conversationId?: string } | undefined;
   Settings: undefined;
   MessageRequests: undefined;
   Reactions: undefined;
   VideoCall: {
     displayName?: string;
     liveKitRoom?: string;
+    avatarUrl?: string | null;
+    conversationId?: string;
+    peerUserId?: string;
+    callDirection?: 'outgoing' | 'incoming';
   };
+  IncomingCall: {
+    callKind: 'audio' | 'video';
+    liveKitRoom: string;
+    displayName: string;
+    callerId?: string;
+    avatarUrl?: string | null;
+    /** When push includes it — used for missed-call rows in chat. */
+    conversationId?: string;
+  };
+  /** Full-screen Story viewer (ring index into `setStoryFeedRings` cache). */
+  StoryViewer: { ringIndex: number };
 };
 
 type MediaTabNavigatorParamList = {

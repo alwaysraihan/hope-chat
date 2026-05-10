@@ -3,13 +3,13 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, radius, fonts, colorss } from '../../theme';
 import LinearGradient from 'react-native-linear-gradient';
 import FastImage from '@d11/react-native-fast-image';
-import { IC_PROFILE } from '../../assets';
 
 type StoryLike = {
   isAdd?: boolean;
   id: string;
   name?: string;
   emoji?: string;
+  avatarUrl?: string | null;
   bgFrom?: string;
   bgTo?: string;
   active?: boolean;
@@ -47,10 +47,19 @@ const StoryItem = ({
           style={styles.gradientRing}
         >
           <View style={styles.innerCircle}>
-            {item.emoji ? (
+            {item.avatarUrl ? (
+              <FastImage
+                source={{ uri: item.avatarUrl }}
+                style={styles.miniAvatar}
+              />
+            ) : item.emoji ? (
               <Text style={styles.emoji}>{item.emoji}</Text>
             ) : (
-              <FastImage source={IC_PROFILE} style={styles.miniAvatar} />
+              <View style={styles.initialCircle}>
+                <Text style={styles.initialText}>
+                  {(item.name ?? '?').trim().charAt(0).toUpperCase() || '?'}
+                </Text>
+              </View>
             )}
           </View>
         </LinearGradient>
@@ -107,6 +116,19 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
+  },
+  initialCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colorss.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  initialText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: fonts.bold,
   },
   emoji: {
     fontSize: 26,

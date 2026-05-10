@@ -1,5 +1,6 @@
 package com.hopechat
 
+import android.content.Context
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
@@ -25,14 +26,28 @@ class CrossAppAuthModule(reactContext: ReactApplicationContext) :
   @ReactMethod(isBlockingSynchronousMethod = true)
   fun getSharedMMKVDirectorySync(): String {
     return try {
-      val context = reactApplicationContext
-      // For SharedUserId, use a shared directory in the app's cache that can be accessed by other apps
-      val sharedDir = File(context.filesDir.parent, "shared_mmkv")
-      sharedDir.mkdirs()
-      sharedDir.absolutePath
+      resolveSharedMmkvDir(reactApplicationContext).absolutePath
     } catch (e: Exception) {
-      "" // Fallback if unable to create/access shared directory
+      ""
     }
+  }
+
+  private fun resolveSharedMmkvDir(context: Context): File {
+    // Same path Hopenity + Hope Chat must resolve (paired apps, same signing key + sharedUserId).
+    val packageCandidates = arrayOf("com.hopenity", "com.hopechat")
+    for (pkg in packageCandidates) {
+      try {
+        val pkgCtx = context.createPackageContext(pkg, 0)
+        val dir = File(pkgCtx.filesDir, "cross_app_mmkv")
+        dir.mkdirs()
+        if (dir.exists()) return dir
+      } catch (_: Exception) {
+        /* try next */
+      }
+    }
+    val fallback = File(context.filesDir, "cross_app_mmkv")
+    fallback.mkdirs()
+    return fallback
   }
 
   companion object {

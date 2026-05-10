@@ -10,13 +10,14 @@ import {
 } from 'react-native';
 import { useAppDispatch } from '../hooks/redux';
 import { setHopenitySession } from '../redux/features/auth/authSlice';
-import { persistHopenityUser } from '../services/hopenitySharedAuth';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { PublicStackNavigatorParamList } from '../types/navigators';
 import { fetchDeviceApprovalStatus } from '../services/deviceApproval';
+import { persistHopenityUser } from '../services/hopenitySharedAuth';
 import { colorss } from '../theme';
+import { API_BASE_URL } from '../config/env';
+import { extractLoginSessionBlob } from '../utils/extractLoginSession';
 
-const BASE_URL = 'https://api.hopenity.com';
 const LOGIN_ENDPOINT = '/api/v1/auth/login';
 
 const getStatusColor = (status: string) => {
@@ -58,7 +59,7 @@ const DeviceApprovalWaitScreen: React.FC<Props> = ({ navigation, route }) => {
 
     setAttemptingRetry(true);
     try {
-      const response = await fetch(`${BASE_URL}${LOGIN_ENDPOINT}`, {
+      const response = await fetch(`${API_BASE_URL}${LOGIN_ENDPOINT}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -84,25 +85,21 @@ const DeviceApprovalWaitScreen: React.FC<Props> = ({ navigation, route }) => {
         return;
       }
 
-      const token = responseData?.token;
-      if (!token) {
+      const fallbackLabel =
+        (typeof retryPayload.email === 'string' && retryPayload.email) ||
+        (typeof retryPayload.phoneNumber === 'string' && retryPayload.phoneNumber) ||
+        'Hopenity user';
+      const blob = extractLoginSessionBlob(
+        responseData as Record<string, unknown>,
+        fallbackLabel,
+      );
+      if (!blob?.token) {
         setStatusMessage('Login succeeded but the server did not return a token.');
         return;
       }
 
-      const user = responseData?.user ?? {
-        id: responseData?.id ?? responseData?.userId ?? 'me',
-        name:
-          responseData?.user?.name ||
-          responseData?.name ||
-          responseData?.username ||
-          retryPayload.email ||
-          retryPayload.phoneNumber ||
-          'Hopenity user',
-      };
-      const blob = { token, user };
-      dispatch(setHopenitySession({ blob }));
       persistHopenityUser(blob);
+      dispatch(setHopenitySession({ blob }));
       setStatusMessage('Device approved. Signing you in...');
     } catch (error: any) {
       setStatusMessage(

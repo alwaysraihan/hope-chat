@@ -13,6 +13,8 @@
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		FA01ABCD1A68108700A75B9A /* CrossAppAuthStorage.m in Sources */ = {isa = PBXBuildFile; fileRef = FA02ABCD1A68108700A75B9A /* CrossAppAuthStorage.m */; };
+		A1B010011A68108700A75F01 /* HopeChatCallRingtone.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B010021A68108700A75F01 /* HopeChatCallRingtone.m */; };
+		A1B010031A68108700A75F01 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A1B010041A68108700A75F01 /* GoogleService-Info.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +29,8 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = hopeChat/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		FA02ABCD1A68108700A75B9A /* CrossAppAuthStorage.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = CrossAppAuthStorage.m; path = hopeChat/CrossAppAuthStorage.m; sourceTree = "<group>"; };
+		A1B010021A68108700A75F01 /* HopeChatCallRingtone.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = HopeChatCallRingtone.m; path = hopeChat/HopeChatCallRingtone.m; sourceTree = "<group>"; };
+		A1B010041A68108700A75F01 /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = GoogleService-Info.plist; path = hopeChat/GoogleService-Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,7 +50,9 @@
 			children = (
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				A1B010041A68108700A75F01 /* GoogleService-Info.plist */,
 				FA02ABCD1A68108700A75B9A /* CrossAppAuthStorage.m */,
+				A1B010021A68108700A75F01 /* HopeChatCallRingtone.m */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -163,6 +169,7 @@
 			files = (
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				A1B010031A68108700A75F01 /* GoogleService-Info.plist in Resources */,
 				1D3B1C4C619BF3A5E76C0B5C /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -251,6 +258,7 @@
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				FA01ABCD1A68108700A75B9A /* CrossAppAuthStorage.m in Sources */,
+				A1B010011A68108700A75F01 /* HopeChatCallRingtone.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

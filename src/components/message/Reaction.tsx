@@ -45,8 +45,6 @@ type ActionButton = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const EMOJIS = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
-
 // ─── Component ────────────────────────────────────────────────────────────────
 // All message actions (react, reply, delete, forward) come from InboxContext.
 // No callback props needed from the parent.
@@ -57,7 +55,13 @@ export default function Reaction({
   children,
 }: ReactionProps) {
   // Pull all actions from context — zero prop drilling
-  const { handleReact, handleReply, handleDelete, handleForward } = useInbox();
+  const {
+    handleReact,
+    handleReply,
+    handleDelete,
+    handleForward,
+    reactionEmojiRow,
+  } = useInbox();
 
   const isRight = position === 'right';
   const wrapRef = useRef<View>(null);
@@ -321,7 +325,7 @@ export default function Reaction({
           ]}
           pointerEvents="box-none"
         >
-          {EMOJIS.map(emoji => (
+          {reactionEmojiRow.map(emoji => (
             <TouchableOpacity
               key={emoji}
               onPress={() => handleEmojiPress(emoji)}

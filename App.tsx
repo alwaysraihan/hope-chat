@@ -11,15 +11,25 @@ import PublicStackNavigator from './src/navigation/PublicStackNavigator';
 import { useAppSelector } from './src/hooks/redux';
 import { selectHopeChatLoggedIn } from './src/redux/features/auth/authSlice';
 import { ChatsProvider } from './src/context/ChatsContext';
+import AuthBootstrap from './src/components/AuthBootstrap';
+import IncomingCallListener from './src/components/IncomingCallListener';
+import { navigationRef } from './src/navigation/navigationRef';
+import { consumePendingIncomingCall } from './src/services/incomingCall/navigateIncomingCall';
 
 const AppInner = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
-  if (!loggedIn) return <PublicStackNavigator />;
 
   return (
-    <ChatsProvider>
-      <RootNavigator />
-    </ChatsProvider>
+    <React.Fragment key={loggedIn ? 'session' : 'guest'}>
+      {!loggedIn ? (
+        <PublicStackNavigator />
+      ) : (
+        <ChatsProvider>
+          <IncomingCallListener />
+          <RootNavigator />
+        </ChatsProvider>
+      )}
+    </React.Fragment>
   );
 };
 
@@ -27,9 +37,13 @@ const App = () => {
   return (
     <SafeAreaProvider>
       <Provider store={store}>
+        <AuthBootstrap />
         <GestureHandlerRootView>
           <KeyboardProvider>
-            <NavigationContainer>
+            <NavigationContainer
+              ref={navigationRef}
+              onReady={consumePendingIncomingCall}
+            >
               <SystemBars style={'dark'} />
               <AppInner />
             </NavigationContainer>

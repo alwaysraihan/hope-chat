@@ -13,6 +13,7 @@ import React, {
 import {
   Alert,
   Animated,
+  DeviceEventEmitter,
   useWindowDimensions,
   View,
   ViewStyle,
@@ -27,11 +28,50 @@ import {
 
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { resetReplayTo, setReplayTo } from '../redux/features/inbox/inboxSlice';
-import { Anchor, ExtendedMessage } from '../components/types/chat';
+import { ExtendedMessage } from '../components/types/chat';
+import { useChats } from './ChatsContext';
+import {
+  fetchHopenityChatMessages,
+  formatChatTime,
+  markHopenityChatRead,
+  sendHopenityChatMessage,
+  uploadChatMedia,
+} from '../services/chatService';
+import {
+  selectAuthToken,
+  selectHopenityProfile,
+} from '../redux/features/auth/authSlice';
+import { normalizeChatUserId } from '../utils/chatUserId';
+import {
+  readThreadMessagesCache,
+  writeThreadMessagesCache,
+} from '../services/offlineCache';
 import {
   checkCameraPermission,
   checkMicrophonePermission,
 } from '../utils/permissions';
+import {
+  formatChatListPreview,
+  mapApiMessageToTimeline,
+} from '../services/chatMessagePreview';
+import {
+  CALL_OUTCOME_EVENT,
+  type CallOutcomePayload,
+} from '../services/callOutcomeBus';
+import {
+  extractMessageSenderId,
+  extractOutgoingHint,
+} from '../utils/extractMessageSender';
+import {
+  deriveConversationMessageKey,
+  encryptMessagePayload,
+  maybeDecryptContent,
+} from '../services/e2ee/conversationCrypto';
+import {
+  getEffectiveDisappearingTtlSec,
+  getReactionPalette,
+  isE2eeEnabled,
+} from '../services/chatPrefs';
 
 import { CHAT_SCREEN_WIDTH } from '../data/chatTemplates';
 
@@ -91,6 +131,8 @@ interface InboxContextValue {
   handleVoiceRecordingComplete: (path: string, duration: number) => void;
   handleVoiceRecordingCancel: () => void;
 
+  reactionEmojiRow: string[];
+
   // ── Context
   wrapRef: RefObject<View | null>;
   swipeRef: RefObject<any | null>;
@@ -112,18 +154,66 @@ export function useInbox(): InboxContextValue {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
+interface ThreadIntroPeer {
+  name: string;
+  avatarUrl?: string | null;
+}
+
 interface InboxProviderProps {
   children: React.ReactNode;
   /** When set, replaces the default seeded thread (e.g. chosen from home list). */
   seedMessages?: ExtendedMessage[];
   /** Stable id for pagination / future API (must match conversation list id). */
   conversationId?: string;
+  /** Renders Hopenity-style “friends / say hi” ribbon at top of timeline. */
+  threadIntroPeer?: ThreadIntroPeer;
+  /** 1:1 other participant user id — required for E2EE key agreement. */
+  peerUserId?: string | null;
+  /** Group / multi-participant chats skip symmetric DM crypto. */
+  isGroup?: boolean;
+  /** Optional server-provided reaction set for this thread. */
+  remoteReactionPalette?: string[] | null;
+}
+
+const INTRO_MESSAGE_ID = '__hopenity_thread_intro';
+
+function buildThreadIntroMessage(peer: ThreadIntroPeer): ExtendedMessage {
+  const first = peer.name.split(/\s+/)[0] || peer.name;
+  return {
+    _id: INTRO_MESSAGE_ID,
+    threadIntro: {
+      peerName: peer.name,
+      subtitle: "You're friends on Hopenity",
+      avatarUrl: peer.avatarUrl ?? null,
+    },
+    text: `Say hi to your new Hopenity friend, ${first}.`,
+    createdAt: new Date(1),
+    user: { _id: '__hopenity_intro', name: 'Hopenity' },
+  };
+}
+
+function stripIntro(descNewestFirst: ExtendedMessage[]): ExtendedMessage[] {
+  return descNewestFirst.filter(m => m._id !== INTRO_MESSAGE_ID);
+}
+
+/** Gifted Chat is newest-first; intro is oldest timestamp so it appears at top visually. */
+function mergeIntroDesc(
+  descNewestFirst: ExtendedMessage[],
+  peer?: ThreadIntroPeer,
+): ExtendedMessage[] {
+  if (!peer?.name?.trim()) return descNewestFirst;
+  const intro = buildThreadIntroMessage(peer);
+  return [...descNewestFirst, intro];
 }
 
 export function InboxProvider({
   children,
   seedMessages,
   conversationId: _conversationId,
+  threadIntroPeer,
+  peerUserId = null,
+  isGroup = false,
+  remoteReactionPalette = null,
 }: InboxProviderProps) {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
@@ -132,8 +222,50 @@ export function InboxProvider({
   const swipeRef = useRef<any>(null);
 
   // ── Auth / user
-  const user =
-    useAppSelector(state => state.auth.giftedChatUser) ?? { _id: '1', name: 'You' };
+  const gifted = useAppSelector(state => state.auth.giftedChatUser);
+  const hopenityProfile = useAppSelector(selectHopenityProfile);
+  const user = useMemo(() => {
+    const id =
+      normalizeChatUserId(gifted?._id) ||
+      normalizeChatUserId(hopenityProfile?.userId) ||
+      'me';
+    return {
+      _id: id,
+      name: gifted?.name ?? hopenityProfile?.displayName ?? 'You',
+    };
+  }, [gifted, hopenityProfile]);
+
+  const localUserIdStr = useMemo(
+    () => normalizeChatUserId(user._id) || String(user._id ?? ''),
+    [user._id],
+  );
+
+  const e2eeKey = useMemo(() => {
+    if (!isE2eeEnabled() || isGroup || !_conversationId || !peerUserId) {
+      return null;
+    }
+    if (!localUserIdStr || localUserIdStr === 'me') return null;
+    try {
+      return deriveConversationMessageKey(
+        localUserIdStr,
+        peerUserId,
+        _conversationId,
+      );
+    } catch {
+      return null;
+    }
+  }, [isGroup, _conversationId, peerUserId, localUserIdStr]);
+
+  const disappearingTtlSec = getEffectiveDisappearingTtlSec(_conversationId);
+  const [disappearPulse, setDisappearPulse] = useState(0);
+  useEffect(() => {
+    if (disappearingTtlSec <= 0) return;
+    const id = setInterval(
+      () => setDisappearPulse(p => p + 1),
+      15000,
+    );
+    return () => clearInterval(id);
+  }, [disappearingTtlSec]);
 
   // ── Redux reply state
   const replyTo = useAppSelector(
@@ -158,6 +290,168 @@ export function InboxProvider({
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const bumpRefresh = useCallback(() => setRefreshTrigger(n => n + 1), []);
 
+  const { setConversations } = useChats();
+  const token = useAppSelector(selectAuthToken);
+
+  const reactionEmojiRow =
+    remoteReactionPalette && remoteReactionPalette.length > 0
+      ? remoteReactionPalette.slice(0, 8)
+      : getReactionPalette();
+
+  const mapHopenityMessage = useCallback(
+    (raw: any): ExtendedMessage => {
+      const sender = raw.sender ?? {};
+      const rawDict = raw as Record<string, unknown>;
+      const extracted = extractMessageSenderId(rawDict);
+      const rawSid =
+        extracted ||
+        (raw.senderId ??
+          raw.sender_id ??
+          raw.userId ??
+          raw.user_id ??
+          raw.fromUserId ??
+          raw.from_user_id ??
+          sender.user_id ??
+          sender.id ??
+          sender.userId ??
+          sender.user?.id ??
+          sender.user?._id ??
+          raw.memberId ??
+          raw.senderUserId ??
+          raw.createdByUserId);
+      const senderId =
+        rawSid != null && String(rawSid).trim() !== ''
+          ? String(rawSid).trim()
+          : '';
+      const senderName =
+        sender.name ??
+        raw.senderName ??
+        raw.sender_name ??
+        'Unknown';
+      const createdAtRaw = raw.createdAt ?? raw.created_at;
+      const id = String(raw.id ?? `${_conversationId ?? 'chat'}_${Date.now()}`);
+
+      const rawObj = { ...(raw as Record<string, unknown>) };
+      const rawContent = String(rawObj.content ?? rawObj.text ?? '');
+      if (e2eeKey && rawContent.startsWith('HC1:')) {
+        rawObj.content = maybeDecryptContent(rawContent, e2eeKey);
+      }
+
+      const parsed = mapApiMessageToTimeline(rawObj);
+
+      let media = parsed.media;
+      if (e2eeKey && media?.remoteUri?.startsWith('HC1:')) {
+        media = {
+          ...media,
+          remoteUri: maybeDecryptContent(media.remoteUri, e2eeKey),
+        };
+      }
+      if (e2eeKey && media?.url?.startsWith('HC1:')) {
+        media = {
+          ...media,
+          url: maybeDecryptContent(media.url!, e2eeKey),
+        };
+      }
+
+      const hint = extractOutgoingHint(rawDict);
+      const peer = peerUserId ? normalizeChatUserId(peerUserId) || peerUserId : '';
+      const rawSender =
+        (senderId && (normalizeChatUserId(senderId) || senderId)) || '';
+
+      const idSame = (a: string, b: string): boolean => {
+        if (!a || !b) return false;
+        if (a === b) return true;
+        if (
+          /^\d+$/.test(a) &&
+          /^\d+$/.test(b) &&
+          Number(a) === Number(b)
+        ) {
+          return true;
+        }
+        return false;
+      };
+
+      let resolvedUid = rawSender;
+      if (hint === true && localUserIdStr) {
+        resolvedUid = normalizeChatUserId(localUserIdStr) || localUserIdStr;
+      } else if (hint === false && peer) {
+        resolvedUid = peer;
+      } else if (
+        hint !== true &&
+        hint !== false &&
+        rawSender &&
+        localUserIdStr &&
+        peer
+      ) {
+        const loc =
+          normalizeChatUserId(localUserIdStr) || String(localUserIdStr);
+        if (idSame(rawSender, loc)) {
+          resolvedUid = loc;
+        } else if (idSame(rawSender, peer)) {
+          resolvedUid = peer;
+        } else {
+          resolvedUid = rawSender;
+        }
+      } else if (!resolvedUid || resolvedUid === 'unknown') {
+        resolvedUid = 'unknown';
+      }
+
+      return {
+        _id: id,
+        text: parsed.text,
+        createdAt: createdAtRaw ? new Date(createdAtRaw) : new Date(),
+        user: {
+          _id: resolvedUid,
+          name: senderName,
+        },
+        media,
+        messageKind: parsed.messageKind,
+        delivery: parsed.delivery,
+        outgoingHint: hint,
+      };
+    },
+    [_conversationId, e2eeKey, localUserIdStr, peerUserId],
+  );
+
+  const messagesForUi = useMemo(() => {
+    if (disappearingTtlSec <= 0) return messages;
+    const now = Date.now();
+    const ttlMs = disappearingTtlSec * 1000;
+    return messages.filter(m => {
+      if (m.threadIntro || m._id === INTRO_MESSAGE_ID) return true;
+      const t =
+        m.createdAt instanceof Date
+          ? m.createdAt.getTime()
+          : new Date(m.createdAt as string | number | Date).getTime();
+      return now - t <= ttlMs;
+    });
+  }, [messages, disappearingTtlSec, disappearPulse]);
+
+  const updateConversationPreview = useCallback(
+    (content: string, timestamp: string | Date | number) => {
+      if (!_conversationId) return;
+      const iso =
+        typeof timestamp === 'number'
+          ? new Date(timestamp).toISOString()
+          : typeof timestamp === 'string'
+            ? timestamp
+            : timestamp.toISOString();
+      const timeStr = formatChatTime(iso);
+      setConversations(prev => {
+        const idx = prev.findIndex(c => c.id === _conversationId);
+        if (idx < 0) return prev;
+        const row = {
+          ...prev[idx],
+          preview: content,
+          time: timeStr,
+          unreadCount: 0,
+        };
+        return [row, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+      });
+    },
+    [_conversationId, setConversations],
+  );
+
   // ── Animations
   const inputAnimation = useRef(new Animated.Value(0)).current;
 
@@ -178,39 +472,104 @@ export function InboxProvider({
 
   useEffect(() => {
     pageRef.current = 1;
-    const base = seedMessages?.length ? seedMessages : [];
+    const cached =
+      _conversationId && token
+        ? readThreadMessagesCache(_conversationId)
+        : null;
+    const fromSeed = seedMessages?.length ? seedMessages : [];
+    const base = fromSeed.length
+      ? fromSeed
+      : cached?.length
+        ? cached
+        : [];
 
     setLoadingMore(false);
     setAllMessages(base);
-    setMessages([...base].reverse());
-    setHasMore(false);
-    // TODO: when API exists, use _conversationId + page > 1 inside fetchMessages.
-  }, [_conversationId, seedMessages]);
+    setMessages(mergeIntroDesc([...base].reverse(), threadIntroPeer));
+    setHasMore(!!(_conversationId && token));
+
+    if (!_conversationId || !token) {
+      setHasMore(false);
+      return;
+    }
+
+    const load = async () => {
+      try {
+        const page = await fetchHopenityChatMessages(_conversationId, token, {
+          limit: PAGE_SIZE,
+        });
+        const fetched = page.messages ?? [];
+        const mapped = fetched.map(mapHopenityMessage);
+        setAllMessages(mapped);
+        const desc = [...mapped].reverse();
+        setMessages(mergeIntroDesc(desc, threadIntroPeer));
+        setHasMore(
+          page.pagination?.hasMore ??
+            fetched.length >= PAGE_SIZE,
+        );
+        writeThreadMessagesCache(_conversationId, mapped);
+        markHopenityChatRead(_conversationId, token).catch(() => undefined);
+      } catch (err) {
+        console.error('[InboxProvider] load chat messages error:', err);
+      }
+    };
+
+    load();
+  }, [
+    _conversationId,
+    seedMessages,
+    token,
+    mapHopenityMessage,
+    threadIntroPeer,
+  ]);
 
   // ─── Fetch messages ────────────────────────────────────────────────────────
 
-  const fetchMessages = useCallback(async (page: number) => {
-    setLoadingMore(page > 1);
-
-    try {
-      // TODO: replace with real API — use _conversationId when wiring backend
-      const fetched: ExtendedMessage[] = [];
-
-      if (page === 1) {
-        setAllMessages(fetched);
-        setMessages([...fetched].reverse());
-      } else {
-        setAllMessages(prev => [...fetched, ...prev]);
-        setMessages(prev => [...prev, ...[...fetched].reverse()]);
+  const fetchMessages = useCallback(
+    async (page: number) => {
+      if (!_conversationId || !token) {
+        setLoadingMore(false);
+        return;
       }
 
-      setHasMore(fetched.length === PAGE_SIZE);
-    } catch (err) {
-      console.error('[InboxProvider] fetchMessages error:', err);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, []);
+      setLoadingMore(page > 1);
+
+      try {
+        const oldestIdRaw = page > 1 ? allMessages[0]?._id : undefined;
+        const before =
+          oldestIdRaw !== undefined ? String(oldestIdRaw) : undefined;
+        const res = await fetchHopenityChatMessages(_conversationId, token, {
+          limit: PAGE_SIZE,
+          before,
+        });
+        const chunk = res.messages ?? [];
+        const mapped = chunk.map(mapHopenityMessage);
+
+        let nextAsc: ExtendedMessage[];
+
+        if (page === 1) {
+          nextAsc = mapped;
+        } else {
+          nextAsc = [...mapped, ...allMessages];
+        }
+
+        setAllMessages(nextAsc);
+        const desc = [...nextAsc].reverse();
+        setMessages(mergeIntroDesc(desc, threadIntroPeer));
+        setHasMore(
+          res.pagination?.hasMore ?? chunk.length >= PAGE_SIZE,
+        );
+        if (page === 1 && _conversationId) {
+          writeThreadMessagesCache(_conversationId, nextAsc);
+        }
+      } catch (err) {
+        console.error('[InboxProvider] fetchMessages error:', err);
+      } finally {
+        setLoadingMore(false);
+      }
+    },
+    [_conversationId, token, allMessages, mapHopenityMessage, threadIntroPeer],
+  );
 
   // ─── Pagination ────────────────────────────────────────────────────────────
 
@@ -223,30 +582,89 @@ export function InboxProvider({
 
   // ─── Message CRUD ──────────────────────────────────────────────────────────
 
-  const appendMessage = useCallback((msg: ExtendedMessage) => {
-    setMessages(prev => [msg, ...prev]);
-    setAllMessages(prev => [...prev, msg]);
-  }, []);
+  const appendMessage = useCallback(
+    (msg: ExtendedMessage) => {
+      setMessages(prev =>
+        mergeIntroDesc([msg, ...stripIntro(prev)], threadIntroPeer),
+      );
+      setAllMessages(prev => [...prev, msg]);
+    },
+    [threadIntroPeer],
+  );
 
   const updateMessage = useCallback(
     (id: string | number, patch: Partial<ExtendedMessage>) => {
       const apply = (m: ExtendedMessage) =>
         m._id === id ? { ...m, ...patch } : m;
-      setMessages(prev => prev.map(apply));
+      setMessages(prev =>
+        mergeIntroDesc(stripIntro(prev).map(apply), threadIntroPeer),
+      );
       setAllMessages(prev => prev.map(apply));
       bumpRefresh();
     },
-    [bumpRefresh],
+    [bumpRefresh, threadIntroPeer],
   );
 
   const deleteMessage = useCallback(
     (id: string | number) => {
-      setMessages(prev => prev.filter(m => m._id !== id));
+      setMessages(prev =>
+        mergeIntroDesc(
+          stripIntro(prev).filter(m => m._id !== id),
+          threadIntroPeer,
+        ),
+      );
       setAllMessages(prev => prev.filter(m => m._id !== id));
       bumpRefresh();
     },
-    [bumpRefresh],
+    [bumpRefresh, threadIntroPeer],
   );
+
+  useEffect(() => {
+    if (!_conversationId) return;
+    const sub = DeviceEventEmitter.addListener(
+      CALL_OUTCOME_EVENT,
+      (p: CallOutcomePayload) => {
+        if (p.conversationId !== _conversationId) return;
+        let line = '';
+        let uid = localUserIdStr;
+        let uname = typeof user.name === 'string' ? user.name : 'You';
+
+        if (p.variant === 'outgoing_not_connected') {
+          line =
+            p.callKind === 'video'
+              ? '📹 Video call · No answer'
+              : '📞 Voice call · No answer';
+        } else {
+          line =
+            p.callKind === 'video'
+              ? '📹 Missed video call'
+              : '📞 Missed voice call';
+          const pu = p.peerUserId?.trim();
+          if (pu) {
+            uid = normalizeChatUserId(pu) || pu;
+            uname = p.peerDisplayName ?? uname;
+          }
+        }
+
+        const msg: ExtendedMessage = {
+          _id: `call_evt_${Date.now()}`,
+          text: line,
+          createdAt: new Date(),
+          user: { _id: uid, name: uname },
+          messageKind: 'call_log',
+        };
+        appendMessage(msg);
+        updateConversationPreview(line, new Date());
+      },
+    );
+    return () => sub.remove();
+  }, [
+    _conversationId,
+    localUserIdStr,
+    user.name,
+    appendMessage,
+    updateConversationPreview,
+  ]);
 
   // ─── Send text / media ─────────────────────────────────────────────────────
 
@@ -264,33 +682,90 @@ export function InboxProvider({
         : undefined;
 
       outgoing.forEach(msg => {
+        const uid =
+          normalizeChatUserId(msg.user?._id ?? user._id) || user._id;
         const stamped: ExtendedMessage = {
           ...msg,
           createdAt: msg.createdAt ?? new Date(),
-          user: msg.user ?? { _id: user._id },
+          user: {
+            ...msg.user,
+            _id: uid,
+            name:
+              typeof msg.user?.name === 'string'
+                ? msg.user.name
+                : typeof user.name === 'string'
+                  ? user.name
+                  : 'You',
+          },
           pending: true,
           replyTo: currentReplyTo,
         };
 
         appendMessage(stamped);
+        updateConversationPreview(
+          formatChatListPreview(
+            {
+              content: String(stamped.text ?? ''),
+              senderId: localUserIdStr,
+            },
+            localUserIdStr,
+          ),
+          stamped.createdAt ?? new Date(),
+        );
 
-        // TODO: replace with real API / socket send
-        // api.sendMessage(stamped)
-        //   .then(confirmed => updateMessage(stamped._id, { pending: false, ...confirmed }))
-        //   .catch(() => updateMessage(stamped._id, { pending: false, failed: true }));
+        if (_conversationId && token) {
+          const plain = String(stamped.text ?? '');
+          let wire = plain;
+          if (e2eeKey && plain.length > 0) {
+            wire = encryptMessagePayload(plain, e2eeKey);
+          }
+          sendHopenityChatMessage(_conversationId, wire, token)
+            .then(res => {
+              if (!res) {
+                updateMessage(stamped._id, { pending: false, failed: true });
+                return;
+              }
 
-        setTimeout(() => updateMessage(stamped._id, { pending: false }), 800);
+              const parsed = mapApiMessageToTimeline(
+                res as Record<string, unknown>,
+              );
+              updateMessage(stamped._id, {
+                pending: false,
+                _id: String(res.id ?? stamped._id),
+                createdAt: res.createdAt ? new Date(res.createdAt) : stamped.createdAt,
+                ...(parsed.delivery ? { delivery: parsed.delivery } : {}),
+              });
+            })
+            .catch(err => {
+              console.error('[InboxProvider] send message error:', err);
+              updateMessage(stamped._id, { pending: false, failed: true });
+            });
+        } else {
+          setTimeout(() => updateMessage(stamped._id, { pending: false }), 800);
+        }
       });
 
       dispatch(resetReplayTo());
     },
-    [user._id, replyTo, appendMessage, updateMessage, dispatch],
+    [
+      user._id,
+      user.name,
+      replyTo,
+      appendMessage,
+      updateMessage,
+      dispatch,
+      _conversationId,
+      token,
+      updateConversationPreview,
+      localUserIdStr,
+      e2eeKey,
+    ],
   );
 
   // ─── Send voice ────────────────────────────────────────────────────────────
 
   const sendVoiceMessage = useCallback(
-    (audioPath: string, duration: number) => {
+    async (audioPath: string, duration: number) => {
       const msg: ExtendedMessage = {
         _id: `voice_${Date.now()}`,
         text: '',
@@ -306,25 +781,78 @@ export function InboxProvider({
       };
 
       appendMessage(msg);
+      updateConversationPreview(
+        formatChatListPreview(
+          {
+            messageType: 'voice',
+            durationSeconds: duration,
+            senderId: localUserIdStr,
+          },
+          localUserIdStr,
+        ),
+        msg.createdAt ?? new Date(),
+      );
 
-      // TODO: uploadAudio(audioPath)
-      //   .then(remoteUri => updateMessage(msg._id, { media: { ...msg.media!, remoteUri, uploading: false }, pending: false }))
-      //   .catch(() => updateMessage(msg._id, { media: { ...msg.media!, uploading: false, error: true }, pending: false, failed: true }));
+      if (_conversationId && token) {
+        try {
+          const remoteUri = await uploadChatMedia(audioPath, 'voice', token);
+          if (remoteUri) {
+            updateMessage(msg._id, {
+              media: {
+                ...msg.media!,
+                remoteUri,
+                uploading: false,
+              },
+              pending: false,
+            });
+            let wire = remoteUri;
+            if (e2eeKey) {
+              wire = encryptMessagePayload(remoteUri, e2eeKey);
+            }
+            const sent = await sendHopenityChatMessage(
+              _conversationId,
+              wire,
+              token,
+            );
+            if (sent?.id) {
+              const p = mapApiMessageToTimeline(
+                sent as Record<string, unknown>,
+              );
+              updateMessage(msg._id, {
+                _id: String(sent.id),
+                createdAt: sent.createdAt ? new Date(sent.createdAt) : msg.createdAt,
+                ...(p.delivery ? { delivery: p.delivery } : {}),
+              });
+            }
+            return;
+          }
+        } catch (err) {
+          console.error('[InboxProvider] voice upload error:', err);
+        }
+      }
 
-      setTimeout(() => {
-        updateMessage(msg._id, {
-          media: { ...msg.media!, uploading: false },
-          pending: false,
-        });
-      }, 1200);
+      updateMessage(msg._id, {
+        media: { ...msg.media!, uploading: false, error: true },
+        pending: false,
+        failed: true,
+      });
     },
-    [user._id, appendMessage, updateMessage],
+    [
+      user._id,
+      appendMessage,
+      updateMessage,
+      updateConversationPreview,
+      _conversationId,
+      token,
+      localUserIdStr,
+      e2eeKey,
+    ],
   );
 
   // ─── Send media (image / video) ────────────────────────────────────────────
 
   const sendMediaMessage = useCallback(
-    (localUri: string, mediaType: 'image' | 'video', thumbnail?: string) => {
+    async (localUri: string, mediaType: 'image' | 'video', thumbnail?: string) => {
       const msg: ExtendedMessage = {
         _id: `media_${Date.now()}`,
         text: '',
@@ -335,19 +863,75 @@ export function InboxProvider({
       };
 
       appendMessage(msg);
+      updateConversationPreview(
+        formatChatListPreview(
+          {
+            content:
+              mediaType === 'image'
+                ? 'https://x/p.jpg'
+                : 'https://x/v.mp4',
+            senderId: localUserIdStr,
+          },
+          localUserIdStr,
+        ),
+        msg.createdAt ?? new Date(),
+      );
 
-      // TODO: uploadMedia(localUri)
-      //   .then(remoteUri => updateMessage(msg._id, { media: { ...msg.media!, remoteUri, url: remoteUri, uploading: false }, pending: false }))
-      //   .catch(() => updateMessage(msg._id, { media: { ...msg.media!, uploading: false, error: true }, pending: false, failed: true }));
+      if (_conversationId && token) {
+        try {
+          const remoteUri = await uploadChatMedia(localUri, mediaType, token);
+          if (remoteUri) {
+            updateMessage(msg._id, {
+              media: {
+                ...msg.media!,
+                remoteUri,
+                url: remoteUri,
+                uploading: false,
+              },
+              pending: false,
+            });
+            let wire = remoteUri;
+            if (e2eeKey) {
+              wire = encryptMessagePayload(remoteUri, e2eeKey);
+            }
+            const sent = await sendHopenityChatMessage(
+              _conversationId,
+              wire,
+              token,
+            );
+            if (sent?.id) {
+              const p = mapApiMessageToTimeline(
+                sent as Record<string, unknown>,
+              );
+              updateMessage(msg._id, {
+                _id: String(sent.id),
+                createdAt: sent.createdAt ? new Date(sent.createdAt) : msg.createdAt,
+                ...(p.delivery ? { delivery: p.delivery } : {}),
+              });
+            }
+            return;
+          }
+        } catch (err) {
+          console.error('[InboxProvider] media upload error:', err);
+        }
+      }
 
-      setTimeout(() => {
-        updateMessage(msg._id, {
-          media: { ...msg.media!, uploading: false },
-          pending: false,
-        });
-      }, 1500);
+      updateMessage(msg._id, {
+        media: { ...msg.media!, uploading: false, error: true },
+        pending: false,
+        failed: true,
+      });
     },
-    [user._id, appendMessage, updateMessage],
+    [
+      user._id,
+      appendMessage,
+      updateMessage,
+      updateConversationPreview,
+      _conversationId,
+      token,
+      localUserIdStr,
+      e2eeKey,
+    ],
   );
 
   // ─── Reaction ──────────────────────────────────────────────────────────────
@@ -376,7 +960,7 @@ export function InboxProvider({
 
       // TODO: api.reactToMessage(msg._id, emoji, alreadyReacted ? 'remove' : 'add');
     },
-    [user._id, updateMessage],
+    [user._id, user.name, updateMessage],
   );
 
   // ─── Reply ─────────────────────────────────────────────────────────────────
@@ -515,7 +1099,7 @@ export function InboxProvider({
 
   const value = {
     // State
-    messages,
+    messages: messagesForUi,
     text,
     setText,
     initialText,
@@ -553,6 +1137,8 @@ export function InboxProvider({
     handleVoiceRecordingStart,
     handleVoiceRecordingComplete,
     handleVoiceRecordingCancel,
+
+    reactionEmojiRow,
 
     // refs
     wrapRef,

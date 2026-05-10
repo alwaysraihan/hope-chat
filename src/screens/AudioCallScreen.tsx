@@ -1,78 +1,294 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ChevronLeft,
   Mic,
+  MicOff,
   Volume2,
   PhoneOff,
 } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useSelector } from 'react-redux';
+import { useAppSelector } from '../hooks/redux';
 import {
   AudioSession,
+  AndroidAudioTypePresets,
   LiveKitRoom,
   useRoomContext,
   useParticipants,
+  useLocalParticipant,
+  useConnectionState,
+  useRemoteParticipants,
 } from '@livekit/react-native';
+import { ConnectionState } from 'livekit-client';
+import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
+import { useLiveKitConnectionHints } from '../hooks/useLiveKitConnectionHints';
 
 import { colorss } from '../theme';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import FastImage from '@d11/react-native-fast-image';
 import { IC_PROFILE } from '../assets';
 import { selectHopenityProfile } from '../redux/features/auth/authSlice';
-import { LIVEKIT_FALLBACK_ROOM } from '../config/livekit';
+import { normalizeChatUserId } from '../utils/chatUserId';
+import { CallRoomErrorBoundary } from '../components/CallRoomErrorBoundary';
+import {
+  LIVEKIT_FALLBACK_ROOM,
+  getLiveKitRoomCallOptions,
+  liveKitRoomConnectOptions,
+} from '../config/livekit';
 import { useLiveKitCredentials } from '../hooks/useLiveKitCredentials';
+import { useOutgoingCallWithoutConnect } from '../hooks/useOutgoingCallWithoutConnect';
+import { useSafeSingleNavigationPop } from '../hooks/useSafeSingleNavigationPop';
+import { useGracefulRoomLeave } from '../hooks/useGracefulRoomLeave';
+import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'AudioCall'>;
 
-function AudioStage({
+function AudioCallGate({
   navigation,
+  safePop,
   displayName,
+  peerAvatarUrl,
+  outcomeOpts,
 }: {
   navigation: Props['navigation'];
+  safePop: () => void;
   displayName: string;
+  peerAvatarUrl?: string | null;
+  outcomeOpts: {
+    conversationId?: string;
+    peerUserId?: string;
+    callDirection?: 'outgoing' | 'incoming';
+  };
+}) {
+  const room = useRoomContext();
+  const cs = useConnectionState(room);
+  const { tryEmitOutgoingWithoutConnect } = useOutgoingCallWithoutConnect(
+    room,
+    navigation as never,
+    {
+      callDirection: outcomeOpts.callDirection,
+      conversationId: outcomeOpts.conversationId,
+      peerUserId: outcomeOpts.peerUserId,
+      callKind: 'audio',
+      peerDisplayName: displayName,
+    },
+  );
+
+  const leaveCall = useGracefulRoomLeave({
+    safePop,
+    beforeLeave: tryEmitOutgoingWithoutConnect,
+  });
+  const leaveRef = useRef(leaveCall);
+  leaveRef.current = leaveCall;
+
+  const remotes = useRemoteParticipants();
+  const countRef = useRef(0);
+  const csRef = useRef(cs);
+  countRef.current = remotes.length;
+  csRef.current = cs;
+  const outgoing = outcomeOpts.callDirection === 'outgoing';
+
+  useEffect(() => {
+    if (!outgoing) {
+      return;
+    }
+    const t = setTimeout(() => {
+      if (countRef.current > 0) {
+        return;
+      }
+      const state = csRef.current;
+      const body =
+        state === ConnectionState.Connected
+          ? 'The other person isn’t available or didn’t answer. They may be offline.'
+          : 'Could not complete the call. Check your network and try again.';
+      console.warn('[AudioCall] outgoing call timeout (no remote participant)', {
+        connectionState: state,
+        remoteCount: countRef.current,
+      });
+      try {
+        Alert.alert('Call ended', body);
+      } catch {
+        /* */
+      }
+      void leaveRef.current();
+    }, 60_000);
+    return () => clearTimeout(t);
+  }, [outgoing]);
+
+  if (cs !== ConnectionState.Connected) {
+    const label =
+      cs === ConnectionState.Connecting
+        ? 'Calling…'
+        : cs === ConnectionState.Reconnecting
+          ? 'Reconnecting…'
+          : cs === ConnectionState.Disconnected
+            ? 'Call ended'
+            : 'Connecting…';
+
+    return (
+      <SafeAreaView style={styles.shell} edges={['top']}>
+        <View style={styles.connectingFull}>
+          {peerAvatarUrl ? (
+            <FastImage
+              source={{ uri: peerAvatarUrl }}
+              style={styles.connectingAvatar}
+              resizeMode={FastImage.resizeMode.cover}
+            />
+          ) : null}
+          <ActivityIndicator color={colorss.white} size="large" />
+          <Text style={styles.connectOverlayText}>{label}</Text>
+          <TouchableOpacity
+            style={styles.endBtn}
+            accessibilityRole="button"
+            accessibilityLabel="End call"
+            onPress={() => void leaveCall()}
+          >
+            <PhoneOff size={26} color={colorss.white} />
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <AudioStage
+      navigation={navigation}
+      safePop={safePop}
+      displayName={displayName}
+      peerAvatarUrl={peerAvatarUrl}
+      tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
+    />
+  );
+}
+
+function AudioStage({
+  navigation,
+  safePop,
+  displayName,
+  peerAvatarUrl,
+  tryEmitOutgoingWithoutConnect,
+}: {
+  navigation: Props['navigation'];
+  safePop: () => void;
+  displayName: string;
+  peerAvatarUrl?: string | null;
+  tryEmitOutgoingWithoutConnect: () => void;
 }) {
   const room = useRoomContext();
   const participants = useParticipants();
+  const remotes = useRemoteParticipants();
+  const isRinging = remotes.length === 0;
+  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
+  const [speakerOn, setSpeakerOn] = useState(true);
+
+  useLiveKitAndroidForeground(room, displayName, 'audio');
+  const { hint, detail } = useLiveKitConnectionHints(room);
+
+  const leaveCall = useGracefulRoomLeave({
+    safePop,
+    beforeLeave: tryEmitOutgoingWithoutConnect,
+  });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (Platform.OS === 'ios') {
+          await AudioSession.selectAudioOutput('force_speaker');
+        } else {
+          await AudioSession.selectAudioOutput('speaker');
+        }
+      } catch {
+        /* ignore until session ready */
+      }
+    })().catch(() => undefined);
+  }, []);
 
   const onEnd = () => {
-    room?.disconnect().catch(() => undefined);
-    navigation.goBack();
+    void leaveCall();
   };
+
+  const toggleMic = useCallback(() => {
+    localParticipant
+      .setMicrophoneEnabled(!isMicrophoneEnabled)
+      .catch(err => console.warn('[AudioCall] mic toggle', err));
+  }, [localParticipant, isMicrophoneEnabled]);
+
+  const toggleSpeaker = useCallback(async () => {
+    try {
+      const next = !speakerOn;
+      if (Platform.OS === 'ios') {
+        await AudioSession.selectAudioOutput(
+          next ? 'force_speaker' : 'default',
+        );
+      } else {
+        const outs = await AudioSession.getAudioOutputs();
+        const target = next
+          ? outs.find(o => o === 'speaker') ?? 'speaker'
+          : outs.find(o => o === 'earpiece') ?? 'earpiece';
+        await AudioSession.selectAudioOutput(target);
+      }
+      setSpeakerOn(next);
+    } catch (e) {
+      console.warn('[AudioCall] speaker route', e);
+    }
+  }, [speakerOn]);
 
   return (
     <SafeAreaView style={styles.shell} edges={['top']}>
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={onEnd}>
+        <TouchableOpacity onPress={onEnd} accessibilityRole="button">
           <ChevronLeft size={28} color={colorss.white} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.userInfo}>
-        <FastImage source={IC_PROFILE} style={styles.avatar} />
+        <FastImage
+          source={
+            peerAvatarUrl
+              ? { uri: peerAvatarUrl }
+              : IC_PROFILE
+          }
+          style={styles.avatar}
+        />
         <Text style={styles.name}>{displayName}</Text>
         <Text style={styles.status}>
-          Connected · participants {participants.length}
+          {hint === 'reconnecting' || hint === 'poor_network'
+            ? detail || 'Adjusting for your network…'
+            : isRinging
+              ? 'Ringing… waiting for them to answer'
+              : `Connected · ${participants.length} in room`}
         </Text>
       </View>
 
       <View style={styles.actions}>
         <View style={styles.actionItem}>
-          <TouchableOpacity style={styles.actionBtn}>
+          <TouchableOpacity
+            style={[styles.actionBtn, !speakerOn ? styles.actionBtnDim : null]}
+            onPress={toggleSpeaker}
+          >
             <Volume2 size={22} color={colorss.white} />
           </TouchableOpacity>
           <Text style={styles.actionLabel}>Speaker</Text>
         </View>
         <View style={styles.actionItem}>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Mic size={22} color={colorss.white} />
+          <TouchableOpacity
+            style={[styles.actionBtn, !isMicrophoneEnabled ? styles.actionBtnDim : null]}
+            onPress={toggleMic}
+          >
+            {isMicrophoneEnabled ? (
+              <Mic size={22} color={colorss.white} />
+            ) : (
+              <MicOff size={22} color={colorss.white} />
+            )}
           </TouchableOpacity>
           <Text style={styles.actionLabel}>Mute</Text>
         </View>
@@ -88,26 +304,59 @@ function AudioStage({
 }
 
 const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
-  const profile = useSelector(selectHopenityProfile);
+  const safePop = useSafeSingleNavigationPop(navigation as never);
+  const { onDisconnected, onError, onEncryptionError } = useLiveKitSessionEnd({
+    callLabel: 'Voice call',
+    safePop,
+  });
+  const profile = useAppSelector(selectHopenityProfile);
+  const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
+  const liveKitIdentity = useMemo(
+    () =>
+      normalizeChatUserId(giftedChatUser?._id) ||
+      normalizeChatUserId(profile?.userId) ||
+      undefined,
+    [giftedChatUser?._id, profile?.userId],
+  );
 
   useEffect(() => {
     const run = async () => {
-      await AudioSession.startAudioSession();
+      try {
+        await AudioSession.configureAudio({
+          android: {
+            preferredOutputList: ['speaker', 'bluetooth', 'headset', 'earpiece'],
+            audioTypeOptions: AndroidAudioTypePresets.communication,
+          },
+          ios: { defaultOutput: 'speaker' },
+        });
+        await AudioSession.startAudioSession();
+      } catch (e) {
+        console.error('[AudioCall] AudioSession', e);
+        Alert.alert(
+          'Audio',
+          e instanceof Error
+            ? e.message
+            : 'Could not start audio session for this call.',
+        );
+      }
     };
-    run();
+    void run();
     return () => {
       AudioSession.stopAudioSession().catch(() => undefined);
     };
   }, []);
 
-  const calleeName =
-    route.params?.displayName ??
-    route.params?.liveKitRoom ??
-    LIVEKIT_FALLBACK_ROOM;
+  const calleeName = useMemo(
+    () =>
+      route.params?.displayName ??
+      route.params?.liveKitRoom ??
+      LIVEKIT_FALLBACK_ROOM,
+    [route.params?.displayName, route.params?.liveKitRoom],
+  );
 
   const { loading, serverUrl, token, error, reload } = useLiveKitCredentials({
     room: route.params?.liveKitRoom,
-    identity: profile?.userId ?? undefined,
+    identity: liveKitIdentity,
     displayName: profile?.displayName ?? undefined,
   });
 
@@ -124,28 +373,58 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
           typeof token === 'string' &&
           token.length > 0 ? (
           <LiveKitRoom
+            key={route.params?.liveKitRoom ?? 'audio-call'}
             serverUrl={serverUrl}
             token={token}
             connect={true}
             audio={true}
             video={false}
-            onDisconnected={() => navigation.goBack()}
+            options={getLiveKitRoomCallOptions()}
+            connectOptions={liveKitRoomConnectOptions}
+            onDisconnected={onDisconnected}
+            onError={onError}
+            onEncryptionError={onEncryptionError}
+            onMediaDeviceFailure={failure => {
+              console.warn('[AudioCall] media device', failure);
+              try {
+                Alert.alert(
+                  'Microphone',
+                  typeof failure === 'string'
+                    ? failure
+                    : 'Could not access microphone — check permissions and try again.',
+                );
+              } catch {
+                /* */
+              }
+            }}
           >
-            <AudioStage navigation={navigation} displayName={calleeName} />
+            <CallRoomErrorBoundary title="Voice call error" onClose={safePop}>
+              <AudioCallGate
+                navigation={navigation}
+                safePop={safePop}
+                displayName={calleeName}
+                peerAvatarUrl={route.params?.avatarUrl}
+                outcomeOpts={{
+                  conversationId: route.params?.conversationId,
+                  peerUserId: route.params?.peerUserId,
+                  callDirection: route.params?.callDirection,
+                }}
+              />
+            </CallRoomErrorBoundary>
           </LiveKitRoom>
         ) : (
           <SafeAreaView style={styles.missingWrap}>
             <Text style={styles.missingTitle}>Cannot start voice call</Text>
             <Text style={styles.missingBody}>
               {error ??
-                'No LiveKit token or signaling URL — check LIVEKIT_* values in `.env`.'}
+                'No LiveKit token or signaling URL — check LIVEKIT_* entries in `.env` and restart Metro.'}
             </Text>
             <TouchableOpacity style={styles.backGhost} onPress={reload}>
               <Text style={styles.backGhostText}>Retry mint</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.backGhost, { marginTop: 12 }]}
-              onPress={() => navigation.goBack()}
+              onPress={safePop}
             >
               <Text style={styles.backGhostText}>Close</Text>
             </TouchableOpacity>
@@ -200,6 +479,8 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.65)',
     marginTop: 6,
     fontSize: 15,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
   actions: {
     flexDirection: 'row',
@@ -218,6 +499,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  actionBtnDim: {
+    backgroundColor: 'rgba(255,59,48,0.55)',
   },
   endBtn: {
     width: 64,
@@ -269,5 +553,26 @@ const styles = StyleSheet.create({
   backGhostText: {
     color: colorss.white,
     fontWeight: '700',
+  },
+  connectingFull: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    gap: 20,
+  },
+  connectingAvatar: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  connectOverlayText: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 17,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

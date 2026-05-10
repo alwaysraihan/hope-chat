@@ -5,19 +5,32 @@ import {
   Image,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { colorss } from '../theme';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import {
+  getChatAppearance,
+  setChatAppearance,
+} from '../services/chatPrefs';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GAP = 6;
 const ITEM_SIZE = (SCREEN_WIDTH - GAP * 4) / 3;
 
 const ThemeScreen = () => {
-  const [selectedTheme, setSelectedTheme] = useState(1);
+  const appearance = useMemo(() => getChatAppearance(), []);
+  const [selectedTheme, setSelectedTheme] = useState(appearance.themePresetId);
+  const [wallpaperUri, setWallpaperUri] = useState(
+    appearance.wallpaperUri ?? '',
+  );
+  const [reactionPack, setReactionPack] = useState(
+    appearance.reactionEmojiPalette.join(' '),
+  );
+
   const themeData = [
     {
       id: 1,
@@ -114,6 +127,42 @@ const ThemeScreen = () => {
             </TouchableOpacity>
           );
         }}
+        ListFooterComponent={
+          <View style={styles.footer}>
+            <Text style={styles.footerTitle}>Chat wallpaper (URL)</Text>
+            <TextInput
+              value={wallpaperUri}
+              onChangeText={setWallpaperUri}
+              onBlur={() =>
+                setChatAppearance({
+                  wallpaperUri: wallpaperUri.trim() || null,
+                })
+              }
+              placeholder="https://…"
+              placeholderTextColor={colorss.placeholder}
+              style={styles.input}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.footerTitle}>Quick reactions (space‑separated)</Text>
+            <TextInput
+              value={reactionPack}
+              onChangeText={setReactionPack}
+              onBlur={() =>
+                setChatAppearance({
+                  reactionEmojiPalette: reactionPack
+                    .trim()
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .slice(0, 12),
+                })
+              }
+              placeholder="❤️ 👍 …"
+              placeholderTextColor={colorss.placeholder}
+              style={styles.input}
+            />
+          </View>
+        }
       />
     </View>
   );
@@ -179,5 +228,27 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colorss.white,
     borderRadius: 10,
+  },
+
+  footer: {
+    paddingHorizontal: GAP,
+    gap: 10,
+    marginTop: 16,
+    paddingBottom: 24,
+  },
+  footerTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colorss.textPrimary,
+  },
+  input: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colorss.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: colorss.textPrimary,
+    marginBottom: 8,
   },
 });

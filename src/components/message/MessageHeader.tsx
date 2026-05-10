@@ -1,6 +1,5 @@
 import React from 'react';
-import { Image, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
-import Profile from '../../assets/raihan-sarkar.webp';
+import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import { LucideVideo, Phone, ChevronLeft } from 'lucide-react-native';
 import { colorss } from '../../theme';
 import FastImage from '@d11/react-native-fast-image';
@@ -10,9 +9,22 @@ interface MessageHeaderProps {
   onBackPress: () => void;
   onAudioCall: () => void;
   onVideoCall?: () => void;
-  name?: string;
+  name: string;
+  /** e.g. "Online" or "last seen …" — omit or empty to hide subtitle */
   status?: string;
   avatarUri?: string | null;
+}
+
+function initialsFromName(name: string): string {
+  const t = name.trim();
+  if (!t) return '?';
+  const parts = t.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (
+      (parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')
+    ).toUpperCase();
+  }
+  return t.charAt(0).toUpperCase();
 }
 
 const MessageHeader: React.FC<MessageHeaderProps> = ({
@@ -20,8 +32,8 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   onBackPress,
   onAudioCall,
   onVideoCall,
-  name = 'Raihan Sarkar',
-  status = 'Online',
+  name,
+  status,
   avatarUri,
 }) => {
   const actions = [
@@ -30,11 +42,15 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
       label: 'Audio Call',
       onPress: onAudioCall,
     },
-    {
-      Icon: LucideVideo,
-      label: 'Video Call',
-      onPress: onVideoCall,
-    },
+    ...(onVideoCall
+      ? [
+          {
+            Icon: LucideVideo,
+            label: 'Video Call',
+            onPress: onVideoCall,
+          },
+        ]
+      : []),
   ];
   return (
     <View style={styles.container}>
@@ -49,11 +65,19 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
         {avatarUri ? (
           <FastImage source={{ uri: avatarUri }} style={styles.avatar} />
         ) : (
-          <Image source={Profile} style={styles.avatar} />
+          <View style={styles.avatarPlaceholder}>
+            <Text style={styles.avatarInitials}>{initialsFromName(name)}</Text>
+          </View>
         )}
         <View style={styles.nameBlock}>
-          <Text style={styles.name}>{name}</Text>
-          <Text style={styles.status}>{status}</Text>
+          <Text style={styles.name} numberOfLines={1}>
+            {name || 'Chat'}
+          </Text>
+          {status ? (
+            <Text style={styles.status} numberOfLines={1}>
+              {status}
+            </Text>
+          ) : null}
         </View>
       </TouchableOpacity>
 
@@ -96,8 +120,24 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.5)',
   },
+  avatarPlaceholder: {
+    height: 38,
+    width: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: colorss.white,
+    fontSize: 14,
+    fontWeight: '700',
+  },
   nameBlock: {
     gap: 1,
+    flex: 1,
   },
   name: {
     color: colorss.white,

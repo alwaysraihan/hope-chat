@@ -34,8 +34,8 @@ export type UseLiveKitCredentialsResult = {
 };
 
 /**
- * Loads LiveKit JWT + signaling URL via `.env`:
- * production: HTTPS token issuer mint; optional dev bypass with LIVEKIT_DEV_TOKEN + LIVEKIT_WS_URL.
+ * Loads LiveKit JWT + signaling URL via `src/config/env.ts` (values from `.env` at bundle time):
+ * production HTTPS token issuer mint; optional dev bypass with LIVEKIT_DEV_TOKEN + LIVEKIT_WS_URL.
  */
 export function useLiveKitCredentials(options: {
   room?: string | null;
@@ -102,8 +102,10 @@ export function useLiveKitCredentials(options: {
         setErrorCode(code);
         setError(
           code === 'unauthorized'
-            ? 'Issuer secret mismatch — set LIVEKIT_ISSUER_SECRET to match VPS TOKEN_ISSUER_SECRET.'
-            : 'Could not mint a LiveKit token. Retry or verify LIVEKIT_TOKEN_SERVICE_URL (e.g. https://livekit.hopenity.com).',
+            ? 'Issuer secret mismatch — set LIVEKIT_ISSUER_SECRET / LIVEKIT_API_SECRET in `.env` (or src/config/env defaults) to match VPS TOKEN_ISSUER_SECRET.'
+            : /^network:/i.test(code)
+              ? 'No network or server unreachable — check Wi‑Fi/mobile data and try again.'
+              : 'Could not mint a LiveKit token. Check `.env` LIVEKIT_URL / LIVEKIT_TOKEN_SERVICE_URL and restart Metro.',
         );
       } finally {
         if (!signal.aborted) {
@@ -126,7 +128,7 @@ export function useLiveKitCredentials(options: {
           setToken(null);
           setErrorCode('bad_ws_url');
           setError(
-            'Set LIVEKIT_WS_URL to a reachable ws(s) address (physical devices cannot use 127.0.0.1 of your laptop).',
+            'Set LIVEKIT_WS_URL in `.env` to a reachable ws(s) address (physical devices cannot use 127.0.0.1 of your laptop).',
           );
           return;
         }
@@ -144,7 +146,7 @@ export function useLiveKitCredentials(options: {
         setToken(null);
         setErrorCode('mint_not_configured');
         setError(
-          'Set LIVEKIT_TOKEN_SERVICE_URL in `.env` (e.g. https://livekit.hopenity.com), or LIVEKIT_DEV_TOKEN for CLI tokens.',
+          'Set LIVEKIT_URL / LIVEKIT_TOKEN_SERVICE_URL in src/config/env.ts (e.g. https://livekit.hopenity.com), or LIVEKIT_DEV_TOKEN for CLI tokens.',
         );
         return;
       }

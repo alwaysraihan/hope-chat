@@ -102,8 +102,9 @@ const authSlice = createSlice({
 });
 
 export const selectAuthToken = (state: { auth: AuthState }) => state.auth.token;
+/** Require a bearer token so chats and API calls are consistent with a real session. */
 export const selectHopeChatLoggedIn = (state: { auth: AuthState }) =>
-  !!(state.auth.token || state.auth.profile);
+  !!(state.auth.token && String(state.auth.token).length > 0);
 export const selectHopenityProfile = (state: { auth: AuthState }) =>
   state.auth.profile;
 

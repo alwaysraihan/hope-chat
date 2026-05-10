@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -64,10 +64,16 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
 
   const activeBlob = peeked;
   const loggedInViaShare =
-    (!!activeBlob?.token &&
-      typeof activeBlob.token === 'string' &&
-      activeBlob.token.length > 0) ||
-    (!!activeBlob?.user && typeof activeBlob.user === 'object');
+    !!activeBlob?.token &&
+    typeof activeBlob.token === 'string' &&
+    activeBlob.token.length > 0;
+
+  /** Sync Redux immediately when shared vault shows a session (no extra Continue tap). */
+  useEffect(() => {
+    if (!loading && loggedInViaShare && activeBlob) {
+      dispatch(setHopenitySession({ blob: activeBlob }));
+    }
+  }, [loading, loggedInViaShare, activeBlob, dispatch]);
 
   const name = displayNameFromBlob(activeBlob);
   const avatar = avatarFromBlob(activeBlob);

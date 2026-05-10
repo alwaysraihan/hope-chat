@@ -4,6 +4,7 @@ import { IMessage, MessageProps } from 'react-native-gifted-chat';
 import FastImage from '@d11/react-native-fast-image';
 import Video from 'react-native-video';
 
+import ChatThreadIntroCard from './ChatThreadIntroCard';
 import AudioPlayer from './AudioPlayer';
 import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
@@ -34,6 +35,25 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const { handlePressReplyPreview } = useInbox();
 
   const msg = currentMessage as ExtendedMessage;
+
+  if (msg.threadIntro) {
+    const introFirst =
+      (msg.threadIntro.peerName ?? '').trim().split(/\s+/)[0] || 'Friend';
+    return (
+      <View style={{ width: SCREEN_WIDTH, alignSelf: 'center', marginBottom: 6 }}>
+        <ChatThreadIntroCard
+          peerName={msg.threadIntro.peerName}
+          subtitle={msg.threadIntro.subtitle}
+          avatarUrl={msg.threadIntro.avatarUrl}
+          prompt={
+            msg.text ||
+            `Say hi to your new Hopenity friend, ${introFirst}.`
+          }
+        />
+      </View>
+    );
+  }
+
   const media = msg?.media;
   const isOwn = position === 'right';
   const replyTo = msg?.replyTo;
@@ -184,7 +204,36 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
         ]}
       >
         {ReplySnippet}
-        <Text style={styles.messageText}>{msg?.text ?? ''}</Text>
+        <Text
+          style={[
+            styles.messageText,
+            isOwn ? styles.messageTextOutgoing : styles.messageTextIncoming,
+            msg.messageKind === 'call_log' ? styles.callLogText : null,
+          ]}
+        >
+          {msg?.text ?? ''}
+        </Text>
+        {isOwn && !msg.pending && msg.delivery?.state ? (
+          <Text
+            style={[
+              styles.deliveryFoot,
+              isOwn ? styles.deliveryFootOut : styles.deliveryFootIn,
+            ]}
+            accessibilityLabel={
+              msg.delivery.state === 'read'
+                ? 'Read'
+                : msg.delivery.state === 'delivered'
+                  ? 'Delivered'
+                  : 'Sent'
+            }
+          >
+            {msg.delivery.state === 'read'
+              ? 'Read'
+              : msg.delivery.state === 'delivered'
+                ? 'Delivered'
+                : 'Sent'}
+          </Text>
+        ) : null}
       </View>
     </Reaction>
   );
@@ -219,7 +268,7 @@ const styles = StyleSheet.create({
   textBubbleLeft: {
     alignSelf: 'flex-start',
     marginLeft: 12,
-    backgroundColor: colorss.darkBg,
+    backgroundColor: '#eaeef3',
     borderTopLeftRadius: 4,
   },
   textBubbleRight: {
@@ -230,11 +279,33 @@ const styles = StyleSheet.create({
   },
   textBubbleWithReply: { minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY },
   messageText: {
-    color: colorss.white,
     fontSize: 14.5,
     lineHeight: 20,
     letterSpacing: 0.1,
     flexShrink: 1,
+  },
+  messageTextOutgoing: {
+    color: colorss.white,
+  },
+  messageTextIncoming: {
+    color: colorss.textPrimary,
+  },
+  callLogText: {
+    fontStyle: 'italic',
+    fontSize: 14,
+  },
+  deliveryFoot: {
+    alignSelf: 'flex-end',
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 3,
+    letterSpacing: 0.2,
+  },
+  deliveryFootOut: {
+    color: 'rgba(255,255,255,0.82)',
+  },
+  deliveryFootIn: {
+    color: colorss.textSecondary,
   },
 
   // Media

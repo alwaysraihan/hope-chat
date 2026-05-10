@@ -18,10 +18,11 @@ import { colorss } from '../theme';
 import { useAppDispatch } from '../hooks/redux';
 import { setHopenitySession } from '../redux/features/auth/authSlice';
 import { persistHopenityUser } from '../services/hopenitySharedAuth';
+import { API_BASE_URL } from '../config/env';
+import { extractLoginSessionBlob } from '../utils/extractLoginSession';
 
 type Props = NativeStackScreenProps<PublicStackNavigatorParamList, 'EmailLogin'>;
 
-const BASE_URL = 'https://api.hopenity.com';
 const LOGIN_ENDPOINT = '/api/v1/auth/login';
 
 const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
@@ -67,7 +68,7 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
         payload.phoneNumber = cleanPhone;
       }
 
-      const response = await fetch(`${BASE_URL}${LOGIN_ENDPOINT}`, {
+      const response = await fetch(`${API_BASE_URL}${LOGIN_ENDPOINT}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -99,26 +100,17 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      const token = responseData?.token;
-      if (!token) {
+      const blob = extractLoginSessionBlob(
+        responseData as Record<string, unknown>,
+        trimmedIdentifier,
+      );
+      if (!blob?.token) {
         Alert.alert('Login failed', 'No login token was returned by the server.');
         return;
       }
 
-      const user = responseData?.user ?? {
-        id: responseData?.id ?? responseData?.userId ?? 'me',
-        name:
-          responseData?.user?.name ||
-          responseData?.name ||
-          responseData?.username ||
-          trimmedIdentifier,
-      };
-
-      const blob = { token, user };
-      dispatch(setHopenitySession({ blob }));
       persistHopenityUser(blob);
-
-      Alert.alert('Login successful', 'You are now signed in.');
+      dispatch(setHopenitySession({ blob }));
     } catch (error: any) {
       Alert.alert(
         'Login error',

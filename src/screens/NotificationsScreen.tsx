@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,125 +6,183 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Info } from 'lucide-react-native';
+import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import type { CompositeScreenProps } from '@react-navigation/native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { colorss } from '../theme';
 import { IC_PROFILE } from '../assets';
+import type {
+  BottomTabNavigatorParamList,
+  RootStackNavigatorParamList,
+} from '../types/navigators';
+import { openHopenityBestEffort } from '../services/hopenityLinking';
 
-const NOTIFICATIONS = [
+/** Hope Chat actionable items vs main Hopenity social graph (deep link into Hopenity). */
+type NotificationSource = 'hope_chat' | 'hopenity_world';
+
+type NotifRow = {
+  id: string;
+  section: string;
+  name: string;
+  message: string;
+  time: string;
+  unread: boolean;
+  source: NotificationSource;
+  /** When hope_chat — optional routing hint */
+  target?: 'inbox_demo' | 'requests';
+};
+
+const ROWS: NotifRow[] = [
   {
-    id: '1',
+    id: 'hc1',
     section: 'Today',
-    name: 'Emily Johnson',
-    message: 'Liked your photo.',
-    time: '1h',
+    name: 'Hope Chat',
+    message: 'You have unread messages.',
+    source: 'hope_chat',
+    target: 'inbox_demo',
+    time: '2m',
     unread: true,
   },
   {
-    id: '2',
+    id: 'hw1',
     section: 'Today',
-    name: 'Michael Smith',
-    message: 'Commented: Awesome!',
-    time: '2h',
+    name: 'Hopenity · Story',
+    source: 'hopenity_world',
+    message: 'Maria reacted 🔥 on your story.',
+    time: '18m',
     unread: true,
   },
   {
-    id: '3',
+    id: 'hw2',
     section: 'Today',
-    name: 'Ashley Williams',
-    message: 'Sent you a friend request.',
-    time: '4h',
-    unread: true,
+    name: 'Hopenity',
+    source: 'hopenity_world',
+    message: 'New follower: James.',
+    time: '52m',
+    unread: false,
   },
   {
-    id: '4',
+    id: 'hw3',
     section: 'Earlier',
-    name: 'Christopher Brown',
-    message: 'You are now friends. Tap to chat.',
+    name: 'Hopenity · Post',
+    source: 'hopenity_world',
+    message: 'Taylor mentioned you in a comment.',
+    time: '3h',
+    unread: false,
+  },
+  {
+    id: 'hc2',
+    section: 'Earlier',
+    name: 'Hope Chat · Requests',
+    source: 'hope_chat',
+    target: 'requests',
+    message: 'Someone wants to chat with you.',
     time: '1d',
     unread: true,
   },
   {
-    id: '5',
+    id: 'hw4',
     section: 'Earlier',
-    name: 'Jessica Davis',
-    message: 'Shared a post with you.',
-    time: '2d',
-    unread: true,
-  },
-  {
-    id: '6',
-    section: 'Earlier',
-    name: 'Daniel Miller',
-    message: 'Mentioned you in a comment.',
-    time: '3d',
-    unread: true,
-  },
-  {
-    id: '7',
-    section: 'This Week',
-    name: 'Matthew Wilson',
-    message: 'Reacted 👍 to your story.',
+    name: 'Hopenity · Feels',
+    source: 'hopenity_world',
+    message: 'Your feel reached 250 hearts.',
     time: '5d',
-    unread: true,
-  },
-  {
-    id: '8',
-    section: 'This Week',
-    name: 'Olivia Moore',
-    message: 'Started following you.',
-    time: '6d',
-    unread: true,
-  },
-  {
-    id: '9',
-    section: 'Older',
-    name: 'David Taylor',
-    message: 'Updated profile picture.',
-    time: '1w',
-    unread: true,
-  },
-  {
-    id: '10',
-    section: 'Older',
-    name: 'Sophia Anderson',
-    message: 'Liked your comment.',
-    time: '2w',
-    unread: true,
+    unread: false,
   },
 ];
 
-const NotificationsScreen = () => {
-  const todayItems = NOTIFICATIONS.filter(n => n.section === 'Today');
-  const earlierItems = NOTIFICATIONS.filter(n => n.section !== 'Today');
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<BottomTabNavigatorParamList, 'Notifications'>,
+  NativeStackScreenProps<RootStackNavigatorParamList>
+>;
 
-  const renderItem = item => (
-    <TouchableOpacity key={item.id} style={styles.item} activeOpacity={0.7}>
-      {item.isSystem ? (
-        <View style={styles.systemIcon}>
-          <Info size={20} color={colorss.textPrimary} />
-        </View>
-      ) : (
-        <Image
-          source={IC_PROFILE}
-          style={{ width: 52, height: 52, borderRadius: 26 }}
-        />
-      )}
+const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
+  const grouped = useMemo(() => {
+    const m = new Map<string, NotifRow[]>();
+    for (const r of ROWS) {
+      const g = m.get(r.section) ?? [];
+      g.push(r);
+      m.set(r.section, g);
+    }
+    return [...m.entries()];
+  }, []);
+
+  const onPress = (item: NotifRow) => {
+    if (item.source === 'hopenity_world') {
+      Alert.alert(
+        'Open Hopenity',
+        'Social notifications live in Hopenity. Continue there now?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open app', onPress: () => void openHopenityBestEffort() },
+        ],
+      );
+      return;
+    }
+
+    const parentNav = navigation.getParent();
+    if (item.target === 'requests') {
+      if (parentNav) {
+        (parentNav as { navigate: (n: string) => void }).navigate(
+          'MessageRequests',
+        );
+      }
+      return;
+    }
+    Alert.alert('Hope Chat', 'Use Home to open your conversations.');
+    navigation.navigate('Home');
+  };
+
+  const renderRow = (item: NotifRow) => (
+    <TouchableOpacity
+      key={item.id}
+      style={styles.item}
+      activeOpacity={0.7}
+      onPress={() => onPress(item)}
+      accessibilityHint={
+        item.source === 'hopenity_world'
+          ? 'Opens partner app'
+          : 'Hope Chat action'
+      }
+    >
+      <Image
+        source={IC_PROFILE}
+        style={{
+          width: 52,
+          height: 52,
+          borderRadius: 26,
+          opacity: item.source === 'hopenity_world' ? 0.85 : 1,
+        }}
+      />
 
       <View style={styles.itemContent}>
-        <Text style={styles.itemText}>
-          <Text style={styles.itemName}>{item.name} </Text>
-          <Text style={styles.itemMsg}>{item.message}</Text>
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.itemText} numberOfLines={2}>
+            <Text style={styles.itemName}>{item.name}</Text>{' '}
+            <Text style={styles.itemMsg}>{item.message}</Text>
+          </Text>
+          <View
+            style={[
+              styles.pill,
+              item.source === 'hope_chat' ? styles.pillHope : styles.pillHopenity,
+            ]}
+          >
+            <Text style={styles.pillTxt}>
+              {item.source === 'hope_chat' ? 'Hope Chat' : 'Hopenity'}
+            </Text>
+          </View>
+        </View>
 
         <Text style={[styles.itemTime, item.unread && styles.itemTimeUnread]}>
           · {item.time}
         </Text>
       </View>
 
-      {item.unread && <View style={styles.unreadDot} />}
+      {item.unread ? <View style={styles.unreadDot} /> : null}
     </TouchableOpacity>
   );
 
@@ -132,25 +190,16 @@ const NotificationsScreen = () => {
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.title}>Notifications</Text>
+        <Text style={styles.sub}>Hope Chat inbox vs social on Hopenity</Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* TODAY */}
-        {todayItems.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>Today</Text>
-            {todayItems.map(renderItem)}
-          </>
-        )}
-
-        {/* EARLIER */}
-        {earlierItems.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>Earlier</Text>
-            {earlierItems.map(renderItem)}
-          </>
-        )}
-
+        {grouped.map(([section, rows]) => (
+          <View key={section}>
+            <Text style={styles.sectionLabel}>{section}</Text>
+            {rows.map(renderRow)}
+          </View>
+        ))}
         <View style={{ height: 30 }} />
       </ScrollView>
     </SafeAreaView>
@@ -164,22 +213,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colorss.white,
   },
-
   header: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: colorss.border,
-    backgroundColor: colorss.white,
   },
-
   title: {
     color: colorss.textPrimary,
     fontSize: 26,
     fontWeight: '700',
   },
-
+  sub: {
+    marginTop: 4,
+    color: colorss.textSecondary,
+    fontSize: 13,
+  },
   sectionLabel: {
     color: colorss.textSecondary,
     fontSize: 14,
@@ -188,7 +238,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 6,
   },
-
   item: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -196,57 +245,53 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 12,
   },
-
-  systemIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colorss.backgroundDeep,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  avatar: {
-    backgroundColor: colorss.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  avatarText: {
-    color: colorss.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-
   itemContent: {
     flex: 1,
   },
-
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
   itemText: {
+    flex: 1,
     fontSize: 14,
     lineHeight: 20,
   },
-
   itemName: {
     color: colorss.textPrimary,
     fontWeight: '700',
   },
-
   itemMsg: {
     color: colorss.textSecondary,
+    fontWeight: '400',
   },
-
+  pill: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  pillHope: {
+    backgroundColor: `${colorss.primary}22`,
+  },
+  pillHopenity: {
+    backgroundColor: 'rgba(99,102,241,0.15)',
+  },
+  pillTxt: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colorss.textPrimary,
+  },
   itemTime: {
     color: colorss.textSecondary,
     fontSize: 12,
-    marginTop: 2,
+    marginTop: 4,
   },
-
   itemTimeUnread: {
     color: colorss.primary,
     fontWeight: '600',
   },
-
   unreadDot: {
     width: 10,
     height: 10,

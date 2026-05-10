@@ -40,17 +40,24 @@ export async function mintLiveKitToken({
     headers['x-hopechat-livekit-secret'] = secret;
   }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      room,
-      identity,
-      name,
-      ttlSeconds,
-    }),
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        room,
+        identity,
+        name,
+        ttlSeconds,
+      }),
+      signal,
+    });
+  } catch (e) {
+    const net =
+      e instanceof TypeError ? e.message : 'network_unreachable';
+    throw new Error(`network: ${net}`);
+  }
 
   const body = (await res.json().catch(() => null)) as
     | { ok?: boolean; token?: unknown; url?: unknown; ttlSeconds?: number; room?: string; error?: string }

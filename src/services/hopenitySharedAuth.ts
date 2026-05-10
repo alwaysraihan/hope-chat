@@ -1,9 +1,9 @@
-import { createMMKV } from 'react-native-mmkv';
-import { NativeModules, Platform } from 'react-native';
-
-/** Must match Hopenity `Src/Application/Storage/MMKVStorage.ts`. */
-const AUTH_MMKV_ID = 'hopenity-auth';
-const AUTH_ENCRYPTION_KEY = 'hopenity-auth!1';
+import { createMMKV, type MMKV } from 'react-native-mmkv';
+import { NativeModules } from 'react-native';
+import {
+  SHARED_HOPENITY_AUTH_MMKV_ENCRYPTION_KEY,
+  SHARED_HOPENITY_AUTH_MMKV_STORAGE_ID,
+} from '../constants/sharedHopenityAuthVault';
 
 function sharedMMKVDirectory(): string | undefined {
   try {
@@ -14,23 +14,31 @@ function sharedMMKVDirectory(): string | undefined {
   }
 }
 
-/** MMKV instance for Hopenity auth data. Falls back to regular storage if shared directory unavailable. */
-export function createHopeChatHopenityMMKV() {
+function buildHopeChatHopenityMMKV(): MMKV {
   const sharedRoot = sharedMMKVDirectory();
 
   if (sharedRoot) {
     return createMMKV({
-      id: AUTH_MMKV_ID,
+      id: SHARED_HOPENITY_AUTH_MMKV_STORAGE_ID,
       path: sharedRoot,
-      encryptionKey: AUTH_ENCRYPTION_KEY,
+      encryptionKey: SHARED_HOPENITY_AUTH_MMKV_ENCRYPTION_KEY,
     });
   }
 
-  // Fallback to regular MMKV storage when sharedUserId is not configured
   return createMMKV({
-    id: AUTH_MMKV_ID,
-    encryptionKey: AUTH_ENCRYPTION_KEY,
+    id: SHARED_HOPENITY_AUTH_MMKV_STORAGE_ID,
+    encryptionKey: SHARED_HOPENITY_AUTH_MMKV_ENCRYPTION_KEY,
   });
+}
+
+let hopenityMmkvSingleton: MMKV | null = null;
+
+/** Single MMKV instance so reads/writes and listeners stay consistent. */
+export function getHopeChatHopenityMMKV(): MMKV {
+  if (!hopenityMmkvSingleton) {
+    hopenityMmkvSingleton = buildHopeChatHopenityMMKV();
+  }
+  return hopenityMmkvSingleton;
 }
 
 export type HopenityPersistedUserBlob = {
@@ -49,10 +57,12 @@ export type HopenityPersistedUserBlob = {
   isLogin?: boolean;
 };
 
+const USER_KEY = 'user';
+
 export function readPersistedHopenityUser(): HopenityPersistedUserBlob | null {
   try {
-    const storage = createHopeChatHopenityMMKV();
-    const raw = storage.getString('user');
+    const storage = getHopeChatHopenityMMKV();
+    const raw = storage.getString(USER_KEY);
     if (raw == null || raw === '') return null;
     return JSON.parse(raw) as HopenityPersistedUserBlob;
   } catch {
@@ -60,14 +70,26 @@ export function readPersistedHopenityUser(): HopenityPersistedUserBlob | null {
   }
 }
 
+/** When Hopenity (or this app) updates the `user` key, invoke callback. Returns unsubscribe. */
+export function subscribePersistedHopenityUser(
+  onChange: (blob: HopenityPersistedUserBlob | null) => void,
+): () => void {
+  const storage = getHopeChatHopenityMMKV();
+  const sub = storage.addOnValueChangedListener(changedKey => {
+    if (changedKey !== USER_KEY) return;
+    onChange(readPersistedHopenityUser());
+  });
+  return () => sub.remove();
+}
+
 export function persistHopenityUser(blob: HopenityPersistedUserBlob | null): boolean {
   try {
-    const storage = createHopeChatHopenityMMKV();
+    const storage = getHopeChatHopenityMMKV();
     if (blob == null) {
-      storage.delete('user');
+      storage.remove(USER_KEY);
       return true;
     }
-    storage.set('user', JSON.stringify(blob));
+    storage.set(USER_KEY, JSON.stringify(blob));
     return true;
   } catch {
     return false;
@@ -105,4 +127,11 @@ export function userIdFromBlob(b: HopenityPersistedUserBlob | null): string {
     if (id != null && String(id).length > 0) return String(id);
   }
   return 'me';
+}
+
+export function isUsableHopenityBlob(
+  blob: HopenityPersistedUserBlob | null,
+): blob is HopenityPersistedUserBlob & { token: string } {
+  const t = blob?.token;
+  return typeof t === 'string' && t.length > 0;
 }

@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { colors, colorss, radius } from '../theme';
 import { SearchIcon, ArrowLeft } from 'lucide-react-native';
 import {
@@ -23,6 +23,12 @@ import {
   RootStackNavigatorParamList,
 } from '../types/navigators';
 import { useChats } from '../context/ChatsContext';
+import { useAppSelector } from '../hooks/redux';
+import {
+  selectHopenityProfile,
+} from '../redux/features/auth/authSlice';
+import { normalizeChatUserId } from '../utils/chatUserId';
+import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 
 type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackNavigatorParamList, 'Search'>,
@@ -54,13 +60,28 @@ const conversationType = [
 
 const SearchScreen: React.FC<Props> = ({ navigation }) => {
   const { conversations } = useChats();
+  const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
+  const profile = useAppSelector(selectHopenityProfile);
+  const localUserId = useMemo(
+    () =>
+      normalizeChatUserId(giftedChatUser?._id) ||
+      normalizeChatUserId(profile?.userId) ||
+      '',
+    [giftedChatUser, profile],
+  );
   const goInbox = () => {
     const c = conversations[0];
+    const convId = c?.id ?? '1';
     navigation.navigate('Inbox', {
-      conversationId: c?.id ?? '1',
+      conversationId: convId,
       displayName: c?.name ?? 'Chat',
       avatarUrl: c?.avatarUrl,
-      liveKitRoom: `call_${c?.id ?? '1'}`,
+      liveKitRoom: resolveLiveKitRoomName({
+        conversationId: convId,
+        peerUserId: c?.peerUserId,
+        localUserId,
+        isGroup: c?.isGroup,
+      }),
     });
   };
 

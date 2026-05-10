@@ -22,6 +22,21 @@ export interface ReactionItem {
 }
 
 export interface ExtendedMessage extends IMessage {
+  /** Synthetic full-width welcome card at top of thread (Hopenity UX). */
+  threadIntro?: {
+    peerName: string;
+    subtitle?: string;
+    avatarUrl?: string | null;
+  };
+  /** Server-originated category — drives timeline styling for calls / voice. */
+  messageKind?: 'call_log' | 'voice_note' | 'text';
+  /** When the API returns receipts (outgoing messages). */
+  delivery?: {
+    state: 'sent' | 'delivered' | 'read';
+    readAt?: string;
+  };
+  /** When API provides direction flags (`isOutgoing`, `direction`, …) for bubble alignment. */
+  outgoingHint?: boolean;
   media?: MediaPayload;
   pending?: boolean;
   failed?: boolean;

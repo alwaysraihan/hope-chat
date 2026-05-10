@@ -31,6 +31,8 @@ import ReactionsScreen from '../screens/ReactionsScreen';
 import VideoCallScreen from '../screens/VideoCallScreen';
 import EmailLoginScreen from '../screens/EmailLoginScreen';
 import DeviceApprovalWaitScreen from '../screens/DeviceApprovalWaitScreen';
+import IncomingCallScreen from '../screens/IncomingCallScreen';
+import StoryViewerScreen from '../screens/StoryViewerScreen';
 
 const RootStack = createNativeStackNavigator<RootStackNavigatorParamList>();
 
@@ -79,6 +81,24 @@ const StackNavigator = () => {
       />
       <RootStack.Screen name="AudioCall" component={AudioCallScreen} />
       <RootStack.Screen name="VideoCall" component={VideoCallScreen} />
+      <RootStack.Screen
+        name="IncomingCall"
+        component={IncomingCallScreen}
+        options={{
+          presentation: 'fullScreenModal',
+          animation: 'fade',
+          gestureEnabled: false,
+        }}
+      />
+      <RootStack.Screen
+        name="StoryViewer"
+        component={StoryViewerScreen}
+        options={{
+          presentation: 'fullScreenModal',
+          animation: 'fade',
+          gestureEnabled: true,
+        }}
+      />
       <RootStack.Screen
         name="DisappearingMessages"
         component={DisappearingMessagesScreen}
