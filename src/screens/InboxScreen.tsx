@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect } from 'react';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 import { GiftedChat, Time } from 'react-native-gifted-chat';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -10,6 +10,10 @@ import MessageHeader from '../components/message/MessageHeader';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
 import { colorss } from '../theme';
 import { RootStackNavigatorParamList } from '../types/navigators';
+import FastImage from '@d11/react-native-fast-image';
+import raihan from '../assets/raihan-sarkar.webp';
+import NewFriendBanner from '../components/message/NewFriendBanner';
+import ChatProfileHeader from '../components/message/ChatProfileHeader';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 
@@ -60,16 +64,30 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
   }, []);
 
   const renderMessage = useCallback(
-    (props: any) => (
-      <ChatMessageBox
-        {...props}
-        refreshTrigger={refreshTrigger}
-        onPressReactions={() => navigation.navigate('Reactions')}
-      />
-    ),
+    (props: any) => {
+      if (props.currentMessage._id === 'system-logo') {
+        return <ChatProfileHeader friendName="Raihan Sarkar" />;
+      }
+
+      return (
+        <ChatMessageBox
+          {...props}
+          refreshTrigger={refreshTrigger}
+          onPressReactions={() => navigation.navigate('Reactions')}
+        />
+      );
+    },
     [refreshTrigger, navigation],
   );
-
+  const messagesWithSystemMessage = [
+    {
+      _id: 'system-logo',
+      text: 'system-logo',
+      createdAt: new Date(),
+      system: true,
+    },
+    // ...messages,
+  ];
   //  Render
 
   return (
@@ -84,10 +102,10 @@ const InboxScreenInner: React.FC<Props> = ({ navigation }) => {
         onVideoCall={() => navigation.navigate('VideoCall')}
       />
 
-      <View style={{ flex: 1, backgroundColor: colorss.background }}>
+      <View style={{ flex: 1, backgroundColor: colorss.white }}>
         <GiftedChat
           placeholder="Type here…"
-          messages={messages as any[]}
+          messages={messagesWithSystemMessage as any[]}
           {...(initialText ? { text: initialText } : {})}
           onSend={(msgs: any) => onSend(msgs)}
           // @ts-ignore

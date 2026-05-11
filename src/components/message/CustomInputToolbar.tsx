@@ -16,6 +16,7 @@ import {
   ArrowRight,
   X,
   ThumbsUp,
+  LayoutGrid,
 } from 'lucide-react-native';
 import {
   Composer,
@@ -29,7 +30,6 @@ import VoiceRecorder from './VoiceRecorder';
 import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 
 const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const {
@@ -103,8 +103,20 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
 
   const hasText = Boolean(props.text?.trim());
 
+  const actions = [
+    {
+      id: 1,
+      title: 'More',
+      Icon: LayoutGrid,
+      onPress: () => {},
+    },
+    { id: 2, title: 'Camera', Icon: Camera, onPress: handleCameraPress },
+    { id: 3, title: 'Gallery', Icon: Image, onPress: handleGalleryPress },
+    { id: 4, title: 'Voice', Icon: Mic, onPress: handleVoiceRecordingStart },
+  ];
+
   return (
-    <View style={[styles.container, { paddingBottom: bottom }]}>
+    <View style={[styles.container, { paddingBottom: Math.max(bottom, 14) }]}>
       {/* Reply Preview Bar */}
       <Animated.View
         style={[
@@ -165,24 +177,15 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
               },
             ]}
           >
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={handleCameraPress}
-            >
-              <Camera size={22} color={colorss.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={handleGalleryPress}
-            >
-              <Image size={22} color={colorss.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={handleVoiceRecordingStart}
-            >
-              <Mic size={22} color={colorss.primary} />
-            </TouchableOpacity>
+            {actions.map(({ id, Icon, onPress }) => (
+              <TouchableOpacity
+                key={id}
+                style={styles.iconBtn}
+                onPress={onPress}
+              >
+                <Icon size={22} color={colorss.primary} />
+              </TouchableOpacity>
+            ))}
           </Animated.View>
         ) : (
           <Pressable
@@ -205,6 +208,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
               numberOfLines: 3,
               placeholder: 'Type here…',
               onChangeText: props?.textInputProps?.onChangeText,
+              onFocus: () => setIsExpanded(true),
             }}
           />
           <TouchableOpacity style={styles.emojiBtn}>
@@ -232,7 +236,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
 
 export default React.memo(CustomInputToolbar);
 
-// ─── Styles 
+// ─── Styles
 
 const styles = StyleSheet.create({
   container: {
@@ -241,6 +245,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colorss.border,
+    minHeight: 42,
+    maxHeight: 100,
   },
   replyBar: { marginBottom: 4 },
   replyInner: {
@@ -277,8 +283,8 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.surface,
     borderRadius: 24,
     paddingHorizontal: 14,
-    minHeight: 42,
-    maxHeight: 100,
+    // minHeight: 42,
+    // maxHeight: 100,
   },
   input: {
     flex: 1,
