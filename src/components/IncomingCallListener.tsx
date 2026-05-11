@@ -5,8 +5,10 @@ import { getApp } from '@react-native-firebase/app';
 import {
   getInitialNotification,
   getMessaging,
+  getToken,
   onMessage,
   onNotificationOpenedApp,
+  onTokenRefresh,
   registerDeviceForRemoteMessages,
   requestPermission,
 } from '@react-native-firebase/messaging';
@@ -14,6 +16,7 @@ import notifee, { AuthorizationStatus, EventType } from '@notifee/react-native';
 
 import { useAppSelector } from '../hooks/redux';
 import { selectHopeChatLoggedIn } from '../redux/features/auth/authSlice';
+import { store } from '../redux/store';
 import {
   INCOMING_CALL_MESSAGE_TYPE,
   normalizeFcmData,
@@ -24,6 +27,7 @@ import {
   navigateIncomingCall,
 } from '../services/incomingCall/navigateIncomingCall';
 import { ensureIncomingCallAndroidChannel } from '../services/incomingCall/androidIncomingCallUi';
+import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
 
 function openFromNotificationData(raw: Record<string, string>): void {
   let parsed = parseIncomingCallPayload(raw);
@@ -38,7 +42,7 @@ function openFromNotificationData(raw: Record<string, string>): void {
 
 /**
  * Registers FCM + Notifee listeners while the user is signed in.
- * Foreground data messages navigate to IncomingCall; notification / full-screen opens route same way.
+ * Posts the device FCM token to `POST /api/v1/users/fcm-token` so the server can reach this device for incoming calls.
  */
 const IncomingCallListener = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
@@ -46,16 +50,40 @@ const IncomingCallListener = () => {
   useEffect(() => {
     if (!loggedIn) return;
 
+    const messaging = getMessaging(getApp());
+
+    let unsubTokenRefresh: (() => void) | undefined;
+
+    const syncFcmToBackend = async () => {
+      const apiToken = store.getState().auth.token;
+      if (!apiToken) return;
+      try {
+        const fcm = await getToken(messaging);
+        if (fcm) {
+          const r = await postFcmTokenToHopenity(apiToken, fcm);
+          if (__DEV__ && !r.ok) {
+            console.warn('[HopeChat] FCM token registration failed HTTP', r.status);
+          }
+        }
+      } catch (e) {
+        if (__DEV__) {
+          console.warn('[HopeChat] FCM getToken / register', e);
+        }
+      }
+    };
+
     const unsubNet = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable !== false) {
         consumePendingIncomingCall();
+        void syncFcmToBackend();
       }
     });
 
-    const messaging = getMessaging(getApp());
-
     const unsubAppState = AppState.addEventListener('change', next => {
-      if (next === 'active') consumePendingIncomingCall();
+      if (next === 'active') {
+        consumePendingIncomingCall();
+        void syncFcmToBackend();
+      }
     });
 
     let unsubMessage: undefined | (() => void);
@@ -82,11 +110,26 @@ const IncomingCallListener = () => {
         /* Incoming UI still mounts; ringing may rely on vibrations / Android channel */
       }
 
+      await syncFcmToBackend();
+
+      unsubTokenRefresh = onTokenRefresh(messaging, async newToken => {
+        const apiToken = store.getState().auth.token;
+        if (apiToken && newToken) {
+          await postFcmTokenToHopenity(apiToken, newToken);
+        }
+      });
+
       unsubMessage = onMessage(messaging, async remoteMessage => {
-        const parsed = parseIncomingCallPayload(
-          normalizeFcmData(remoteMessage.data),
-        );
-        if (parsed) navigateIncomingCall(parsed);
+        const data = normalizeFcmData(remoteMessage.data);
+        const parsed = parseIncomingCallPayload(data);
+        if (parsed) {
+          navigateIncomingCall(parsed);
+        } else if (__DEV__ && Object.keys(data).length > 0) {
+          console.warn(
+            '[HopeChat] FCM foreground message ignored (not incoming-call payload)',
+            Object.keys(data),
+          );
+        }
       });
 
       unsubOpenedApp = onNotificationOpenedApp(messaging, remoteMessage => {
@@ -117,6 +160,7 @@ const IncomingCallListener = () => {
     })().catch(() => undefined);
 
     return () => {
+      unsubTokenRefresh?.();
       unsubNet();
       unsubAppState.remove();
       unsubMessage?.();

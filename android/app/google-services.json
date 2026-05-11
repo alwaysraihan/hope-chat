@@ -1,26 +1,60 @@
 {
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "hope-chat-replace-me",
-    "storage_bucket": "hope-chat-replace-me.appspot.com"
+    "project_number": "393962936339",
+    "project_id": "hopenity-app",
+    "storage_bucket": "hopenity-app.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "mobilesdk_app_id": "1:393962936339:android:41a75722ad59c35b7c07e6",
         "android_client_info": {
           "package_name": "com.hopechat"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "393962936339-1spm56cflgdu9cs49mfvag6nbch7v38v.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hopechat",
+            "certificate_hash": "b1948033369f7651ac10d8c1232855ef9462f754"
+          }
+        },
+        {
+          "client_id": "393962936339-b4feq8v9md5ht53dvcdbcqjk1eqdof8d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hopechat",
+            "certificate_hash": "07a0459bb4d8e3300641d97f9a33abda37248921"
+          }
+        },
+        {
+          "client_id": "393962936339-t2ap2f8n3omru6ptk9sl4th4dikc3jrr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hopechat",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "393962936339-396dbqvorhfr23cf96o2v3vhm0ud2uia.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "REPLACE_WITH_FIREBASE_CONSOLE_KEY"
+          "current_key": "AIzaSyDuZuOcQRk8S3NH71zJJLyDLNkgUUNokag"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "393962936339-396dbqvorhfr23cf96o2v3vhm0ud2uia.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

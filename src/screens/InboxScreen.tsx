@@ -31,6 +31,7 @@ import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/a
 import { useAppSelector } from '../hooks/redux';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
+import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
 import { getChatAppearance } from '../services/chatPrefs';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
 
@@ -277,7 +278,13 @@ const InboxScreenInner: React.FC<
           })
         }
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}
-        onAudioCall={() =>
+        onAudioCall={() => {
+          void notifyPeerIncomingHopeChatCall({
+            token,
+            conversationId: conversation.id,
+            liveKitRoom: audioRoom,
+            callKind: 'audio',
+          });
           navigation.navigate('AudioCall', {
             displayName: peerName,
             liveKitRoom: audioRoom,
@@ -285,9 +292,15 @@ const InboxScreenInner: React.FC<
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
             callDirection: 'outgoing',
-          })
-        }
-        onVideoCall={() =>
+          });
+        }}
+        onVideoCall={() => {
+          void notifyPeerIncomingHopeChatCall({
+            token,
+            conversationId: conversation.id,
+            liveKitRoom: audioRoom,
+            callKind: 'video',
+          });
           navigation.navigate('VideoCall', {
             displayName: peerName,
             liveKitRoom: audioRoom,
@@ -295,8 +308,8 @@ const InboxScreenInner: React.FC<
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
             callDirection: 'outgoing',
-          })
-        }
+          });
+        }}
       />
 
       {(() => {

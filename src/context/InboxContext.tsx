@@ -56,9 +56,8 @@ import {
   mapApiMessageToTimeline,
 } from '../services/chatMessagePreview';
 import {
-  CALL_OUTCOME_EVENT,
-  formatCallOutcomeLine,
-  type CallOutcomePayload,
+  CALL_OUTCOME_APPLIED_EVENT,
+  type CallOutcomeAppliedPayload,
 } from '../services/callOutcomeBus';
 import {
   extractMessageSenderId,
@@ -653,37 +652,18 @@ export function InboxProvider({
   useEffect(() => {
     if (!_conversationId) return;
     const sub = DeviceEventEmitter.addListener(
-      CALL_OUTCOME_EVENT,
-      (p: CallOutcomePayload) => {
-        if (p.conversationId !== _conversationId) return;
-        const line = formatCallOutcomeLine(p);
-        let uid = localUserIdStr;
-        let uname = typeof user.name === 'string' ? user.name : 'You';
-
-        if (p.variant === 'incoming_missed') {
-          const pu = p.peerUserId?.trim();
-          if (pu) {
-            uid = normalizeChatUserId(pu) || pu;
-            uname = p.peerDisplayName ?? uname;
-          }
-        }
-
-        const msg: ExtendedMessage = {
-          _id: `call_evt_${Date.now()}`,
-          text: line,
-          createdAt: new Date(),
-          user: { _id: uid, name: uname },
-          messageKind: 'call_log',
-        };
+      CALL_OUTCOME_APPLIED_EVENT,
+      (payload: CallOutcomeAppliedPayload) => {
+        if (payload.conversationId !== _conversationId) return;
+        const msg = payload.message;
         appendMessage(msg);
-        updateConversationPreview(line, new Date());
+        const preview = String(msg.text ?? '');
+        updateConversationPreview(preview, msg.createdAt ?? new Date());
       },
     );
     return () => sub.remove();
   }, [
     _conversationId,
-    localUserIdStr,
-    user.name,
     appendMessage,
     updateConversationPreview,
   ]);

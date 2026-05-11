@@ -33,9 +33,11 @@ import {
 } from '../services/offlineCache';
 import {
   CALL_OUTCOME_EVENT,
+  emitCallOutcomeApplied,
   formatCallOutcomeLine,
   type CallOutcomePayload,
 } from '../services/callOutcomeBus';
+import { persistCallOutcomeChatMessage } from '../services/callLogPersist';
 import { normalizeChatUserId } from '../utils/chatUserId';
 
 export type ConversationSummary = {
@@ -634,27 +636,6 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       CALL_OUTCOME_EVENT,
       (p: CallOutcomePayload) => {
         const line = formatCallOutcomeLine(p);
-        const loc =
-          normalizeChatUserId(String(localUser._id ?? '')) ||
-          String(localUser._id ?? '');
-        let uid = loc;
-        let uname =
-          typeof localUser.name === 'string' ? localUser.name : 'You';
-        if (p.variant === 'incoming_missed') {
-          const pu = p.peerUserId?.trim();
-          if (pu) {
-            uid = normalizeChatUserId(pu) || pu;
-            uname = p.peerDisplayName ?? uname;
-          }
-        }
-        const msg: ExtendedMessage = {
-          _id: `call_evt_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-          text: line,
-          createdAt: new Date(),
-          user: { _id: uid, name: uname },
-          messageKind: 'call_log',
-        };
-        appendCallLogToThreadCache(p.conversationId, msg);
 
         setConversations(prev => {
           const idx = prev.findIndex(c => c.id === p.conversationId);
@@ -672,10 +653,59 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           }
           return next;
         });
+
+        const persist = async () => {
+          const loc =
+            normalizeChatUserId(String(localUser._id ?? '')) ||
+            String(localUser._id ?? '');
+          let uid = loc;
+          let uname =
+            typeof localUser.name === 'string' ? localUser.name : 'You';
+          if (p.variant === 'incoming_missed') {
+            const pu = p.peerUserId?.trim();
+            if (pu) {
+              uid = normalizeChatUserId(pu) || pu;
+              uname = p.peerDisplayName ?? uname;
+            }
+          }
+          const offlineMsg: ExtendedMessage = {
+            _id: `call_evt_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            text: line,
+            createdAt: new Date(),
+            user: { _id: uid, name: uname },
+            messageKind: 'call_log',
+          };
+
+          let finalMsg: ExtendedMessage = offlineMsg;
+          if (token) {
+            try {
+              const saved = await persistCallOutcomeChatMessage(
+                p,
+                line,
+                token,
+                localUser,
+              );
+              if (saved) {
+                finalMsg = saved;
+              }
+            } catch (e) {
+              console.warn('[ChatsProvider] persist call log failed', e);
+            }
+          }
+
+          appendCallLogToThreadCache(p.conversationId, finalMsg);
+          emitCallOutcomeApplied({
+            conversationId: p.conversationId,
+            message: finalMsg,
+          });
+        };
+        persist().catch(e => {
+          console.warn('[ChatsProvider] persist call log', e);
+        });
       },
     );
     return () => sub.remove();
-  }, [token, localUser._id, localUser.name]);
+  }, [token, localUser]);
 
   const bumpUnread = useCallback((conversationId: string, delta = 1) => {
     setConversations(prev =>

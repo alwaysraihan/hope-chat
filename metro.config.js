@@ -14,7 +14,9 @@ const config = {
   resolver: {
     resolveRequest(context, moduleName, platform) {
       const normalized = moduleName.replace(/\\/g, '/');
-      if (normalized.endsWith('@noble/hashes/crypto.js')) {
+      // Any resolution that hits the physical `crypto.js` path bypasses package "exports"
+      // (only `./crypto` is exported). Remap to the official export.
+      if (normalized.includes('@noble/hashes/crypto.js')) {
         return resolve(context, '@noble/hashes/crypto', platform);
       }
       return resolve(context, moduleName, platform);

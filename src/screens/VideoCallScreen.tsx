@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
+  Pressable,
   ActivityIndicator,
   Platform,
   Alert,
@@ -16,6 +16,7 @@ import {
   MicOff,
   MonitorUp,
   PhoneOff,
+  SwitchCamera,
   Video,
   VideoOff,
   Volume2,
@@ -36,6 +37,7 @@ import {
 } from '@livekit/react-native';
 import {
   ConnectionState,
+  LocalVideoTrack,
   RoomEvent,
   Track,
   type RemoteTrackPublication,
@@ -71,8 +73,9 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
  */
 const PUBLISH_VIDEO_ON_LIVEKIT_CONNECT =
   Platform.OS === 'ios' || liveKitAndroidPublishVideoEnabled();
+/** Remote video needs subscription; only disable on Android crash-mitigation path. */
 const videoCallConnectOptions =
-  Platform.OS === 'android'
+  Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled()
     ? { ...liveKitRoomConnectOptions, autoSubscribe: false }
     : liveKitRoomConnectOptions;
 
@@ -105,7 +108,7 @@ function VideoCallGate({
       callDirection: outcomeOpts.callDirection,
       conversationId: outcomeOpts.conversationId,
       peerUserId: outcomeOpts.peerUserId,
-      callKind: Platform.OS === 'android' ? 'audio' : 'video',
+      callKind: 'video',
       peerDisplayName: displayName,
     },
   );
@@ -214,7 +217,7 @@ function VideoCallGate({
     );
   }
 
-  return Platform.OS === 'android' ? (
+  return Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled() ? (
     <AndroidConnectedCallStage
       navigation={navigation}
       safePop={safePop}
@@ -407,15 +410,33 @@ function VideoStage({
     isScreenShareEnabled,
   } = useLocalParticipant();
 
-  const remoteTracks = useTracks(
+  const remoteVisualRefs = useTracks(
     [Track.Source.Camera, Track.Source.ScreenShare],
     { onlySubscribed: false },
   ).filter(
-    item =>
-      isTrackReference(item) &&
-      !item.participant.isLocal &&
-      !item.publication?.isMuted,
+    item => isTrackReference(item) && !item.participant.isLocal,
   );
+
+  const primaryRemoteVisual =
+    remoteVisualRefs.find(
+      r =>
+        isTrackReference(r) && r.publication?.source === Track.Source.Camera,
+    ) ??
+    remoteVisualRefs.find(
+      r =>
+        isTrackReference(r) &&
+        r.publication?.source === Track.Source.ScreenShare,
+    ) ??
+    null;
+
+  const remoteVisualShowsLive =
+    !!primaryRemoteVisual &&
+    isTrackReference(primaryRemoteVisual) &&
+    !!primaryRemoteVisual.publication?.track &&
+    !(
+      primaryRemoteVisual.publication.source === Track.Source.Camera &&
+      !!primaryRemoteVisual.publication?.isMuted
+    );
 
   const localCameraTrack = useTracks([Track.Source.Camera], {
     onlySubscribed: false,
@@ -461,10 +482,10 @@ function VideoStage({
   }, [localParticipant, isMicrophoneEnabled]);
 
   const toggleCam = useCallback(() => {
-    if (Platform.OS === 'android') {
+    if (Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled()) {
       forceEndCallWithAlert(
         'Video unavailable',
-        'Camera video is temporarily disabled on this Android build because the native camera pipeline is crashing. The call will close instead of crashing the app.',
+        'Camera video is off on this Android build unless you enable LIVEKIT_ANDROID_PUBLISH_VIDEO in `.env`.',
       );
       return;
     }
@@ -511,159 +532,263 @@ function VideoStage({
     }
   }, [speakerOn]);
 
+  const [mainIsLocal, setMainIsLocal] = useState(false);
+  const [facingUser, setFacingUser] = useState(true);
+
+  const hasLocalVideo =
+    !!localCameraTrack &&
+    isTrackReference(localCameraTrack) &&
+    !!localCameraTrack.publication?.track;
+
+  const showPip =
+    (mainIsLocal && (!!primaryRemoteVisual || remotes.length > 0)) ||
+    (!mainIsLocal && hasLocalVideo);
+
+  /** Below top bar row; SafeAreaView `edges` already offsets from the status bar. */
+  const pipTop = 56;
+
   const keyForTrack = useCallback(
-    (item: (typeof remoteTracks)[number], idx: number) =>
+    (item: NonNullable<typeof primaryRemoteVisual>, idx: number) =>
       isTrackReference(item)
         ? `${item.participant.identity}_${item.publication?.trackSid ?? 'pub'}_${item.publication?.source ?? 'src'}_${idx}`
         : `t_${idx}`,
     [],
   );
 
-  return (
-    <SafeAreaView style={styles.overlay} edges={['top']}>
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={onEnd} accessibilityRole="button">
-          <ChevronLeft size={28} color={colorss.white} />
-        </TouchableOpacity>
-        {peerAvatarUrl ? (
+  const flipCamera = useCallback(async () => {
+    if (!isCameraEnabled) {
+      return;
+    }
+    if (Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled()) {
+      return;
+    }
+    const nextFacing = facingUser ? 'environment' : 'user';
+    try {
+      const pub = localParticipant.getTrackPublication(Track.Source.Camera);
+      const mediaTrack = pub?.track;
+      if (mediaTrack instanceof LocalVideoTrack) {
+        await mediaTrack.restartTrack({ facingMode: nextFacing });
+        setFacingUser(v => !v);
+        return;
+      }
+      await localParticipant.setCameraEnabled(false);
+      await localParticipant.setCameraEnabled(true, { facingMode: nextFacing });
+      setFacingUser(v => !v);
+    } catch (e) {
+      console.warn('[VideoCall] flip camera', e);
+      Alert.alert('Camera', 'Could not switch between front and back camera.');
+    }
+  }, [
+    facingUser,
+    isCameraEnabled,
+    localParticipant,
+  ]);
+
+  const renderPeerPausedMain = () => (
+    <View style={styles.waitingMain}>
+      {peerAvatarUrl ? (
+        <FastImage
+          source={{ uri: peerAvatarUrl }}
+          style={styles.peerAvatarVideoPaused}
+          resizeMode={FastImage.resizeMode.cover}
+        />
+      ) : (
+        <View style={styles.peerAvatarVideoPausedEmpty} />
+      )}
+      <Text style={styles.emptyText}>Video paused</Text>
+    </View>
+  );
+
+  const renderMainLayer = () => {
+    if (mainIsLocal) {
+      if (hasLocalVideo && localCameraTrack && isTrackReference(localCameraTrack)) {
+        return (
+          <VideoTrack
+            key={localCameraTrack.publication?.trackSid ?? 'local-main'}
+            trackRef={localCameraTrack}
+            style={styles.mainVideoFill}
+            mirror
+            zOrder={0}
+          />
+        );
+      }
+      return (
+        <View style={styles.waitingMain}>
+          <Text style={styles.emptyText}>Your camera is off</Text>
+        </View>
+      );
+    }
+
+    if (primaryRemoteVisual && remoteVisualShowsLive) {
+      return (
+        <VideoTrack
+          key={keyForTrack(primaryRemoteVisual, 0)}
+          trackRef={primaryRemoteVisual}
+          style={styles.mainVideoFill}
+          zOrder={0}
+        />
+      );
+    }
+
+    if (!isRinging && remotes.length > 0) {
+      return renderPeerPausedMain();
+    }
+
+    return (
+      <View style={styles.waitingMain}>
+        {peerAvatarUrl && isRinging ? (
           <FastImage
             source={{ uri: peerAvatarUrl }}
-            style={styles.peerAvatarTop}
+            style={styles.peerAvatarRinging}
             resizeMode={FastImage.resizeMode.cover}
           />
-        ) : (
-          <View style={styles.peerAvatarTopEmpty} />
-        )}
-        <View style={styles.titleCol}>
-          <Text style={styles.topName}>{displayName}</Text>
-          {hint !== 'ok' && hint !== 'disconnected' ? (
-            <Text style={styles.netHint} numberOfLines={2}>
-              {detail || 'Working on connection…'}
-            </Text>
-          ) : null}
-        </View>
-        <View style={{ width: 28 }} />
-      </View>
-
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ flexGrow: 1 }}
-        removeClippedSubviews={false}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {remoteTracks.length === 0 ? (
-          <View style={styles.empty}>
-            {peerAvatarUrl && isRinging ? (
-              <FastImage
-                source={{ uri: peerAvatarUrl }}
-                style={styles.peerAvatarRinging}
-                resizeMode={FastImage.resizeMode.cover}
-              />
-            ) : null}
-            <Text style={styles.emptyText}>
-              {isRinging
-                ? 'Ringing… waiting for them to answer'
-                : 'Waiting for video…'}
-            </Text>
-          </View>
-        ) : (
-          remoteTracks.map((item, idx) => {
-            try {
-              if (!isTrackReference(item)) {
-                return (
-                  <View
-                    key={`bad_${idx}`}
-                    style={styles.remoteVideoShell}
-                    collapsable={false}
-                  />
-                );
-              }
-              return (
-                <View
-                  key={keyForTrack(item, idx)}
-                  style={styles.remoteVideoShell}
-                  collapsable={false}
-                >
-                  <VideoTrack
-                    trackRef={item}
-                    style={styles.remoteVideoFill}
-                    zOrder={0}
-                  />
-                </View>
-              );
-            } catch {
-              return (
-                <View
-                  key={`err_${idx}`}
-                  style={styles.remoteVideoShell}
-                  collapsable={false}
-                />
-              );
-            }
-          })
-        )}
-      </ScrollView>
-
-      {localCameraTrack &&
-      isTrackReference(localCameraTrack) &&
-      localCameraTrack.publication?.track ? (
-        <View
-          style={styles.pipWrap}
-          pointerEvents="box-none"
-          collapsable={false}
-        >
-          <VideoTrack
-            key={localCameraTrack.publication.trackSid ?? 'local-pip'}
-            trackRef={localCameraTrack}
-            style={styles.pipVideo}
-            mirror
-            zOrder={1}
-          />
-        </View>
-      ) : null}
-
-      <View style={styles.controlsRow}>
-        <TouchableOpacity
-          style={[styles.ctrlBtn, !speakerOn ? styles.ctrlBtnDim : null]}
-          onPress={toggleSpeaker}
-        >
-          <Volume2 size={22} color={colorss.white} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.ctrlBtn, !isMicrophoneEnabled ? styles.ctrlBtnDim : null]}
-          onPress={toggleMic}
-        >
-          {isMicrophoneEnabled ? (
-            <Mic size={22} color={colorss.white} />
-          ) : (
-            <MicOff size={22} color={colorss.white} />
-          )}
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.ctrlBtn, !isCameraEnabled ? styles.ctrlBtnDim : null]}
-          onPress={toggleCam}
-        >
-          {isCameraEnabled ? (
-            <Video size={22} color={colorss.white} />
-          ) : (
-            <VideoOff size={22} color={colorss.white} />
-          )}
-        </TouchableOpacity>
-        {Platform.OS !== 'android' ? (
-          <TouchableOpacity
-            style={[styles.ctrlBtn, isScreenShareEnabled ? styles.ctrlHighlight : null]}
-            onPress={toggleScreenShare}
-          >
-            <MonitorUp size={22} color={colorss.white} />
-          </TouchableOpacity>
         ) : null}
+        <Text style={styles.emptyText}>
+          {isRinging
+            ? 'Ringing… waiting for them to answer'
+            : 'Waiting for video…'}
+        </Text>
       </View>
+    );
+  };
 
-      <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
-          <PhoneOff size={26} color={colorss.white} />
-        </TouchableOpacity>
+  const renderPipLayer = () => {
+    if (mainIsLocal && primaryRemoteVisual && remoteVisualShowsLive) {
+      return (
+        <VideoTrack
+          key={keyForTrack(primaryRemoteVisual, 0)}
+          trackRef={primaryRemoteVisual}
+          style={styles.pipVideo}
+          zOrder={1}
+        />
+      );
+    }
+    if (mainIsLocal && !isRinging && remotes.length > 0) {
+      return peerAvatarUrl ? (
+        <FastImage
+          source={{ uri: peerAvatarUrl }}
+          style={styles.pipVideo}
+          resizeMode={FastImage.resizeMode.cover}
+        />
+      ) : (
+        <View style={[styles.pipVideo, styles.pipAvatarPlaceholder]} />
+      );
+    }
+    if (!mainIsLocal && hasLocalVideo && localCameraTrack && isTrackReference(localCameraTrack)) {
+      return (
+        <VideoTrack
+          key={localCameraTrack.publication?.trackSid ?? 'local-pip'}
+          trackRef={localCameraTrack}
+          style={styles.pipVideo}
+          mirror
+          zOrder={1}
+        />
+      );
+    }
+    return null;
+  };
+
+  return (
+    <SafeAreaView style={styles.videoStageRoot} edges={['top', 'bottom']}>
+      <View style={styles.videoStageInner}>
+        <View style={styles.mainVideoLayer} collapsable={false}>
+          {renderMainLayer()}
+        </View>
+
+        <View style={styles.topBarAbs}>
+          <TouchableOpacity onPress={onEnd} accessibilityRole="button">
+            <ChevronLeft size={28} color={colorss.white} />
+          </TouchableOpacity>
+          {peerAvatarUrl ? (
+            <FastImage
+              source={{ uri: peerAvatarUrl }}
+              style={styles.peerAvatarTop}
+              resizeMode={FastImage.resizeMode.cover}
+            />
+          ) : (
+            <View style={styles.peerAvatarTopEmpty} />
+          )}
+          <View style={styles.titleCol}>
+            <Text style={styles.topName}>{displayName}</Text>
+            {hint !== 'ok' && hint !== 'disconnected' ? (
+              <Text style={styles.netHint} numberOfLines={2}>
+                {detail || 'Working on connection…'}
+              </Text>
+            ) : null}
+          </View>
+          <View style={{ width: 28 }} />
+        </View>
+
+        {showPip ? (
+          <Pressable
+            style={[styles.pipWrap, { top: pipTop }]}
+            onPress={() => setMainIsLocal(v => !v)}
+            accessibilityRole="button"
+            accessibilityLabel="Swap main and picture-in-picture video"
+            collapsable={false}
+          >
+            {renderPipLayer()}
+          </Pressable>
+        ) : null}
+
+        <View style={styles.bottomStackAbs}>
+          <View style={styles.controlsRow}>
+            <TouchableOpacity
+              style={[styles.ctrlBtn, !speakerOn ? styles.ctrlBtnDim : null]}
+              onPress={toggleSpeaker}
+            >
+              <Volume2 size={22} color={colorss.white} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ctrlBtn, !isMicrophoneEnabled ? styles.ctrlBtnDim : null]}
+              onPress={toggleMic}
+            >
+              {isMicrophoneEnabled ? (
+                <Mic size={22} color={colorss.white} />
+              ) : (
+                <MicOff size={22} color={colorss.white} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ctrlBtn, !isCameraEnabled ? styles.ctrlBtnDim : null]}
+              onPress={toggleCam}
+            >
+              {isCameraEnabled ? (
+                <Video size={22} color={colorss.white} />
+              ) : (
+                <VideoOff size={22} color={colorss.white} />
+              )}
+            </TouchableOpacity>
+            {isCameraEnabled &&
+            (Platform.OS === 'ios' ||
+              (Platform.OS === 'android' && liveKitAndroidPublishVideoEnabled())) ? (
+              <TouchableOpacity
+                style={styles.ctrlBtn}
+                onPress={() => {
+                  flipCamera().catch(() => undefined);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Switch camera"
+              >
+                <SwitchCamera size={22} color={colorss.white} />
+              </TouchableOpacity>
+            ) : null}
+            {Platform.OS !== 'android' ? (
+              <TouchableOpacity
+                style={[styles.ctrlBtn, isScreenShareEnabled ? styles.ctrlHighlight : null]}
+                onPress={toggleScreenShare}
+              >
+                <MonitorUp size={22} color={colorss.white} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <View style={styles.bottomBar}>
+            <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
+              <PhoneOff size={26} color={colorss.white} />
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -825,30 +950,65 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
   },
-  /** Outer shell — avoid stacking margins on both shell and RTCView (Android layout bugs). */
-  remoteVideoShell: {
-    width: '100%',
-    minHeight: 240,
-    backgroundColor: '#111',
-    marginVertical: 4,
-    overflow: 'hidden',
+  videoStageRoot: {
+    flex: 1,
+    backgroundColor: '#000',
   },
-  remoteVideoFill: {
+  videoStageInner: {
+    flex: 1,
+    position: 'relative',
+  },
+  mainVideoLayer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+  },
+  mainVideoFill: {
     width: '100%',
-    minHeight: 240,
+    height: '100%',
     backgroundColor: '#111',
+  },
+  waitingMain: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: '#0a0a0a',
+    gap: 12,
+  },
+  topBarAbs: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 10,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  bottomStackAbs: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 25,
+    paddingBottom: 10,
+    backgroundColor: 'transparent',
   },
   pipWrap: {
     position: 'absolute',
     right: 12,
-    bottom: 160,
-    width: 112,
-    height: 148,
+    width: 120,
+    height: 160,
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.35)',
     backgroundColor: '#000',
+    zIndex: 20,
   },
   pipVideo: {
     width: '100%',
@@ -891,6 +1051,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
+  },
+  peerAvatarVideoPaused: {
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    marginBottom: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  peerAvatarVideoPausedEmpty: {
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    marginBottom: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  pipAvatarPlaceholder: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   titleCol: {
     flex: 1,

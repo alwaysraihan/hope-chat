@@ -8,7 +8,7 @@ import notifee, {
 import { INCOMING_CALL_MESSAGE_TYPE, type IncomingCallPayload } from './payload';
 
 /** Bump when channel semantics change (channels are mostly immutable once created). */
-export const INCOMING_CALL_ANDROID_CHANNEL_ID = 'incoming_calls_v2';
+export const INCOMING_CALL_ANDROID_CHANNEL_ID = 'incoming_calls_v3';
 
 /** Single slot so ringing updates Replace previous rather than stacking. */
 export const INCOMING_CALL_NOTIFICATION_ID = 'hopechat_incoming_call';

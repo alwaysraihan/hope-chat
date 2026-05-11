@@ -48,7 +48,13 @@ export function parseIncomingCallPayload(
   if (!data) return null;
 
   const typeNorm =
-    pickString(data, TYPE_KEY, 'messageType')?.toLowerCase() ?? '';
+    pickString(
+      data,
+      TYPE_KEY,
+      'messageType',
+      'notification_type',
+      'category',
+    )?.toLowerCase() ?? '';
   const incomingFlag = pickString(
     data,
     'incoming',
@@ -56,11 +62,25 @@ export function parseIncomingCallPayload(
   )?.toLowerCase();
   const flagIncoming =
     incomingFlag === '1' || incomingFlag === 'true' || incomingFlag === 'yes';
+  const hopechatCallFlag = pickString(
+    data,
+    'hopechat_call',
+    'hopeChatCall',
+    'incomingCall',
+  )?.toLowerCase();
+  const flagHopechatCall =
+    hopechatCallFlag === '1' ||
+    hopechatCallFlag === 'true' ||
+    hopechatCallFlag === 'yes';
   const isCallIntent =
     typeNorm === INCOMING_CALL_MESSAGE_TYPE ||
     typeNorm === 'incoming_call' ||
     typeNorm === 'call' ||
-    flagIncoming;
+    typeNorm === 'voip_incoming' ||
+    typeNorm === 'call_incoming' ||
+    typeNorm === 'hopechat_incoming_call' ||
+    flagIncoming ||
+    flagHopechatCall;
 
   const liveKitRoom = pickString(
     data,
@@ -68,6 +88,8 @@ export function parseIncomingCallPayload(
     'room',
     'live_kit_room',
     'livekit_room',
+    'roomName',
+    'livekitRoom',
   );
 
   const displayName =

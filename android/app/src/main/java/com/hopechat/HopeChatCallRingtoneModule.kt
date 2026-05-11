@@ -66,29 +66,18 @@ class HopeChatCallRingtoneModule(private val reactContext: ReactApplicationConte
     }
   }
 
+  /** `ToneGenerator.Builder` is API 29+; use legacy ctor for consistent compile across AGP/SDK combos. */
   private fun createVoiceCallToneGenerator(): ToneGenerator? =
     try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        ToneGenerator.Builder()
-          .setAudioAttributes(
-            AudioAttributes
-              .Builder()
-              .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
-              .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-              .build(),
-          ).setVolume(0.95f)
-          .build()
-      } else {
-        @Suppress("DEPRECATION")
-        ToneGenerator(AudioManager.STREAM_VOICE_CALL, 90)
-      }
+      @Suppress("DEPRECATION")
+      ToneGenerator(AudioManager.STREAM_VOICE_CALL, 90)
     } catch (_: Exception) {
       null
     }
 
   @ReactMethod
   fun startIncomingRingtone() {
-    mainHandler.post {
+    mainHandler.post incomingWork@{
       stopOutgoingRingbackOnMainSync()
       stopIncomingRingtoneOnMainSync()
       try {
@@ -103,8 +92,8 @@ class HopeChatCallRingtoneModule(private val reactContext: ReactApplicationConte
         if (uri == null) {
           uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
         }
-        if (uri == null) return
-        val rt = RingtoneManager.getRingtone(reactContext, uri) ?: return
+        if (uri == null) return@incomingWork
+        val rt = RingtoneManager.getRingtone(reactContext, uri) ?: return@incomingWork
         ringtone = rt
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
           rt.audioAttributes =
@@ -134,10 +123,10 @@ class HopeChatCallRingtoneModule(private val reactContext: ReactApplicationConte
 
   @ReactMethod
   fun startOutgoingRingback() {
-    mainHandler.post {
+    mainHandler.post outgoingWork@{
       stopOutgoingRingbackOnMainSync()
       stopIncomingRingtoneOnMainSync()
-      val tg = createVoiceCallToneGenerator() ?: return@post
+      val tg = createVoiceCallToneGenerator() ?: return@outgoingWork
       outgoingToneGen = tg
       val h = Handler(Looper.getMainLooper())
       outgoingHandler = h
