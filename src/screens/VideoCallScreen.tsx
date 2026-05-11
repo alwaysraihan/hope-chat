@@ -61,6 +61,7 @@ import { useOutgoingCallWithoutConnect } from '../hooks/useOutgoingCallWithoutCo
 import { useSafeSingleNavigationPop } from '../hooks/useSafeSingleNavigationPop';
 import { useGracefulRoomLeave } from '../hooks/useGracefulRoomLeave';
 import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
+import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
 
@@ -141,6 +142,15 @@ function VideoCallGate({
   countRef.current = remotes.length;
   csRef.current = cs;
   const outgoing = outcomeOpts.callDirection === 'outgoing';
+
+  const playOutgoingRingback =
+    outgoing &&
+    cs !== ConnectionState.Disconnected &&
+    (cs === ConnectionState.Connecting ||
+      cs === ConnectionState.Reconnecting ||
+      (cs === ConnectionState.Connected && remotes.length === 0));
+
+  useOutgoingCallRingback(playOutgoingRingback);
 
   useEffect(() => {
     if (!outgoing) {
