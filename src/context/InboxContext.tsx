@@ -43,6 +43,7 @@ import {
 } from '../redux/features/auth/authSlice';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import {
+  mergeLocalCallLogsFromCache,
   readThreadMessagesCache,
   writeThreadMessagesCache,
 } from '../services/offlineCache';
@@ -56,6 +57,7 @@ import {
 } from '../services/chatMessagePreview';
 import {
   CALL_OUTCOME_EVENT,
+  formatCallOutcomeLine,
   type CallOutcomePayload,
 } from '../services/callOutcomeBus';
 import {
@@ -525,14 +527,15 @@ export function InboxProvider({
         });
         const fetched = page.messages ?? [];
         const mapped = fetched.map(mapHopenityMessage);
-        setAllMessages(mapped);
-        const desc = [...mapped].reverse();
+        const mergedAsc = mergeLocalCallLogsFromCache(_conversationId, mapped);
+        setAllMessages(mergedAsc);
+        const desc = [...mergedAsc].reverse();
         setMessages(mergeIntroDesc(desc, threadIntroPeer));
         setHasMore(
           page.pagination?.hasMore ??
             fetched.length >= PAGE_SIZE,
         );
-        writeThreadMessagesCache(_conversationId, mapped);
+        writeThreadMessagesCache(_conversationId, mergedAsc);
         markHopenityChatRead(_conversationId, token).catch(() => undefined);
       } catch (err) {
         console.error('[InboxProvider] load chat messages error:', err);
@@ -546,6 +549,7 @@ export function InboxProvider({
     token,
     mapHopenityMessage,
     threadIntroPeer,
+    mergeLocalCallLogsFromCache,
   ]);
 
   // ─── Fetch messages ────────────────────────────────────────────────────────
@@ -573,7 +577,9 @@ export function InboxProvider({
         let nextAsc: ExtendedMessage[];
 
         if (page === 1) {
-          nextAsc = mapped;
+          nextAsc = _conversationId
+            ? mergeLocalCallLogsFromCache(_conversationId, mapped)
+            : mapped;
         } else {
           nextAsc = [...mapped, ...allMessages];
         }
@@ -650,20 +656,11 @@ export function InboxProvider({
       CALL_OUTCOME_EVENT,
       (p: CallOutcomePayload) => {
         if (p.conversationId !== _conversationId) return;
-        let line = '';
+        const line = formatCallOutcomeLine(p);
         let uid = localUserIdStr;
         let uname = typeof user.name === 'string' ? user.name : 'You';
 
-        if (p.variant === 'outgoing_not_connected') {
-          line =
-            p.callKind === 'video'
-              ? '📹 Video call · No answer'
-              : '📞 Voice call · No answer';
-        } else {
-          line =
-            p.callKind === 'video'
-              ? '📹 Missed video call'
-              : '📞 Missed voice call';
+        if (p.variant === 'incoming_missed') {
           const pu = p.peerUserId?.trim();
           if (pu) {
             uid = normalizeChatUserId(pu) || pu;

@@ -17,3 +17,13 @@ export type CallOutcomePayload = {
 export function emitCallOutcome(payload: CallOutcomePayload): void {
   DeviceEventEmitter.emit(CALL_OUTCOME_EVENT, payload);
 }
+
+/** Single source for chat row + thread cache text (Inbox + ChatsContext). */
+export function formatCallOutcomeLine(p: CallOutcomePayload): string {
+  if (p.variant === 'outgoing_not_connected') {
+    return p.callKind === 'video'
+      ? '📹 Video call · No answer'
+      : '📞 Voice call · No answer';
+  }
+  return p.callKind === 'video' ? '📹 Missed video call' : '📞 Missed voice call';
+}

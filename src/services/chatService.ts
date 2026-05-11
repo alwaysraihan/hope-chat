@@ -22,6 +22,14 @@ export type HopenityChatItem = {
     lastSeen?: string | number | null;
     last_seen?: string | number | null;
     lastActiveAt?: string | number | null;
+    peerHasActiveStory?: boolean;
+    peer_has_active_story?: boolean;
+    hasActiveStory?: boolean;
+    has_active_story?: boolean;
+    peerStoryCount?: number;
+    peer_story_count?: number;
+    unviewedStoryCount?: number;
+    unviewed_story_count?: number;
   };
   userAPage?: { name?: string; image?: string | null } | null;
   userBId?: string;
@@ -34,6 +42,14 @@ export type HopenityChatItem = {
     lastSeen?: string | number | null;
     last_seen?: string | number | null;
     lastActiveAt?: string | number | null;
+    peerHasActiveStory?: boolean;
+    peer_has_active_story?: boolean;
+    hasActiveStory?: boolean;
+    has_active_story?: boolean;
+    peerStoryCount?: number;
+    peer_story_count?: number;
+    unviewedStoryCount?: number;
+    unviewed_story_count?: number;
   };
   userBPage?: { name?: string; image?: string | null } | null;
   participants?: Array<{
@@ -45,6 +61,14 @@ export type HopenityChatItem = {
     lastSeen?: string | number | null;
     last_seen?: string | number | null;
     lastActiveAt?: string | number | null;
+    peerHasActiveStory?: boolean;
+    peer_has_active_story?: boolean;
+    hasActiveStory?: boolean;
+    has_active_story?: boolean;
+    peerStoryCount?: number;
+    peer_story_count?: number;
+    unviewedStoryCount?: number;
+    unviewed_story_count?: number;
   }>;
   /** Backend: include `messageType`, `metadata`, durations, `missed`, `callKind` for call/voice rows. */
   lastMessage?: {
@@ -85,6 +109,16 @@ export type HopenityChatItem = {
   unreadCount?: number;
   status?: string;
   requestedById?: string | null;
+  /** When true, peer has at least one active story (home strip + Story viewer). */
+  peerHasActiveStory?: boolean;
+  peer_has_active_story?: boolean;
+  hasActiveStory?: boolean;
+  has_active_story?: boolean;
+  peerStoryCount?: number;
+  peer_story_count?: number;
+  unviewedStoryCount?: number;
+  unviewed_story_count?: number;
+  peerUnviewedStoryCount?: number;
   /** Optional: server-driven chat UI — client merges into theme / reactions when present. */
   chatTheme?: {
     wallpaperUrl?: string | null;

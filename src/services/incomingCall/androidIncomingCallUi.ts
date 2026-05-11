@@ -54,6 +54,8 @@ export async function displayAndroidIncomingCallNotification(
       callKind: parsed.callKind,
       displayName: parsed.displayName,
       callerId: parsed.callerId ?? '',
+      conversationId: parsed.conversationId ?? '',
+      avatarUrl: parsed.avatarUrl ?? '',
     },
     android: {
       channelId: INCOMING_CALL_ANDROID_CHANNEL_ID,

@@ -27,6 +27,10 @@ import type { ConversationSummary } from '../context/ChatsContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { setStoryFeedRings } from '../data/storyFeedCache';
 import { storyRingsFromConversations } from '../services/story/buildStoryRings';
+import {
+  conversationHasStoryRing,
+  isDmEligibleForStoryStrips,
+} from '../services/story/storyStripEligibility';
 import { openHopenityBestEffort } from '../services/hopenityLinking';
 import { useAppSelector } from '../hooks/redux';
 import {
@@ -61,10 +65,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     }, [reloadConversations]),
   );
 
-  const directChats = useMemo(
-    () => conversations.filter(c => !c.isGroup),
-    [conversations],
-  );
+  const directChats = useMemo(() => {
+    const rows = conversations.filter(c => !c.isGroup);
+    const byId = new Map<string, ConversationSummary>();
+    for (const c of rows) {
+      byId.set(String(c.id), c);
+    }
+    return [...byId.values()];
+  }, [conversations]);
 
   const onlineFirst = useCallback(
     (a: ConversationSummary, b: ConversationSummary) => {
@@ -83,7 +91,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const activePeers = useMemo(
     () =>
       directChats
-        .filter(c => c.isOnline === true)
+        .filter(c => isDmEligibleForStoryStrips(c) && c.isOnline === true)
         .sort((a, b) =>
           a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
         ),
@@ -91,7 +99,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const friendsStrip = useMemo(
-    () => [...directChats].sort(onlineFirst),
+    () =>
+      directChats
+        .filter(
+          c => isDmEligibleForStoryStrips(c) && conversationHasStoryRing(c),
+        )
+        .sort(onlineFirst),
     [directChats, onlineFirst],
   );
 
@@ -192,16 +205,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                     style={styles.storyStripFlex}
                     contentContainerStyle={styles.storiesListInner}
                   />
-                  {renderStoryViewerTile()}
+                  {/* {renderStoryViewerTile()} */}
                 </View>
               </View>
             ) : null}
 
             {friendsStrip.length > 0 ? (
               <View style={styles.storySection}>
-                <Text style={styles.stripSectionLabel}>
-                  {activePeers.length > 0 ? 'Friends' : 'Friends & chats'}
-                </Text>
+                <Text style={styles.stripSectionLabel}>Stories</Text>
                 <View style={styles.storyStripRow}>
                   <FlatList
                     data={friendsStrip}
@@ -217,7 +228,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                     style={styles.storyStripFlex}
                     contentContainerStyle={styles.storiesListInner}
                   />
-                  {activePeers.length === 0 ? renderStoryViewerTile() : null}
+                  {/* {activePeers.length === 0 ? renderStoryViewerTile() : null} */}
                 </View>
               </View>
             ) : null}
@@ -276,7 +287,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         <FlatList
           data={conversations}
           renderItem={renderConversation}
-          keyExtractor={item => item.id}
+          keyExtractor={item => String(item.id)}
           extraData={conversations}
           ListHeaderComponent={ListHeader}
           showsVerticalScrollIndicator={false}

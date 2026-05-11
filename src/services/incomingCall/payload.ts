@@ -1,4 +1,9 @@
-/** FCM/APNs data payload keys your backend should send for incoming calls */
+/**
+ * FCM/APNs data payload keys your backend should send for incoming calls.
+ *
+ * Android (app killed / background): use a **data** message (not notification-only) with
+ * `android.priority: "high"` so `setBackgroundMessageHandler` can show the ringing tray + full-screen intent.
+ */
 export type IncomingCallPayload = {
   callKind: 'audio' | 'video';
   /** LiveKit room name (matches existing call screens) */

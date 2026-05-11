@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import {
   Animated,
+  AppState,
   Easing,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  Vibration,
 } from 'react-native';
 import FastImage from '@d11/react-native-fast-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,9 +30,12 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
   const { callKind, displayName, liveKitRoom, avatarUrl, conversationId, callerId } =
     route.params;
   const pulse = useRef(new Animated.Value(1)).current;
+  const acceptedRef = useRef(false);
 
   const decline = useCallback(() => {
+    acceptedRef.current = true;
     stopIncomingCallRingtone();
+    Vibration.cancel();
     void cancelAndroidIncomingCallNotification();
     if (conversationId?.trim() && callerId?.trim()) {
       emitCallOutcome({
@@ -50,7 +56,9 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
   ]);
 
   const accept = useCallback(() => {
+    acceptedRef.current = true;
     stopIncomingCallRingtone();
+    Vibration.cancel();
     void cancelAndroidIncomingCallNotification();
     const params = {
       displayName,
@@ -75,9 +83,47 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
   ]);
 
   useEffect(() => {
-    startIncomingCallRingtone();
-    return () => stopIncomingCallRingtone();
+    const startRing = () => {
+      void cancelAndroidIncomingCallNotification();
+      startIncomingCallRingtone();
+      if (Platform.OS === 'android') {
+        Vibration.cancel();
+        Vibration.vibrate([0, 600, 400, 600, 400, 600], true);
+      } else {
+        Vibration.vibrate([0, 500, 250, 500, 250, 500]);
+      }
+    };
+
+    startRing();
+
+    const appSub = AppState.addEventListener('change', state => {
+      if (state === 'active' && !acceptedRef.current) {
+        startRing();
+      }
+    });
+
+    return () => {
+      appSub.remove();
+      stopIncomingCallRingtone();
+      Vibration.cancel();
+    };
   }, []);
+
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove', () => {
+      if (acceptedRef.current) return;
+      if (conversationId?.trim() && callerId?.trim()) {
+        emitCallOutcome({
+          conversationId: conversationId.trim(),
+          callKind,
+          variant: 'incoming_missed',
+          peerUserId: callerId.trim(),
+          peerDisplayName: displayName,
+        });
+      }
+    });
+    return sub;
+  }, [navigation, callKind, conversationId, callerId, displayName]);
 
   useEffect(() => {
     const loop = Animated.loop(

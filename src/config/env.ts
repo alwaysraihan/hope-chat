@@ -7,6 +7,7 @@
 
 import {
   API_BASE_URL as E_API_BASE_URL,
+  LIVEKIT_ANDROID_PUBLISH_VIDEO as E_LIVEKIT_ANDROID_PUBLISH_VIDEO,
   LIVEKIT_API_KEY as E_LIVEKIT_API_KEY,
   LIVEKIT_API_SECRET as E_LIVEKIT_API_SECRET,
   LIVEKIT_DEV_TOKEN as E_LIVEKIT_DEV_TOKEN,
@@ -42,3 +43,12 @@ export const LIVEKIT_WS_URL = trim(E_LIVEKIT_WS_URL);
 
 /** Dev bypass only — omit in production. */
 export const LIVEKIT_DEV_TOKEN = trim(E_LIVEKIT_DEV_TOKEN);
+
+/**
+ * Android: publishing camera on LiveKit connect can crash some OEM WebRTC stacks.
+ * Set `LIVEKIT_ANDROID_PUBLISH_VIDEO=true` in `.env` to opt in after validating devices.
+ */
+export function liveKitAndroidPublishVideoEnabled(): boolean {
+  const v = trim(E_LIVEKIT_ANDROID_PUBLISH_VIDEO).toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}

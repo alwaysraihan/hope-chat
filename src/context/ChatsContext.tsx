@@ -7,6 +7,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { DeviceEventEmitter } from 'react-native';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
   clearAuth,
@@ -26,9 +27,15 @@ import {
 } from '../services/e2ee/conversationCrypto';
 import type { ExtendedMessage } from '../components/types/chat';
 import {
+  appendCallLogToThreadCache,
   readChatDirectoryCache,
   writeChatDirectoryCache,
 } from '../services/offlineCache';
+import {
+  CALL_OUTCOME_EVENT,
+  formatCallOutcomeLine,
+  type CallOutcomePayload,
+} from '../services/callOutcomeBus';
 import { normalizeChatUserId } from '../utils/chatUserId';
 
 export type ConversationSummary = {
@@ -55,6 +62,10 @@ export type ConversationSummary = {
   remoteWallpaperUrl?: string | null;
   remoteThemePresetId?: number | null;
   remoteReactionPalette?: string[] | null;
+  /** From chat list / peer profile — drives home + Story tab rings when set. */
+  peerHasActiveStory?: boolean;
+  peerStoryCount?: number;
+  unviewedStoryCount?: number;
   messages: ExtendedMessage[];
 };
 
@@ -374,6 +385,93 @@ function extractPeerPresence(
   return { isOnline, lastSeenAt };
 }
 
+function readStoryBoolFromRecord(src: Record<string, unknown>): boolean | undefined {
+  let sawFalse = false;
+  for (const key of [
+    'peerHasActiveStory',
+    'peer_has_active_story',
+    'hasActiveStory',
+    'has_active_story',
+    'activeStory',
+  ] as const) {
+    const v = src[key];
+    if (v === true) return true;
+    if (v === false) sawFalse = true;
+  }
+  if (sawFalse) return false;
+  return undefined;
+}
+
+function readPositiveIntFromRecord(
+  src: Record<string, unknown>,
+  keys: readonly string[],
+): number | undefined {
+  for (const k of keys) {
+    const v = src[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      return Math.min(1_000_000, Math.floor(v));
+    }
+  }
+  return undefined;
+}
+
+function readStoryHintsFromChat(
+  chat: HopenityChatItem,
+  peerUserNorm: string | null,
+): {
+  peerHasActiveStory?: boolean;
+  peerStoryCount?: number;
+  unviewedStoryCount?: number;
+} {
+  let peerHasActiveStory: boolean | undefined;
+  let peerStoryCount: number | undefined;
+  let unviewedStoryCount: number | undefined;
+
+  const merge = (src: Record<string, unknown> | null) => {
+    if (!src) return;
+    const b = readStoryBoolFromRecord(src);
+    if (b === true) peerHasActiveStory = true;
+    else if (peerHasActiveStory !== true && b === false) peerHasActiveStory = false;
+    peerStoryCount ??= readPositiveIntFromRecord(src, [
+      'peerStoryCount',
+      'peer_story_count',
+    ]);
+    unviewedStoryCount ??= readPositiveIntFromRecord(src, [
+      'unviewedStoryCount',
+      'unviewed_story_count',
+      'peerUnviewedStoryCount',
+    ]);
+  };
+
+  merge(asRecord(chat));
+
+  if (peerUserNorm) {
+    const tryProfile = (u: unknown, sideUserId?: string | null) => {
+      const r = asRecord(u);
+      if (!r) return;
+      const candidate = sideUserId
+        ? String(sideUserId)
+        : String(r.user_id ?? r.userId ?? r.id ?? r._id ?? '');
+      if (!sameChatParticipant(candidate, peerUserNorm)) return;
+      merge(r);
+    };
+
+    tryProfile(
+      chat.userA,
+      chat.userAId != null ? String(chat.userAId) : undefined,
+    );
+    tryProfile(
+      chat.userB,
+      chat.userBId != null ? String(chat.userBId) : undefined,
+    );
+    for (const p of chat.participants ?? []) {
+      tryProfile(p, undefined);
+    }
+  }
+
+  return { peerHasActiveStory, peerStoryCount, unviewedStoryCount };
+}
+
 /** Maps API chat row → home/list row (no seeded GiftedChat messages — Inbox loads history via API). */
 export function mapChatItemToSummary(
   chat: HopenityChatItem,
@@ -423,6 +521,7 @@ export function mapChatItemToSummary(
   const ct = chat.chatTheme;
 
   const presence = extractPeerPresence(chat, localUser._id);
+  const storyHints = readStoryHintsFromChat(chat, peerUserNorm);
 
   return {
     id: String(chat.id ?? `${chat.userAId ?? ''}-${chat.userBId ?? ''}`),
@@ -437,6 +536,9 @@ export function mapChatItemToSummary(
     lastSeenAt: presence.lastSeenAt ?? null,
     needsAcceptance,
     peerUserId: peerUserNorm,
+    peerHasActiveStory: storyHints.peerHasActiveStory,
+    peerStoryCount: storyHints.peerStoryCount,
+    unviewedStoryCount: storyHints.unviewedStoryCount,
     remoteWallpaperUrl: ct?.wallpaperUrl ?? null,
     remoteThemePresetId:
       ct?.themePresetId != null ? Number(ct.themePresetId) : null,
@@ -525,6 +627,55 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [reloadConversations]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const sub = DeviceEventEmitter.addListener(
+      CALL_OUTCOME_EVENT,
+      (p: CallOutcomePayload) => {
+        const line = formatCallOutcomeLine(p);
+        const loc =
+          normalizeChatUserId(String(localUser._id ?? '')) ||
+          String(localUser._id ?? '');
+        let uid = loc;
+        let uname =
+          typeof localUser.name === 'string' ? localUser.name : 'You';
+        if (p.variant === 'incoming_missed') {
+          const pu = p.peerUserId?.trim();
+          if (pu) {
+            uid = normalizeChatUserId(pu) || pu;
+            uname = p.peerDisplayName ?? uname;
+          }
+        }
+        const msg: ExtendedMessage = {
+          _id: `call_evt_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          text: line,
+          createdAt: new Date(),
+          user: { _id: uid, name: uname },
+          messageKind: 'call_log',
+        };
+        appendCallLogToThreadCache(p.conversationId, msg);
+
+        setConversations(prev => {
+          const idx = prev.findIndex(c => c.id === p.conversationId);
+          if (idx < 0) return prev;
+          const iso = new Date().toISOString();
+          const row = {
+            ...prev[idx],
+            preview: line,
+            time: formatChatTime(iso),
+          };
+          const next = [row, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+          const uidStr = String(localUser._id ?? '');
+          if (uidStr && uidStr !== 'me') {
+            writeChatDirectoryCache(uidStr, next);
+          }
+          return next;
+        });
+      },
+    );
+    return () => sub.remove();
+  }, [token, localUser._id, localUser.name]);
 
   const bumpUnread = useCallback((conversationId: string, delta = 1) => {
     setConversations(prev =>

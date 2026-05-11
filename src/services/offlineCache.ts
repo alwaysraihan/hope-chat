@@ -84,3 +84,39 @@ export function writeThreadMessagesCache(
     console.warn('[offlineCache] writeThreadMessagesCache', e);
   }
 }
+
+/** Append a local-only call row (asc order: newest at end, matching server page cache). */
+export function appendCallLogToThreadCache(
+  conversationId: string,
+  msg: ExtendedMessage,
+): void {
+  if (!conversationId) return;
+  const existing = readThreadMessagesCache(conversationId) ?? [];
+  writeThreadMessagesCache(conversationId, [...existing, msg]);
+}
+
+function messageTimeMs(m: ExtendedMessage): number {
+  const raw = m.createdAt as unknown;
+  if (raw instanceof Date) return raw.getTime();
+  const d = new Date(raw as string | number);
+  return Number.isFinite(d.getTime()) ? d.getTime() : 0;
+}
+
+/** Keep client-only `call_evt_*` rows when hydrating from the server (same thread). */
+export function mergeLocalCallLogsFromCache(
+  conversationId: string,
+  serverAsc: ExtendedMessage[],
+): ExtendedMessage[] {
+  const cached = readThreadMessagesCache(conversationId) ?? [];
+  const serverIds = new Set(serverAsc.map(m => String(m._id)));
+  const extra = cached.filter(
+    m =>
+      m.messageKind === 'call_log' &&
+      String(m._id).startsWith('call_evt_') &&
+      !serverIds.has(String(m._id)),
+  );
+  if (extra.length === 0) return serverAsc;
+  const merged = [...serverAsc, ...extra];
+  merged.sort((a, b) => messageTimeMs(a) - messageTimeMs(b));
+  return merged;
+}

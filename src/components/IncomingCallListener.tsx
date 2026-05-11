@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { AppState, Platform } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { getApp } from '@react-native-firebase/app';
 import {
   getInitialNotification,
@@ -44,6 +45,12 @@ const IncomingCallListener = () => {
 
   useEffect(() => {
     if (!loggedIn) return;
+
+    const unsubNet = NetInfo.addEventListener(state => {
+      if (state.isConnected && state.isInternetReachable !== false) {
+        consumePendingIncomingCall();
+      }
+    });
 
     const messaging = getMessaging(getApp());
 
@@ -110,6 +117,7 @@ const IncomingCallListener = () => {
     })().catch(() => undefined);
 
     return () => {
+      unsubNet();
       unsubAppState.remove();
       unsubMessage?.();
       unsubOpenedApp?.();

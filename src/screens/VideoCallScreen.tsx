@@ -49,6 +49,7 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 import { selectHopenityProfile } from '../redux/features/auth/authSlice';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { CallRoomErrorBoundary } from '../components/CallRoomErrorBoundary';
+import { liveKitAndroidPublishVideoEnabled } from '../config/env';
 import {
   LIVEKIT_FALLBACK_ROOM,
   getLiveKitVideoCallRoomOptions,
@@ -64,10 +65,11 @@ import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
 
 /**
- * Must be literally false on Android so `useLiveKitRoom` does not publish camera on
- * SignalConnected (see logs: mic+camera in one offer = crash). iOS keeps normal behavior.
+ * Android: default off (OEM WebRTC crashes). Opt in with `LIVEKIT_ANDROID_PUBLISH_VIDEO=true` in `.env`.
+ * iOS: normal camera publish on connect.
  */
-const PUBLISH_VIDEO_ON_LIVEKIT_CONNECT = Platform.OS === 'ios';
+const PUBLISH_VIDEO_ON_LIVEKIT_CONNECT =
+  Platform.OS === 'ios' || liveKitAndroidPublishVideoEnabled();
 const videoCallConnectOptions =
   Platform.OS === 'android'
     ? { ...liveKitRoomConnectOptions, autoSubscribe: false }
@@ -502,7 +504,7 @@ function VideoStage({
   const keyForTrack = useCallback(
     (item: (typeof remoteTracks)[number], idx: number) =>
       isTrackReference(item)
-        ? `${item.participant.identity}_${item.publication?.trackSid ?? idx}`
+        ? `${item.participant.identity}_${item.publication?.trackSid ?? 'pub'}_${item.publication?.source ?? 'src'}_${idx}`
         : `t_${idx}`,
     [],
   );
@@ -720,7 +722,9 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
       console.log(
         '[VideoCall] Android join: LiveKitRoom video=',
         PUBLISH_VIDEO_ON_LIVEKIT_CONNECT,
-        '(must be false; Android video uses audio-only LiveKit stage)',
+        liveKitAndroidPublishVideoEnabled()
+          ? '(LIVEKIT_ANDROID_PUBLISH_VIDEO enabled — watch for OEM WebRTC crashes)'
+          : '(camera publish off unless LIVEKIT_ANDROID_PUBLISH_VIDEO=true in .env)',
       );
     }
   }, []);

@@ -7,3 +7,4 @@ export const LIVEKIT_TOKEN_SERVICE_URL = '';
 export const LIVEKIT_ISSUER_SECRET = '';
 export const LIVEKIT_WS_URL = '';
 export const LIVEKIT_DEV_TOKEN = '';
+export const LIVEKIT_ANDROID_PUBLISH_VIDEO = '';

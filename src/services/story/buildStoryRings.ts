@@ -1,5 +1,6 @@
 import type { ConversationSummary } from '../../context/ChatsContext';
 import type { StoryRing } from '../../data/storyFeedCache';
+import { conversationHasStoryRing } from './storyStripEligibility';
 
 const slide = (
   cid: string,
@@ -14,7 +15,8 @@ const slide = (
 export function storyRingsFromConversations(
   conversations: ConversationSummary[],
 ): StoryRing[] {
-  return conversations.slice(0, 14).map(c => ({
+  const withStories = conversations.filter(conversationHasStoryRing);
+  return withStories.slice(0, 14).map(c => ({
     id: c.id,
     name: (c.name || 'Friend').trim().split(/\s+/)[0] || 'Friend',
     avatarUri: c.avatarUrl,

@@ -13,4 +13,8 @@ declare module '@env' {
   export const LIVEKIT_WS_URL: string;
   /** Dev only: fixed JWT from livekit-cli; leave empty in release. */
   export const LIVEKIT_DEV_TOKEN: string;
+  /**
+   * Android only: set `true` to let LiveKit publish camera on connect (default off — crash mitigation).
+   */
+  export const LIVEKIT_ANDROID_PUBLISH_VIDEO: string;
 }
