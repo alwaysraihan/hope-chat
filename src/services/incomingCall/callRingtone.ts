@@ -3,6 +3,8 @@ import { NativeModules, Platform } from 'react-native';
 type NativeRing = {
   startIncomingRingtone?: () => void;
   stopIncomingRingtone?: () => void;
+  startOutgoingRingback?: () => void;
+  stopOutgoingRingback?: () => void;
 };
 
 const native = NativeModules.HopeChatCallRingtone as NativeRing | undefined;
@@ -17,4 +19,13 @@ export function startIncomingCallRingtone(): void {
 
 export function stopIncomingCallRingtone(): void {
   native?.stopIncomingRingtone?.();
+}
+
+/** Outgoing call: ring-back while waiting for the other party (WhatsApp-style). */
+export function startOutgoingCallRingback(): void {
+  native?.startOutgoingRingback?.();
+}
+
+export function stopOutgoingCallRingback(): void {
+  native?.stopOutgoingRingback?.();
 }
