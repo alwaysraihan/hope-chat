@@ -14,6 +14,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { PublicStackNavigatorParamList } from '../types/navigators';
 import { fetchDeviceApprovalStatus } from '../services/deviceApproval';
 import { persistHopenityUser } from '../services/hopenitySharedAuth';
+import { normalizeHopenityPersistedBlob } from '../services/hopenitySessionNormalize';
 import { colorss } from '../theme';
 import { API_BASE_URL } from '../config/env';
 import { extractLoginSessionBlob } from '../utils/extractLoginSession';
@@ -89,10 +90,11 @@ const DeviceApprovalWaitScreen: React.FC<Props> = ({ navigation, route }) => {
         (typeof retryPayload.email === 'string' && retryPayload.email) ||
         (typeof retryPayload.phoneNumber === 'string' && retryPayload.phoneNumber) ||
         'Hopenity user';
-      const blob = extractLoginSessionBlob(
+      const rawBlob = extractLoginSessionBlob(
         responseData as Record<string, unknown>,
         fallbackLabel,
       );
+      const blob = normalizeHopenityPersistedBlob(rawBlob);
       if (!blob?.token) {
         setStatusMessage('Login succeeded but the server did not return a token.');
         return;

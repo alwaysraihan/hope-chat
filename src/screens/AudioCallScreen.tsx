@@ -29,7 +29,6 @@ import {
   useRemoteParticipants,
 } from '@livekit/react-native';
 import { ConnectionState } from 'livekit-client';
-import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
 import { useLiveKitConnectionHints } from '../hooks/useLiveKitConnectionHints';
 
 import { colorss } from '../theme';
@@ -161,7 +160,6 @@ function AudioCallGate({
 
   return (
     <AudioStage
-      navigation={navigation}
       safePop={safePop}
       displayName={displayName}
       peerAvatarUrl={peerAvatarUrl}
@@ -171,13 +169,11 @@ function AudioCallGate({
 }
 
 function AudioStage({
-  navigation,
   safePop,
   displayName,
   peerAvatarUrl,
   tryEmitOutgoingWithoutConnect,
 }: {
-  navigation: Props['navigation'];
   safePop: () => void;
   displayName: string;
   peerAvatarUrl?: string | null;
@@ -190,7 +186,6 @@ function AudioStage({
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
   const [speakerOn, setSpeakerOn] = useState(true);
 
-  useLiveKitAndroidForeground(room, displayName, 'audio');
   const { hint, detail } = useLiveKitConnectionHints(room);
 
   const leaveCall = useGracefulRoomLeave({

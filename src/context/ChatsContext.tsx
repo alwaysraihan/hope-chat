@@ -7,8 +7,12 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { useAppSelector } from '../hooks/redux';
-import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { useAppDispatch, useAppSelector } from '../hooks/redux';
+import {
+  clearAuth,
+  selectAuthToken,
+  selectHopenityProfile,
+} from '../redux/features/auth/authSlice';
 import {
   fetchHopenityChatDirectory,
   formatChatTime,
@@ -20,7 +24,6 @@ import {
   deriveConversationMessageKey,
   maybeDecryptContent,
 } from '../services/e2ee/conversationCrypto';
-import { isE2eeEnabled } from '../services/chatPrefs';
 import type { ExtendedMessage } from '../components/types/chat';
 import {
   readChatDirectoryCache,
@@ -395,7 +398,6 @@ export function mapChatItemToSummary(
   let lastForPreview = lastRaw as ApiLastMessageLike;
   if (
     peerUserNorm &&
-    isE2eeEnabled() &&
     typeof lastForPreview.content === 'string' &&
     lastForPreview.content.startsWith('HC1:')
   ) {
@@ -444,15 +446,22 @@ export function mapChatItemToSummary(
 }
 
 export function ChatsProvider({ children }: { children: React.ReactNode }) {
+  const dispatch = useAppDispatch();
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
-  const localUser = useMemo(
-    () =>
-      giftedChatUser ?? {
-        _id: 'me',
-        name: 'You',
-      },
-    [giftedChatUser],
-  );
+  const hopenityProfile = useAppSelector(selectHopenityProfile);
+  const localUser = useMemo(() => {
+    const id =
+      normalizeChatUserId(giftedChatUser?._id) ||
+      normalizeChatUserId(hopenityProfile?.userId) ||
+      'me';
+    return {
+      _id: id,
+      name:
+        giftedChatUser?.name ??
+        hopenityProfile?.displayName ??
+        'You',
+    };
+  }, [giftedChatUser, hopenityProfile]);
 
   const token = useAppSelector(selectAuthToken);
   const [listLoading, setListLoading] = useState(false);
@@ -480,11 +489,18 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
     setListLoading(true);
     try {
-      const { chats, counts } = await fetchHopenityChatDirectory(token, {
+      const { chats, counts, httpStatus } = await fetchHopenityChatDirectory(token, {
         status: 'inbox',
         limit: 50,
         offset: 0,
       });
+
+      if (httpStatus === 401) {
+        dispatch(clearAuth());
+        setConversations([]);
+        setPendingRequestCount(0);
+        return;
+      }
 
       setPendingRequestCount(counts?.requested ?? 0);
       const next = chats.map(chat => mapChatItemToSummary(chat, localUser));
@@ -495,7 +511,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setListLoading(false);
     }
-  }, [localUser, token]);
+  }, [dispatch, localUser, token]);
 
   useEffect(() => {
     let cancelled = false;

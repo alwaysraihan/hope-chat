@@ -34,6 +34,24 @@ const AppInner = () => {
   );
 };
 
+/** Remount navigation when auth flips so stacks do not keep stale guest routes. */
+const NavigationWithAuthKey = () => {
+  const loggedIn = useAppSelector(selectHopeChatLoggedIn);
+  return (
+    <NavigationContainer
+      key={loggedIn ? 'hopechat-session' : 'hopechat-guest'}
+      ref={navigationRef}
+      onReady={() => {
+        consumePendingIncomingCall();
+        BootSplash.hide({ fade: true });
+      }}
+    >
+      <SystemBars style={'dark'} />
+      <AppInner />
+    </NavigationContainer>
+  );
+};
+
 const App = () => {
   return (
     <SafeAreaProvider>
@@ -41,16 +59,7 @@ const App = () => {
         <AuthBootstrap />
         <GestureHandlerRootView>
           <KeyboardProvider>
-            <NavigationContainer
-              ref={navigationRef}
-              onReady={() => {
-                consumePendingIncomingCall();
-                BootSplash.hide({ fade: true });
-              }}
-            >
-              <SystemBars style={'dark'} />
-              <AppInner />
-            </NavigationContainer>
+            <NavigationWithAuthKey />
           </KeyboardProvider>
         </GestureHandlerRootView>
       </Provider>

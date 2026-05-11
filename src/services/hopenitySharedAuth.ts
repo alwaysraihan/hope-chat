@@ -44,6 +44,8 @@ export function getHopeChatHopenityMMKV(): MMKV {
 export type HopenityPersistedUserBlob = {
   token?: string | null;
   user?: {
+    user_id?: string | number;
+    userId?: string | number;
     id?: string | number;
     _id?: string | number;
     name?: string;
@@ -123,7 +125,7 @@ export function avatarFromBlob(b: HopenityPersistedUserBlob | null): string | nu
 export function userIdFromBlob(b: HopenityPersistedUserBlob | null): string {
   const u = b?.user;
   if (u && typeof u === 'object') {
-    const id = u.id ?? u._id;
+    const id = u.user_id ?? u.userId ?? u.id ?? u._id;
     if (id != null && String(id).length > 0) return String(id);
   }
   return 'me';

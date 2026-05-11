@@ -240,10 +240,9 @@ export function InboxProvider({
     [user._id],
   );
 
-  const e2eeKey = useMemo(() => {
-    if (!isE2eeEnabled() || isGroup || !_conversationId || !peerUserId) {
-      return null;
-    }
+  /** Symmetric DM key — used to decrypt HC1 payloads even if “send encrypted” is toggled off. */
+  const dmCryptoKey = useMemo(() => {
+    if (isGroup || !_conversationId || !peerUserId) return null;
     if (!localUserIdStr || localUserIdStr === 'me') return null;
     try {
       return deriveConversationMessageKey(
@@ -255,6 +254,8 @@ export function InboxProvider({
       return null;
     }
   }, [isGroup, _conversationId, peerUserId, localUserIdStr]);
+
+  const shouldEncryptOutgoing = isE2eeEnabled() && !!dmCryptoKey;
 
   const disappearingTtlSec = getEffectiveDisappearingTtlSec(_conversationId);
   const [disappearPulse, setDisappearPulse] = useState(0);
@@ -332,24 +333,24 @@ export function InboxProvider({
       const id = String(raw.id ?? `${_conversationId ?? 'chat'}_${Date.now()}`);
 
       const rawObj = { ...(raw as Record<string, unknown>) };
-      const rawContent = String(rawObj.content ?? rawObj.text ?? '');
-      if (e2eeKey && rawContent.startsWith('HC1:')) {
-        rawObj.content = maybeDecryptContent(rawContent, e2eeKey);
+      const rawContent = String(rawObj.content ?? rawObj.text ?? '').trimStart();
+      if (dmCryptoKey && rawContent.startsWith('HC1:')) {
+        rawObj.content = maybeDecryptContent(rawContent, dmCryptoKey);
       }
 
       const parsed = mapApiMessageToTimeline(rawObj);
 
       let media = parsed.media;
-      if (e2eeKey && media?.remoteUri?.startsWith('HC1:')) {
+      if (dmCryptoKey && media?.remoteUri?.startsWith('HC1:')) {
         media = {
           ...media,
-          remoteUri: maybeDecryptContent(media.remoteUri, e2eeKey),
+          remoteUri: maybeDecryptContent(media.remoteUri, dmCryptoKey),
         };
       }
-      if (e2eeKey && media?.url?.startsWith('HC1:')) {
+      if (dmCryptoKey && media?.url?.startsWith('HC1:')) {
         media = {
           ...media,
-          url: maybeDecryptContent(media.url!, e2eeKey),
+          url: maybeDecryptContent(media.url!, dmCryptoKey),
         };
       }
 
@@ -393,7 +394,31 @@ export function InboxProvider({
           resolvedUid = rawSender;
         }
       } else if (!resolvedUid || resolvedUid === 'unknown') {
-        resolvedUid = 'unknown';
+        if (!isGroup && peer && localUserIdStr && localUserIdStr !== 'me') {
+          const loc = normalizeChatUserId(localUserIdStr) || localUserIdStr;
+          const meta = (rawObj.metadata ?? {}) as Record<string, unknown>;
+          const metaSender =
+            meta.senderId ??
+            meta.sender_id ??
+            meta.fromUserId ??
+            meta.userId;
+          const metaStr =
+            metaSender != null && String(metaSender).trim() !== ''
+              ? String(metaSender).trim()
+              : '';
+          const metaNorm = metaStr
+            ? normalizeChatUserId(metaStr) || metaStr
+            : '';
+          if (metaNorm && idSame(metaNorm, loc)) {
+            resolvedUid = loc;
+          } else if (metaNorm && idSame(metaNorm, peer)) {
+            resolvedUid = peer;
+          } else {
+            resolvedUid = 'unknown';
+          }
+        } else {
+          resolvedUid = 'unknown';
+        }
       }
 
       return {
@@ -410,7 +435,7 @@ export function InboxProvider({
         outgoingHint: hint,
       };
     },
-    [_conversationId, e2eeKey, localUserIdStr, peerUserId],
+    [_conversationId, dmCryptoKey, localUserIdStr, peerUserId, isGroup],
   );
 
   const messagesForUi = useMemo(() => {
@@ -716,8 +741,8 @@ export function InboxProvider({
         if (_conversationId && token) {
           const plain = String(stamped.text ?? '');
           let wire = plain;
-          if (e2eeKey && plain.length > 0) {
-            wire = encryptMessagePayload(plain, e2eeKey);
+          if (shouldEncryptOutgoing && plain.length > 0) {
+            wire = encryptMessagePayload(plain, dmCryptoKey!);
           }
           sendHopenityChatMessage(_conversationId, wire, token)
             .then(res => {
@@ -729,10 +754,25 @@ export function InboxProvider({
               const parsed = mapApiMessageToTimeline(
                 res as Record<string, unknown>,
               );
+              const resDict = res as Record<string, unknown>;
+              const ackSender =
+                extractMessageSenderId(resDict) ||
+                String(res.senderId ?? resDict.sender_id ?? '').trim();
+              const ackUid =
+                ackSender !== ''
+                  ? normalizeChatUserId(ackSender) || ackSender
+                  : normalizeChatUserId(localUserIdStr) || localUserIdStr;
+              const ackName =
+                (res.sender as { name?: string } | undefined)?.name ??
+                (typeof stamped.user?.name === 'string' ? stamped.user.name : user.name);
               updateMessage(stamped._id, {
                 pending: false,
                 _id: String(res.id ?? stamped._id),
                 createdAt: res.createdAt ? new Date(res.createdAt) : stamped.createdAt,
+                user: {
+                  _id: ackUid,
+                  name: typeof ackName === 'string' ? ackName : 'You',
+                },
                 ...(parsed.delivery ? { delivery: parsed.delivery } : {}),
               });
             })
@@ -758,7 +798,8 @@ export function InboxProvider({
       token,
       updateConversationPreview,
       localUserIdStr,
-      e2eeKey,
+      shouldEncryptOutgoing,
+      dmCryptoKey,
     ],
   );
 
@@ -806,8 +847,8 @@ export function InboxProvider({
               pending: false,
             });
             let wire = remoteUri;
-            if (e2eeKey) {
-              wire = encryptMessagePayload(remoteUri, e2eeKey);
+            if (shouldEncryptOutgoing) {
+              wire = encryptMessagePayload(remoteUri, dmCryptoKey!);
             }
             const sent = await sendHopenityChatMessage(
               _conversationId,
@@ -818,9 +859,21 @@ export function InboxProvider({
               const p = mapApiMessageToTimeline(
                 sent as Record<string, unknown>,
               );
+              const sDict = sent as Record<string, unknown>;
+              const ackSender =
+                extractMessageSenderId(sDict) ||
+                String(sent.senderId ?? '').trim();
+              const ackUid =
+                ackSender !== ''
+                  ? normalizeChatUserId(ackSender) || ackSender
+                  : normalizeChatUserId(localUserIdStr) || localUserIdStr;
+              const ackName =
+                (sent.sender as { name?: string } | undefined)?.name ??
+                (typeof user.name === 'string' ? user.name : 'You');
               updateMessage(msg._id, {
                 _id: String(sent.id),
                 createdAt: sent.createdAt ? new Date(sent.createdAt) : msg.createdAt,
+                user: { _id: ackUid, name: ackName },
                 ...(p.delivery ? { delivery: p.delivery } : {}),
               });
             }
@@ -839,13 +892,15 @@ export function InboxProvider({
     },
     [
       user._id,
+      user.name,
       appendMessage,
       updateMessage,
       updateConversationPreview,
       _conversationId,
       token,
       localUserIdStr,
-      e2eeKey,
+      shouldEncryptOutgoing,
+      dmCryptoKey,
     ],
   );
 
@@ -891,8 +946,8 @@ export function InboxProvider({
               pending: false,
             });
             let wire = remoteUri;
-            if (e2eeKey) {
-              wire = encryptMessagePayload(remoteUri, e2eeKey);
+            if (shouldEncryptOutgoing) {
+              wire = encryptMessagePayload(remoteUri, dmCryptoKey!);
             }
             const sent = await sendHopenityChatMessage(
               _conversationId,
@@ -903,9 +958,21 @@ export function InboxProvider({
               const p = mapApiMessageToTimeline(
                 sent as Record<string, unknown>,
               );
+              const sDict = sent as Record<string, unknown>;
+              const ackSender =
+                extractMessageSenderId(sDict) ||
+                String(sent.senderId ?? '').trim();
+              const ackUid =
+                ackSender !== ''
+                  ? normalizeChatUserId(ackSender) || ackSender
+                  : normalizeChatUserId(localUserIdStr) || localUserIdStr;
+              const ackName =
+                (sent.sender as { name?: string } | undefined)?.name ??
+                (typeof user.name === 'string' ? user.name : 'You');
               updateMessage(msg._id, {
                 _id: String(sent.id),
                 createdAt: sent.createdAt ? new Date(sent.createdAt) : msg.createdAt,
+                user: { _id: ackUid, name: ackName },
                 ...(p.delivery ? { delivery: p.delivery } : {}),
               });
             }
@@ -924,13 +991,15 @@ export function InboxProvider({
     },
     [
       user._id,
+      user.name,
       appendMessage,
       updateMessage,
       updateConversationPreview,
       _conversationId,
       token,
       localUserIdStr,
-      e2eeKey,
+      shouldEncryptOutgoing,
+      dmCryptoKey,
     ],
   );
 

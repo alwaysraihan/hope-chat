@@ -27,7 +27,7 @@ import type { ConversationSummary } from '../context/ChatsContext';
 import { useChats } from '../context/ChatsContext';
 import type { ExtendedMessage } from '../components/types/chat';
 import { acceptHopenityChatRequest } from '../services/chatService';
-import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
 import { useAppSelector } from '../hooks/redux';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
@@ -40,6 +40,7 @@ const InboxScreenInner: React.FC<
   Props & { conversation: ConversationSummary }
 > = ({ navigation, route, conversation }) => {
   const token = useAppSelector(selectAuthToken);
+  const hopenityProfile = useAppSelector(selectHopenityProfile);
   const { setConversations, reloadConversations } = useChats();
   const [acceptBusy, setAcceptBusy] = useState(false);
   const [needsAcceptance, setNeedsAcceptance] = useState(
@@ -181,7 +182,10 @@ const InboxScreenInner: React.FC<
         );
       }
       const ext = raw as ExtendedMessage;
-      const localId = normalizeChatUserId(user?._id);
+      const localId =
+        normalizeChatUserId(user?._id) ||
+        normalizeChatUserId(hopenityProfile?.userId) ||
+        '';
       const senderRaw = String(props.currentMessage?.user?._id ?? '');
       const senderId = normalizeChatUserId(senderRaw) || senderRaw;
       const hint = ext.outgoingHint;
@@ -248,7 +252,14 @@ const InboxScreenInner: React.FC<
         />
       );
     },
-    [refreshTrigger, navigation, user?._id, conversation.peerUserId],
+    [
+      refreshTrigger,
+      navigation,
+      user?._id,
+      hopenityProfile?.userId,
+      conversation.peerUserId,
+      conversation.isGroup,
+    ],
   );
 
   return (

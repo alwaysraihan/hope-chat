@@ -2,8 +2,11 @@
  * @format
  */
 
+import './src/bootstrap/domExceptionPolyfill';
 import './src/bootstrap/rnFirebaseDeprecationSilence';
 import 'react-native-get-random-values';
+/** `livekit-client` expects Web TextEncoder/TextDecoder; Hermes may omit them. */
+import 'fast-text-encoding';
 import { AppRegistry } from 'react-native';
 import { registerGlobals } from '@livekit/react-native';
 

@@ -18,6 +18,7 @@ import { colorss } from '../theme';
 import { useAppDispatch } from '../hooks/redux';
 import { setHopenitySession } from '../redux/features/auth/authSlice';
 import { persistHopenityUser } from '../services/hopenitySharedAuth';
+import { normalizeHopenityPersistedBlob } from '../services/hopenitySessionNormalize';
 import { API_BASE_URL } from '../config/env';
 import { extractLoginSessionBlob } from '../utils/extractLoginSession';
 
@@ -100,10 +101,11 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      const blob = extractLoginSessionBlob(
+      const rawBlob = extractLoginSessionBlob(
         responseData as Record<string, unknown>,
         trimmedIdentifier,
       );
+      const blob = normalizeHopenityPersistedBlob(rawBlob);
       if (!blob?.token) {
         Alert.alert('Login failed', 'No login token was returned by the server.');
         return;

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -23,8 +24,15 @@ import {
   readPersistedHopenityUser,
   displayNameFromBlob,
   avatarFromBlob,
+  persistHopenityUser,
+  subscribePersistedHopenityUser,
   type HopenityPersistedUserBlob,
 } from '../services/hopenitySharedAuth';
+import {
+  hasShareableHopenityAccessToken,
+  normalizeHopenityPersistedBlob,
+} from '../services/hopenitySessionNormalize';
+import { validateHopeChatAccessToken } from '../services/chatService';
 import {
   canOpenHopenity,
   openHopenityBestEffort,
@@ -42,6 +50,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [canOpenPartner, setCanOpenPartner] = useState<boolean | null>(null);
   const [peeked, setPeeked] = useState<HopenityPersistedUserBlob | null>(null);
+  const [continueBusy, setContinueBusy] = useState(false);
 
   const peekSession = useCallback(() => {
     setLoading(true);
@@ -62,17 +71,51 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
     }, [peekSession]),
   );
 
+  useEffect(() => {
+    const unsub = subscribePersistedHopenityUser(() => {
+      peekSession();
+    });
+    return unsub;
+  }, [peekSession]);
+
   const activeBlob = peeked;
-  const loggedInViaShare =
-    !!activeBlob?.token &&
-    typeof activeBlob.token === 'string' &&
-    activeBlob.token.length > 0;
+  const normalizedSession = useMemo(
+    () => normalizeHopenityPersistedBlob(activeBlob),
+    [activeBlob],
+  );
+  const canContinueWithShare = hasShareableHopenityAccessToken(activeBlob);
 
-  const name = displayNameFromBlob(activeBlob);
-  const avatar = avatarFromBlob(activeBlob);
+  const name = displayNameFromBlob(normalizedSession ?? activeBlob);
+  const avatar = avatarFromBlob(normalizedSession ?? activeBlob);
 
-  const onContinue = () => {
-    if (activeBlob) dispatch(setHopenitySession({ blob: activeBlob }));
+  const onContinue = async () => {
+    if (!activeBlob || continueBusy) return;
+    const normalized = normalizeHopenityPersistedBlob(activeBlob);
+    if (!normalized?.token) return;
+
+    setContinueBusy(true);
+    try {
+      const probe = await validateHopeChatAccessToken(normalized.token);
+      if (probe === 'unauthorized') {
+        Alert.alert(
+          'Session not valid',
+          'This Hopenity sign-in is expired or was signed out. Open Hopenity, log in again, then tap Refresh session here.',
+        );
+        return;
+      }
+      if (probe === 'unavailable') {
+        Alert.alert(
+          'Cannot verify session',
+          'Check your internet connection and try again.',
+        );
+        return;
+      }
+
+      persistHopenityUser(normalized);
+      dispatch(setHopenitySession({ blob: normalized }));
+    } finally {
+      setContinueBusy(false);
+    }
   };
 
   return (
@@ -101,7 +144,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
               <ActivityIndicator color={colorss.primary} />
               <Text style={styles.hint}>Checking Hopenity session…</Text>
             </View>
-          ) : loggedInViaShare ? (
+          ) : canContinueWithShare ? (
             <View style={styles.card}>
               {avatar ? (
                 <FastImage source={{ uri: avatar }} style={styles.profile} />
@@ -112,18 +155,23 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
                   </Text>
                 </View>
               )}
-              <Text style={styles.continueLabel}>Continue as</Text>
               <Text style={styles.profileName}>{name}</Text>
               <TouchableOpacity
-                onPress={onContinue}
-                style={styles.primaryBtn}
+                onPress={() => void onContinue()}
+                style={[styles.primaryBtn, continueBusy ? styles.primaryBtnDisabled : null]}
                 activeOpacity={0.88}
+                disabled={continueBusy}
               >
-                <Text style={styles.primaryBtnText}>Continue with Fast</Text>
+                {continueBusy ? (
+                  <ActivityIndicator color={colorss.white} />
+                ) : (
+                  <Text style={styles.primaryBtnText}>Continue as {name}</Text>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => peekSession()}
                 style={styles.secondary}
+                disabled={continueBusy}
               >
                 <Text style={styles.secondaryText}>Refresh session</Text>
               </TouchableOpacity>
@@ -298,6 +346,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     alignItems: 'center',
     alignSelf: 'stretch',
+  },
+  primaryBtnDisabled: {
+    opacity: 0.65,
   },
   primaryBtnText: {
     color: colorss.white,

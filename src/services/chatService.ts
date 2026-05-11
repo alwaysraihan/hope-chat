@@ -105,6 +105,8 @@ export type HopenityChatListEnvelope = {
   chats: HopenityChatItem[];
   pagination?: { hasMore: boolean; nextOffset: number };
   counts?: HopenityChatDirectoryCounts;
+  /** Present when this envelope was built from an HTTP response (e.g. 401 handling). */
+  httpStatus?: number;
 };
 
 function unwrapChatListPayload(raw: unknown): HopenityChatListEnvelope | HopenityChatItem[] {
@@ -145,13 +147,38 @@ export async function fetchHopenityChatDirectory(
     headers,
   });
 
+  const httpStatus = response.status;
   const json = await response.json().catch(() => null);
   const raw = json?.responseObject ?? json?.data ?? json;
   const unwrapped = unwrapChatListPayload(raw);
   if (Array.isArray(unwrapped)) {
-    return { chats: unwrapped };
+    return { chats: unwrapped, httpStatus };
   }
-  return unwrapped;
+  return { ...unwrapped, httpStatus };
+}
+
+/**
+ * Lightweight check that the bearer token is accepted by the same API used for chats.
+ * Call from the login screen **before** promoting Redux session to avoid Home → 401 → logout flash.
+ */
+export async function validateHopeChatAccessToken(
+  token: string,
+): Promise<'valid' | 'unauthorized' | 'unavailable'> {
+  const trimmed = typeof token === 'string' ? token.trim() : '';
+  if (!trimmed) return 'unauthorized';
+  try {
+    const dir = await fetchHopenityChatDirectory(trimmed, {
+      limit: 1,
+      offset: 0,
+      status: 'inbox',
+    });
+    const st = dir.httpStatus ?? 200;
+    if (st === 401 || st === 403) return 'unauthorized';
+    if (st >= 400) return 'unavailable';
+    return 'valid';
+  } catch {
+    return 'unavailable';
+  }
 }
 
 export async function fetchHopenityChatList(

@@ -21,8 +21,9 @@ import {
   formatChatTime,
   HopenityChatItem,
 } from '../services/chatService';
-import { useAppSelector } from '../hooks/redux';
+import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
+  clearAuth,
   selectAuthToken,
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
@@ -40,6 +41,7 @@ function requestedChatHasMessage(chat: HopenityChatItem): boolean {
 }
 
 const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
+  const dispatch = useAppDispatch();
   const token = useAppSelector(selectAuthToken);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const profile = useAppSelector(selectHopenityProfile);
@@ -68,11 +70,16 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     }
     setLoading(true);
     try {
-      const { chats } = await fetchHopenityChatDirectory(token, {
+      const { chats, httpStatus } = await fetchHopenityChatDirectory(token, {
         status: 'requested',
         limit: 100,
         offset: 0,
       });
+      if (httpStatus === 401) {
+        dispatch(clearAuth());
+        setRequested([]);
+        return;
+      }
       setRequested(chats.filter(requestedChatHasMessage));
     } catch (e) {
       console.error('[MessageRequestsScreen] load requested:', e);
@@ -80,7 +87,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [dispatch, token]);
 
   useEffect(() => {
     if (activeTab === 'know') {

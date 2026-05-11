@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { HopenityPersistedUserBlob } from '../../../services/hopenitySharedAuth';
+import { normalizeHopenityPersistedBlob } from '../../../services/hopenitySessionNormalize';
 
 export type HopenityProfile = {
   displayName: string;
@@ -33,7 +34,7 @@ const authSlice = createSlice({
         blob: HopenityPersistedUserBlob | null;
       }>,
     ) {
-      const { blob } = action.payload;
+      const blob = normalizeHopenityPersistedBlob(action.payload.blob);
 
       const hasToken =
         !!blob?.token &&
@@ -59,6 +60,8 @@ const authSlice = createSlice({
 
       if (hasUser && u && typeof u === 'object') {
         const nu = u as {
+          user_id?: string | number;
+          userId?: string | number;
           id?: string | number;
           _id?: string | number;
           name?: string;
@@ -80,7 +83,7 @@ const authSlice = createSlice({
             nu.profile_photo ??
             nu.avatar ??
             null) as string | null;
-        const idRaw = nu.id ?? nu._id;
+        const idRaw = nu.user_id ?? nu.userId ?? nu.id ?? nu._id;
         userId =
           idRaw != null && String(idRaw).length > 0 ? String(idRaw) : 'me';
       }

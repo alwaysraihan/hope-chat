@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
-  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -39,6 +38,7 @@ import {
   ConnectionState,
   RoomEvent,
   Track,
+  type RemoteTrackPublication,
   type RemoteParticipant,
 } from 'livekit-client';
 
@@ -55,7 +55,6 @@ import {
   liveKitRoomConnectOptions,
 } from '../config/livekit';
 import { useLiveKitCredentials } from '../hooks/useLiveKitCredentials';
-import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
 import { useLiveKitConnectionHints } from '../hooks/useLiveKitConnectionHints';
 import { useOutgoingCallWithoutConnect } from '../hooks/useOutgoingCallWithoutConnect';
 import { useSafeSingleNavigationPop } from '../hooks/useSafeSingleNavigationPop';
@@ -69,6 +68,10 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
  * SignalConnected (see logs: mic+camera in one offer = crash). iOS keeps normal behavior.
  */
 const PUBLISH_VIDEO_ON_LIVEKIT_CONNECT = Platform.OS === 'ios';
+const videoCallConnectOptions =
+  Platform.OS === 'android'
+    ? { ...liveKitRoomConnectOptions, autoSubscribe: false }
+    : liveKitRoomConnectOptions;
 
 /** Avoid mounting track/camera hooks until LiveKit is connected (reduces startup crashes). */
 function VideoCallGate({
@@ -99,7 +102,7 @@ function VideoCallGate({
       callDirection: outcomeOpts.callDirection,
       conversationId: outcomeOpts.conversationId,
       peerUserId: outcomeOpts.peerUserId,
-      callKind: 'video',
+      callKind: Platform.OS === 'android' ? 'audio' : 'video',
       peerDisplayName: displayName,
     },
   );
@@ -199,9 +202,16 @@ function VideoCallGate({
     );
   }
 
-  return (
-    <VideoStage
+  return Platform.OS === 'android' ? (
+    <AndroidConnectedCallStage
       navigation={navigation}
+      safePop={safePop}
+      displayName={displayName}
+      peerAvatarUrl={peerAvatarUrl}
+      tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
+    />
+  ) : (
+    <VideoStage
       safePop={safePop}
       displayName={displayName}
       peerAvatarUrl={peerAvatarUrl}
@@ -211,15 +221,166 @@ function VideoCallGate({
   );
 }
 
+function AndroidConnectedCallStage({
+  safePop,
+  displayName,
+  peerAvatarUrl,
+  tryEmitOutgoingWithoutConnect,
+}: {
+  navigation: Props['navigation'];
+  safePop: () => void;
+  displayName: string;
+  peerAvatarUrl?: string | null;
+  tryEmitOutgoingWithoutConnect: () => void;
+}) {
+  const room = useRoomContext();
+  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
+  const [speakerOn, setSpeakerOn] = useState(true);
+  const { hint, detail } = useLiveKitConnectionHints(room);
+  const remotes = useRemoteParticipants();
+  const isRinging = remotes.length === 0;
+
+  useEffect(() => {
+    const subscribeAudioOnly = () => {
+      remotes.forEach(participant => {
+        participant.getTrackPublications().forEach(publication => {
+          const remotePublication = publication as RemoteTrackPublication;
+          remotePublication.setSubscribed(publication.kind === Track.Kind.Audio);
+        });
+      });
+    };
+
+    subscribeAudioOnly();
+    room.on(RoomEvent.TrackPublished, subscribeAudioOnly);
+    room.on(RoomEvent.TrackSubscribed, subscribeAudioOnly);
+
+    return () => {
+      room.off(RoomEvent.TrackPublished, subscribeAudioOnly);
+      room.off(RoomEvent.TrackSubscribed, subscribeAudioOnly);
+    };
+  }, [remotes, room]);
+
+  const leaveCall = useGracefulRoomLeave({
+    safePop,
+    beforeLeave: tryEmitOutgoingWithoutConnect,
+  });
+
+  const onEnd = () => {
+    void leaveCall();
+  };
+
+  const toggleMic = useCallback(() => {
+    localParticipant
+      .setMicrophoneEnabled(!isMicrophoneEnabled)
+      .catch(err => console.warn('[VideoCall] mic toggle', err));
+  }, [localParticipant, isMicrophoneEnabled]);
+
+  const toggleSpeaker = useCallback(async () => {
+    try {
+      const next = !speakerOn;
+      const outs = await AudioSession.getAudioOutputs();
+      const target = next
+        ? outs.find(o => o === 'speaker') ?? 'speaker'
+        : outs.find(o => o === 'earpiece') ?? 'earpiece';
+      await AudioSession.selectAudioOutput(target);
+      setSpeakerOn(next);
+    } catch (e) {
+      console.warn('[VideoCall] speaker route', e);
+    }
+  }, [speakerOn]);
+
+  const showAndroidVideoNotice = useCallback(() => {
+    Alert.alert(
+      'Video unavailable',
+      'Android video rendering is temporarily disabled in this build because the native WebRTC video surface is crashing after join. Audio calls stay connected.',
+    );
+  }, []);
+
+  return (
+    <SafeAreaView style={styles.overlay} edges={['top']}>
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={onEnd} accessibilityRole="button">
+          <ChevronLeft size={28} color={colorss.white} />
+        </TouchableOpacity>
+        {peerAvatarUrl ? (
+          <FastImage
+            source={{ uri: peerAvatarUrl }}
+            style={styles.peerAvatarTop}
+            resizeMode={FastImage.resizeMode.cover}
+          />
+        ) : (
+          <View style={styles.peerAvatarTopEmpty} />
+        )}
+        <View style={styles.titleCol}>
+          <Text style={styles.topName}>{displayName}</Text>
+          {hint !== 'ok' && hint !== 'disconnected' ? (
+            <Text style={styles.netHint} numberOfLines={2}>
+              {detail || 'Working on connection...'}
+            </Text>
+          ) : null}
+        </View>
+        <View style={{ width: 28 }} />
+      </View>
+
+      <View style={styles.empty}>
+        {peerAvatarUrl ? (
+          <FastImage
+            source={{ uri: peerAvatarUrl }}
+            style={styles.peerAvatarRinging}
+            resizeMode={FastImage.resizeMode.cover}
+          />
+        ) : null}
+        <Text style={styles.emptyText}>
+          {isRinging
+            ? 'Ringing... waiting for them to answer'
+            : 'Connected on audio'}
+        </Text>
+        <Text style={styles.netHint}>
+          Android video is disabled until the native WebRTC crash is resolved.
+        </Text>
+      </View>
+
+      <View style={styles.controlsRow}>
+        <TouchableOpacity
+          style={[styles.ctrlBtn, !speakerOn ? styles.ctrlBtnDim : null]}
+          onPress={toggleSpeaker}
+        >
+          <Volume2 size={22} color={colorss.white} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.ctrlBtn, !isMicrophoneEnabled ? styles.ctrlBtnDim : null]}
+          onPress={toggleMic}
+        >
+          {isMicrophoneEnabled ? (
+            <Mic size={22} color={colorss.white} />
+          ) : (
+            <MicOff size={22} color={colorss.white} />
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.ctrlBtn, styles.ctrlBtnDim]}
+          onPress={showAndroidVideoNotice}
+        >
+          <VideoOff size={22} color={colorss.white} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.bottomBar}>
+        <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
+          <PhoneOff size={26} color={colorss.white} />
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
 function VideoStage({
-  navigation,
   safePop,
   displayName,
   peerAvatarUrl,
   tryEmitOutgoingWithoutConnect,
   forceEndCallWithAlert,
 }: {
-  navigation: Props['navigation'];
   safePop: () => void;
   displayName: string;
   peerAvatarUrl?: string | null;
@@ -254,35 +415,6 @@ function VideoStage({
   );
 
   const [speakerOn, setSpeakerOn] = useState(true);
-  /**
-   * Android: defer mounting `VideoTrack` / RTCView until after transitions and a short
-   * settle window. FlatList + recycling also crashes native video views — use ScrollView below.
-   */
-  const [androidVideoSurfacesReady, setAndroidVideoSurfacesReady] = useState(
-    Platform.OS !== 'android',
-  );
-  /** Android: never auto-open camera. Let the call connect first; camera is user-initiated. */
-  useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
-      await new Promise<void>(resolve => {
-        InteractionManager.runAfterInteractions(() => resolve());
-      });
-      await new Promise<void>(r => setTimeout(r, 900));
-      if (!cancelled) {
-        setAndroidVideoSurfacesReady(true);
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [room]);
-
-  useLiveKitAndroidForeground(room, displayName, 'video');
   const { hint, detail } = useLiveKitConnectionHints(room);
   const remotes = useRemoteParticipants();
   const isRinging = remotes.length === 0;
@@ -426,15 +558,6 @@ function VideoStage({
         ) : (
           remoteTracks.map((item, idx) => {
             try {
-              if (!androidVideoSurfacesReady) {
-                return (
-                  <View
-                    key={keyForTrack(item, idx)}
-                    style={styles.remoteVideoShell}
-                    collapsable={false}
-                  />
-                );
-              }
               if (!isTrackReference(item)) {
                 return (
                   <View
@@ -470,8 +593,7 @@ function VideoStage({
         )}
       </ScrollView>
 
-      {androidVideoSurfacesReady &&
-      localCameraTrack &&
+      {localCameraTrack &&
       isTrackReference(localCameraTrack) &&
       localCameraTrack.publication?.track ? (
         <View
@@ -598,7 +720,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
       console.log(
         '[VideoCall] Android join: LiveKitRoom video=',
         PUBLISH_VIDEO_ON_LIVEKIT_CONNECT,
-        '(must be false — camera starts only from VideoStage)',
+        '(must be false; Android video uses audio-only LiveKit stage)',
       );
     }
   }, []);
@@ -623,7 +745,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
           video={PUBLISH_VIDEO_ON_LIVEKIT_CONNECT}
           screen={false}
           options={getLiveKitVideoCallRoomOptions()}
-          connectOptions={liveKitRoomConnectOptions}
+          connectOptions={videoCallConnectOptions}
           onDisconnected={onDisconnected}
           onError={onError}
           onEncryptionError={onEncryptionError}

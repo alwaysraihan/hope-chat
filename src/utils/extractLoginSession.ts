@@ -29,10 +29,10 @@ export function extractLoginSessionBlob(
     rd.user && typeof rd.user === 'object'
       ? (rd.user as NonNullable<HopenityPersistedUserBlob['user']>)
       : {
-          id:
-            (rd.id as string | number | undefined) ??
-            (rd.userId as string | number | undefined) ??
+          user_id:
             (rd.user_id as string | number | undefined) ??
+            (rd.userId as string | number | undefined) ??
+            (rd.id as string | number | undefined) ??
             'me',
           name:
             (typeof rd.name === 'string' ? rd.name : null) ??
