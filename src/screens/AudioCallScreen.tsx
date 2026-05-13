@@ -227,7 +227,7 @@ function AudioStage({
   }, []);
 
   const onEnd = () => {
-    void leaveCall();
+    leaveCall();
   };
 
   const toggleMic = useCallback(() => {

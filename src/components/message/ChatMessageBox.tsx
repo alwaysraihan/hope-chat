@@ -215,27 +215,6 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
         >
           {msg?.text ?? ''}
         </Text>
-        {isOwn && !msg.pending && msg.delivery?.state ? (
-          <Text
-            style={[
-              styles.deliveryFoot,
-              isOwn ? styles.deliveryFootOut : styles.deliveryFootIn,
-            ]}
-            accessibilityLabel={
-              msg.delivery.state === 'read'
-                ? 'Read'
-                : msg.delivery.state === 'delivered'
-                ? 'Delivered'
-                : 'Sent'
-            }
-          >
-            {msg.delivery.state === 'read'
-              ? 'Read'
-              : msg.delivery.state === 'delivered'
-              ? 'Delivered'
-              : 'Sent'}
-          </Text>
-        ) : null}
       </View>
     </Reaction>
   );
