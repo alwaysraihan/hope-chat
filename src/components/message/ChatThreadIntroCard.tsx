@@ -10,6 +10,7 @@ type Props = {
   subtitle?: string;
   prompt: string;
   avatarUrl?: string | null;
+  messagesExist?: Boolean;
 };
 
 /**
@@ -20,6 +21,7 @@ export default function ChatThreadIntroCard({
   subtitle = "You're friends on Hopenity",
   prompt,
   avatarUrl,
+  messagesExist,
 }: Props) {
   return (
     <View style={styles.wrap}>
@@ -34,12 +36,15 @@ export default function ChatThreadIntroCard({
       <Text style={styles.peerName}>{peerName}</Text>
       <Text style={styles.subtitle}>{subtitle}</Text>
 
-      <View style={styles.mutualRow}>
-        <View style={styles.mutualDot} />
-        <View style={[styles.mutualDot, styles.mutualDotSecond]} />
-      </View>
-
-      <Text style={styles.prompt}>{prompt}</Text>
+      {messagesExist ? null : (
+        <>
+          <View style={styles.mutualRow}>
+            <View style={styles.mutualDot} />
+            <View style={[styles.mutualDot, styles.mutualDotSecond]} />
+          </View>
+          <Text style={styles.prompt}>{prompt}</Text>{' '}
+        </>
+      )}
     </View>
   );
 }

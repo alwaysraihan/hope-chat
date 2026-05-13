@@ -8,8 +8,10 @@ import {
   ImageBackground,
 } from 'react-native';
 import {
+  Day,
   GiftedChat,
   IMessage,
+  Message,
   MessageProps,
   Time,
   TimeProps,
@@ -27,7 +29,10 @@ import type { ConversationSummary } from '../context/ChatsContext';
 import { useChats } from '../context/ChatsContext';
 import type { ExtendedMessage } from '../components/types/chat';
 import { acceptHopenityChatRequest } from '../services/chatService';
-import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
+import {
+  selectAuthToken,
+  selectHopenityProfile,
+} from '../redux/features/auth/authSlice';
 import { useAppSelector } from '../hooks/redux';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
@@ -113,8 +118,7 @@ const InboxScreenInner: React.FC<
       user._id,
     ],
   );
-  const peerName =
-    route.params.displayName ?? conversation.name;
+  const peerName = route.params.displayName ?? conversation.name;
 
   const headerStatus = useMemo(() => {
     if (conversation.isOnline === true) {
@@ -130,9 +134,7 @@ const InboxScreenInner: React.FC<
   }, [conversation.isOnline, conversation.lastSeenAt]);
 
   const chatWallpaperUri =
-    conversation.remoteWallpaperUrl ??
-    getChatAppearance().wallpaperUri ??
-    null;
+    conversation.remoteWallpaperUrl ?? getChatAppearance().wallpaperUri ?? null;
 
   const renderInputToolbar = useCallback(
     (p: unknown) => <CustomInputToolbar {...(p as object)} />,
@@ -205,11 +207,7 @@ const InboxScreenInner: React.FC<
       const idEq = (a: string, b: string): boolean => {
         if (!a || !b) return false;
         if (a === b) return true;
-        if (
-          /^\d+$/.test(a) &&
-          /^\d+$/.test(b) &&
-          Number(a) === Number(b)
-        ) {
+        if (/^\d+$/.test(a) && /^\d+$/.test(b) && Number(a) === Number(b)) {
           return true;
         }
         return false;
@@ -223,21 +221,14 @@ const InboxScreenInner: React.FC<
         const peerRaw = conversation.peerUserId
           ? String(conversation.peerUserId)
           : '';
-        const peerId = peerRaw
-          ? normalizeChatUserId(peerRaw) || peerRaw
-          : '';
+        const peerId = peerRaw ? normalizeChatUserId(peerRaw) || peerRaw : '';
         if (
           peerId &&
           senderId &&
-          (idEq(senderId, peerId) ||
-            idEq(senderRaw, peerRaw))
+          (idEq(senderId, peerId) || idEq(senderRaw, peerRaw))
         ) {
           isOwn = false;
-        } else if (
-          localId &&
-          senderId &&
-          idEq(senderId, localId)
-        ) {
+        } else if (localId && senderId && idEq(senderId, localId)) {
           isOwn = true;
         } else {
           isOwn = matchIds();
@@ -279,7 +270,7 @@ const InboxScreenInner: React.FC<
         }
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}
         onAudioCall={() => {
-          void notifyPeerIncomingHopeChatCall({
+          notifyPeerIncomingHopeChatCall({
             token,
             conversationId: conversation.id,
             liveKitRoom: audioRoom,
@@ -295,7 +286,7 @@ const InboxScreenInner: React.FC<
           });
         }}
         onVideoCall={() => {
-          void notifyPeerIncomingHopeChatCall({
+          notifyPeerIncomingHopeChatCall({
             token,
             conversationId: conversation.id,
             liveKitRoom: audioRoom,
@@ -316,8 +307,8 @@ const InboxScreenInner: React.FC<
         const requestBanner = needsAcceptance ? (
           <View style={acceptStyles.banner}>
             <Text style={acceptStyles.bannerText}>
-              Accept this request to reply. The sender will not be notified until you
-              reply.
+              Accept this request to reply. The sender will not be notified
+              until you reply.
             </Text>
             <TouchableOpacity
               style={acceptStyles.acceptBtn}
@@ -336,14 +327,15 @@ const InboxScreenInner: React.FC<
         const mainChat = (
           <GiftedChat
             placeholder={
-              needsAcceptance ? 'Accept the request above to reply…' : 'Type here…'
+              needsAcceptance
+                ? 'Accept the request above to reply…'
+                : 'Type here…'
             }
             textInputProps={{ editable: !needsAcceptance }}
             messages={messages as unknown as IMessage[]}
             {...(initialText ? { text: initialText } : {})}
-            onSend={(msgs: IMessage[]) =>
-              onSend(msgs as ExtendedMessage[])
-            }
+            onSend={(msgs: IMessage[]) => onSend(msgs as ExtendedMessage[])}
+            // @ts-ignore
             onInputTextChanged={setText}
             user={{
               _id: normalizeChatUserId(user?._id) || 'me',
@@ -363,6 +355,14 @@ const InboxScreenInner: React.FC<
             keyboardShouldPersistTaps="handled"
             timeFormat="LT"
             bottomOffset={insets.bottom}
+            renderDay={props => {
+              const systemMessageId = '__hopenity_thread_intro';
+              if (props.currentMessage?._id === systemMessageId) {
+                return null;
+              }
+
+              return <Day {...props} />;
+            }}
             keyboardAvoidingViewProps={{
               keyboardVerticalOffset: insets.top + 60,
             }}
@@ -375,7 +375,9 @@ const InboxScreenInner: React.FC<
             style={{ flex: 1, backgroundColor: colorss.background }}
             imageStyle={{ opacity: 0.4 }}
           >
-            <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.02)' }}>
+            <View
+              style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.02)' }}
+            >
               {requestBanner}
               {mainChat}
             </View>
