@@ -1,5 +1,7 @@
 package com.hopechat
 
+import android.app.KeyguardManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -12,10 +14,6 @@ import com.zoontek.rnbootsplash.RNBootSplash
 
 class MainActivity : ReactActivity() {
 
-  /**
-   * Returns the name of the main component registered from JavaScript. This is used to schedule
-   * rendering of the main component.
-   */
   override fun getMainComponentName(): String = "hopeChat"
 
   override fun createReactActivityDelegate(): ReactActivityDelegate =
@@ -26,6 +24,18 @@ class MainActivity : ReactActivity() {
     allowShowOnLockScreenForCalls()
     RNBootSplash.init(this, R.style.BootTheme)
     super.onCreate(savedInstanceState)
+    maybeRequestDismissKeyguard()
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    maybeRequestDismissKeyguard()
+  }
+
+  override fun onResume() {
+    super.onResume()
+    maybeRequestDismissKeyguard()
   }
 
   /**
@@ -41,6 +51,19 @@ class MainActivity : ReactActivity() {
       window.addFlags(
           WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
               WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+    }
+  }
+
+  /**
+   * Dismisses the keyguard (lock screen PIN/pattern overlay) so the call UI is fully interactive
+   * without requiring the user to unlock first. Only effective on API 26+ when keyguard is locked.
+   */
+  private fun maybeRequestDismissKeyguard() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val km = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager ?: return
+      if (km.isKeyguardLocked) {
+        km.requestDismissKeyguard(this, null)
+      }
     }
   }
 }

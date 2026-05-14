@@ -32,7 +32,7 @@ import {
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'IncomingCall'>;
 
 const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
-  const { callKind, displayName, liveKitRoom, avatarUrl, conversationId, callerId } =
+  const { callKind, displayName, liveKitRoom, avatarUrl, conversationId, callerId, autoAccept } =
     route.params;
   const pulse = useRef(new Animated.Value(1)).current;
   const acceptedRef = useRef(false);
@@ -121,6 +121,12 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     conversationId,
     callerId,
   ]);
+
+  // When the user pressed "Accept" in the notification shade, skip the ringing UI.
+  useEffect(() => {
+    if (autoAccept) accept();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const startRing = () => {

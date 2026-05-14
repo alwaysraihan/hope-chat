@@ -54,6 +54,7 @@ function openIncomingRoute(payload: IncomingCallPayload): void {
       callerId: payload.callerId,
       avatarUrl: payload.avatarUrl,
       conversationId: payload.conversationId,
+      autoAccept: payload.autoAccept,
     }),
   );
 }

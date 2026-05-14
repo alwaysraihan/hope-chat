@@ -18,6 +18,7 @@ import { useAppSelector } from '../hooks/redux';
 import { selectHopeChatLoggedIn } from '../redux/features/auth/authSlice';
 import { store } from '../redux/store';
 import {
+  CALL_CANCELLED_MESSAGE_TYPE,
   INCOMING_CALL_MESSAGE_TYPE,
   normalizeFcmData,
   parseIncomingCallPayload,
@@ -26,10 +27,35 @@ import {
   consumePendingIncomingCall,
   navigateIncomingCall,
 } from '../services/incomingCall/navigateIncomingCall';
-import { ensureIncomingCallAndroidChannel } from '../services/incomingCall/androidIncomingCallUi';
+import {
+  cancelAndroidIncomingCallNotification,
+  ensureIncomingCallAndroidChannel,
+} from '../services/incomingCall/androidIncomingCallUi';
+import {
+  stopIncomingCallRingtone,
+} from '../services/incomingCall/callRingtone';
+import { navigationRef } from '../navigation/navigationRef';
 import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
 
-function openFromNotificationData(raw: Record<string, string>): void {
+/**
+ * If the IncomingCallScreen is currently showing for this room, dismiss it.
+ * Called when a call_cancelled FCM arrives while the app is foregrounded.
+ */
+function dismissIncomingCallIfShowing(liveKitRoom?: string): void {
+  if (!navigationRef.isReady()) return;
+  const current = navigationRef.getCurrentRoute();
+  if (current?.name !== 'IncomingCall') return;
+  const params = current.params as { liveKitRoom?: string } | undefined;
+  if (liveKitRoom && params?.liveKitRoom !== liveKitRoom) return;
+  stopIncomingCallRingtone();
+  void cancelAndroidIncomingCallNotification();
+  navigationRef.goBack();
+}
+
+function openFromNotificationData(
+  raw: Record<string, string>,
+  autoAccept = false,
+): void {
   let parsed = parseIncomingCallPayload(raw);
   if (!parsed && raw.liveKitRoom) {
     parsed = parseIncomingCallPayload({
@@ -37,7 +63,7 @@ function openFromNotificationData(raw: Record<string, string>): void {
       type: INCOMING_CALL_MESSAGE_TYPE,
     });
   }
-  if (parsed) navigateIncomingCall(parsed);
+  if (parsed) navigateIncomingCall({ ...parsed, autoAccept: autoAccept || undefined });
 }
 
 /**
@@ -121,6 +147,18 @@ const IncomingCallListener = () => {
 
       unsubMessage = onMessage(messaging, async remoteMessage => {
         const data = normalizeFcmData(remoteMessage.data);
+
+        // Call cancelled (answered on another device or caller hung up).
+        const isCancelled =
+          data.type === CALL_CANCELLED_MESSAGE_TYPE ||
+          data.type === 'call_cancel' ||
+          data.cancelled === '1' ||
+          data.cancelled === 'true';
+        if (isCancelled) {
+          dismissIncomingCallIfShowing(data.liveKitRoom || data.room);
+          return;
+        }
+
         const parsed = parseIncomingCallPayload(data);
         if (parsed) {
           navigateIncomingCall(parsed);
@@ -144,8 +182,10 @@ const IncomingCallListener = () => {
 
       const notInitial = await notifee.getInitialNotification();
       if (notInitial?.notification?.data) {
+        const wasAcceptButton = notInitial.pressAction?.id === 'accept';
         openFromNotificationData(
           notInitial.notification.data as Record<string, string>,
+          wasAcceptButton,
         );
       }
 

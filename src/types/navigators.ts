@@ -87,6 +87,8 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     avatarUrl?: string | null;
     /** When push includes it — used for missed-call rows in chat. */
     conversationId?: string;
+    /** Skip ringing UI and accept immediately (used when Accept button pressed in notification). */
+    autoAccept?: boolean;
   };
   /** Full-screen Story viewer (ring index into `setStoryFeedRings` cache). */
   StoryViewer: { ringIndex: number };
