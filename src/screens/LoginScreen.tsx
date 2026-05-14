@@ -38,10 +38,7 @@ import {
   openHopenityBestEffort,
   openPlayStore,
 } from '../services/hopenityLinking';
-import {
-  PLAY_STORE_WEB_URL,
-  HOPENITY_PACKAGE_ID,
-} from '../constants/hopenity';
+import { PLAY_STORE_WEB_URL, HOPENITY_PACKAGE_ID } from '../constants/hopenity';
 
 type Props = NativeStackScreenProps<Record<string, undefined>, 'Login'>;
 
@@ -157,8 +154,11 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
               )}
               <Text style={styles.profileName}>{name}</Text>
               <TouchableOpacity
-                onPress={() => void onContinue()}
-                style={[styles.primaryBtn, continueBusy ? styles.primaryBtnDisabled : null]}
+                onPress={() => onContinue()}
+                style={[
+                  styles.primaryBtn,
+                  continueBusy ? styles.primaryBtnDisabled : null,
+                ]}
                 activeOpacity={0.88}
                 disabled={continueBusy}
               >
@@ -212,7 +212,9 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
                     onPress={() => openPlayStore()}
                     style={styles.outlineBtn}
                   >
-                    <Text style={styles.outlineBtnText}>Get app from Store</Text>
+                    <Text style={styles.outlineBtnText}>
+                      Get app from Store
+                    </Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -242,7 +244,6 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
           >
             <Text style={styles.secondaryText}>Login with email or phone</Text>
           </TouchableOpacity>
-
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

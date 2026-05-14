@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
@@ -64,6 +70,7 @@ import { useSafeSingleNavigationPop } from '../hooks/useSafeSingleNavigationPop'
 import { useGracefulRoomLeave } from '../hooks/useGracefulRoomLeave';
 import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
+import { mediaDevices } from '@livekit/react-native-webrtc';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
 
@@ -168,10 +175,13 @@ function VideoCallGate({
         state === ConnectionState.Connected
           ? 'The other person isn’t available or didn’t answer. They may be offline.'
           : 'Could not complete the call. Check your network and try again.';
-      console.warn('[VideoCall] outgoing call timeout (no remote participant)', {
-        connectionState: state,
-        remoteCount: countRef.current,
-      });
+      console.warn(
+        '[VideoCall] outgoing call timeout (no remote participant)',
+        {
+          connectionState: state,
+          remoteCount: countRef.current,
+        },
+      );
       try {
         Alert.alert('Call ended', body);
       } catch {
@@ -187,10 +197,10 @@ function VideoCallGate({
       cs === ConnectionState.Connecting
         ? 'Calling…'
         : cs === ConnectionState.Reconnecting
-          ? 'Reconnecting…'
-          : cs === ConnectionState.Disconnected
-            ? 'Call ended'
-            : 'Connecting…';
+        ? 'Reconnecting…'
+        : cs === ConnectionState.Disconnected
+        ? 'Call ended'
+        : 'Connecting…';
 
     return (
       <SafeAreaView style={styles.overlay} edges={['top']}>
@@ -260,7 +270,9 @@ function AndroidConnectedCallStage({
       remotes.forEach(participant => {
         participant.getTrackPublications().forEach(publication => {
           const remotePublication = publication as RemoteTrackPublication;
-          remotePublication.setSubscribed(publication.kind === Track.Kind.Audio);
+          remotePublication.setSubscribed(
+            publication.kind === Track.Kind.Audio,
+          );
         });
       });
     };
@@ -281,7 +293,7 @@ function AndroidConnectedCallStage({
   });
 
   const onEnd = () => {
-    void leaveCall();
+    leaveCall();
   };
 
   const toggleMic = useCallback(() => {
@@ -363,7 +375,10 @@ function AndroidConnectedCallStage({
           <Volume2 size={22} color={colorss.white} />
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.ctrlBtn, !isMicrophoneEnabled ? styles.ctrlBtnDim : null]}
+          style={[
+            styles.ctrlBtn,
+            !isMicrophoneEnabled ? styles.ctrlBtnDim : null,
+          ]}
           onPress={toggleMic}
         >
           {isMicrophoneEnabled ? (
@@ -413,14 +428,11 @@ function VideoStage({
   const remoteVisualRefs = useTracks(
     [Track.Source.Camera, Track.Source.ScreenShare],
     { onlySubscribed: false },
-  ).filter(
-    item => isTrackReference(item) && !item.participant.isLocal,
-  );
+  ).filter(item => isTrackReference(item) && !item.participant.isLocal);
 
   const primaryRemoteVisual =
     remoteVisualRefs.find(
-      r =>
-        isTrackReference(r) && r.publication?.source === Track.Source.Camera,
+      r => isTrackReference(r) && r.publication?.source === Track.Source.Camera,
     ) ??
     remoteVisualRefs.find(
       r =>
@@ -465,6 +477,9 @@ function VideoStage({
         } else {
           await AudioSession.selectAudioOutput('speaker');
         }
+        const devices = localParticipant.getTrackPublications();
+
+        console.log(devices);
       } catch {
         /* route may be unavailable until audio session is ready */
       }
@@ -472,7 +487,7 @@ function VideoStage({
   }, []);
 
   const onEnd = () => {
-    void leaveCall();
+    leaveCall();
   };
 
   const toggleMic = useCallback(() => {
@@ -489,27 +504,23 @@ function VideoStage({
       );
       return;
     }
-    localParticipant
-      .setCameraEnabled(!isCameraEnabled)
-      .catch(err => {
-        console.warn('[VideoCall] camera toggle', err);
-        forceEndCallWithAlert(
-          'Camera failed',
-          'Could not start the camera safely. The call will close so the app stays stable.',
-        );
-      });
+    localParticipant.setCameraEnabled(!isCameraEnabled).catch(err => {
+      console.warn('[VideoCall] camera toggle', err);
+      forceEndCallWithAlert(
+        'Camera failed',
+        'Could not start the camera safely. The call will close so the app stays stable.',
+      );
+    });
   }, [forceEndCallWithAlert, localParticipant, isCameraEnabled]);
 
   const toggleScreenShare = useCallback(() => {
-    localParticipant
-      .setScreenShareEnabled(!isScreenShareEnabled)
-      .catch(err => {
-        console.warn('[VideoCall] screen share', err);
-        Alert.alert(
-          'Screen share',
-          'Screen sharing could not start. On iOS, ensure Broadcast capability is configured; on Android, grant screen capture permission.',
-        );
-      });
+    localParticipant.setScreenShareEnabled(!isScreenShareEnabled).catch(err => {
+      console.warn('[VideoCall] screen share', err);
+      Alert.alert(
+        'Screen share',
+        'Screen sharing could not start. On iOS, ensure Broadcast capability is configured; on Android, grant screen capture permission.',
+      );
+    });
   }, [localParticipant, isScreenShareEnabled]);
 
   const toggleSpeaker = useCallback(async () => {
@@ -550,40 +561,45 @@ function VideoStage({
   const keyForTrack = useCallback(
     (item: NonNullable<typeof primaryRemoteVisual>, idx: number) =>
       isTrackReference(item)
-        ? `${item.participant.identity}_${item.publication?.trackSid ?? 'pub'}_${item.publication?.source ?? 'src'}_${idx}`
+        ? `${item.participant.identity}_${
+            item.publication?.trackSid ?? 'pub'
+          }_${item.publication?.source ?? 'src'}_${idx}`
         : `t_${idx}`,
     [],
   );
 
-  const flipCamera = useCallback(async () => {
-    if (!isCameraEnabled) {
-      return;
-    }
-    if (Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled()) {
-      return;
-    }
-    const nextFacing = facingUser ? 'environment' : 'user';
-    try {
-      const pub = localParticipant.getTrackPublication(Track.Source.Camera);
-      const mediaTrack = pub?.track;
-      if (mediaTrack instanceof LocalVideoTrack) {
-        await mediaTrack.restartTrack({ facingMode: nextFacing });
-        setFacingUser(v => !v);
-        return;
-      }
-      await localParticipant.setCameraEnabled(false);
-      await localParticipant.setCameraEnabled(true, { facingMode: nextFacing });
-      setFacingUser(v => !v);
-    } catch (e) {
-      console.warn('[VideoCall] flip camera', e);
-      Alert.alert('Camera', 'Could not switch between front and back camera.');
-    }
-  }, [
-    facingUser,
-    isCameraEnabled,
-    localParticipant,
-  ]);
+  const flipCamera = async () => {
+    // Determine the desired facing mode
+    const facingModeStr = facingUser ? 'environment' : 'front';
+    setFacingUser(!facingUser);
 
+    // Enumerate all available media devices
+    const devices = await mediaDevices.enumerateDevices();
+    let newDevice = null;
+
+    // Find the video input device with the target facing mode
+    for (const device of devices) {
+      if (device.kind === 'videoinput' && device.facing === facingModeStr) {
+        newDevice = device;
+        break;
+      }
+    }
+
+    if (newDevice == null) {
+      console.warn('No camera found with facing mode:', facingModeStr);
+      return;
+    }
+
+    // Perform the camera switch
+    try {
+      await room.switchActiveDevice('videoinput', newDevice.deviceId);
+      console.log('Camera switched successfully');
+    } catch (error) {
+      console.error('Failed to switch camera:', error);
+      // Revert the state if the switch fails
+      setFacingUser(!facingUser);
+    }
+  };
   const renderPeerPausedMain = () => (
     <View style={styles.waitingMain}>
       {peerAvatarUrl ? (
@@ -601,7 +617,11 @@ function VideoStage({
 
   const renderMainLayer = () => {
     if (mainIsLocal) {
-      if (hasLocalVideo && localCameraTrack && isTrackReference(localCameraTrack)) {
+      if (
+        hasLocalVideo &&
+        localCameraTrack &&
+        isTrackReference(localCameraTrack)
+      ) {
         return (
           <VideoTrack
             key={localCameraTrack.publication?.trackSid ?? 'local-main'}
@@ -674,7 +694,12 @@ function VideoStage({
         <View style={[styles.pipVideo, styles.pipAvatarPlaceholder]} />
       );
     }
-    if (!mainIsLocal && hasLocalVideo && localCameraTrack && isTrackReference(localCameraTrack)) {
+    if (
+      !mainIsLocal &&
+      hasLocalVideo &&
+      localCameraTrack &&
+      isTrackReference(localCameraTrack)
+    ) {
       return (
         <VideoTrack
           key={localCameraTrack.publication?.trackSid ?? 'local-pip'}
@@ -740,7 +765,10 @@ function VideoStage({
               <Volume2 size={22} color={colorss.white} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.ctrlBtn, !isMicrophoneEnabled ? styles.ctrlBtnDim : null]}
+              style={[
+                styles.ctrlBtn,
+                !isMicrophoneEnabled ? styles.ctrlBtnDim : null,
+              ]}
               onPress={toggleMic}
             >
               {isMicrophoneEnabled ? (
@@ -750,7 +778,10 @@ function VideoStage({
               )}
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.ctrlBtn, !isCameraEnabled ? styles.ctrlBtnDim : null]}
+              style={[
+                styles.ctrlBtn,
+                !isCameraEnabled ? styles.ctrlBtnDim : null,
+              ]}
               onPress={toggleCam}
             >
               {isCameraEnabled ? (
@@ -761,7 +792,8 @@ function VideoStage({
             </TouchableOpacity>
             {isCameraEnabled &&
             (Platform.OS === 'ios' ||
-              (Platform.OS === 'android' && liveKitAndroidPublishVideoEnabled())) ? (
+              (Platform.OS === 'android' &&
+                liveKitAndroidPublishVideoEnabled())) ? (
               <TouchableOpacity
                 style={styles.ctrlBtn}
                 onPress={() => {
@@ -775,7 +807,10 @@ function VideoStage({
             ) : null}
             {Platform.OS !== 'android' ? (
               <TouchableOpacity
-                style={[styles.ctrlBtn, isScreenShareEnabled ? styles.ctrlHighlight : null]}
+                style={[
+                  styles.ctrlBtn,
+                  isScreenShareEnabled ? styles.ctrlHighlight : null,
+                ]}
                 onPress={toggleScreenShare}
               >
                 <MonitorUp size={22} color={colorss.white} />
@@ -816,7 +851,12 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
       try {
         await AudioSession.configureAudio({
           android: {
-            preferredOutputList: ['speaker', 'bluetooth', 'headset', 'earpiece'],
+            preferredOutputList: [
+              'speaker',
+              'bluetooth',
+              'headset',
+              'earpiece',
+            ],
             audioTypeOptions: AndroidAudioTypePresets.communication,
           },
           ios: { defaultOutput: 'speaker' },

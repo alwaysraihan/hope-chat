@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
@@ -119,10 +125,13 @@ function AudioCallGate({
         state === ConnectionState.Connected
           ? 'The other person isn’t available or didn’t answer. They may be offline.'
           : 'Could not complete the call. Check your network and try again.';
-      console.warn('[AudioCall] outgoing call timeout (no remote participant)', {
-        connectionState: state,
-        remoteCount: countRef.current,
-      });
+      console.warn(
+        '[AudioCall] outgoing call timeout (no remote participant)',
+        {
+          connectionState: state,
+          remoteCount: countRef.current,
+        },
+      );
       try {
         Alert.alert('Call ended', body);
       } catch {
@@ -138,10 +147,10 @@ function AudioCallGate({
       cs === ConnectionState.Connecting
         ? 'Calling…'
         : cs === ConnectionState.Reconnecting
-          ? 'Reconnecting…'
-          : cs === ConnectionState.Disconnected
-            ? 'Call ended'
-            : 'Connecting…';
+        ? 'Reconnecting…'
+        : cs === ConnectionState.Disconnected
+        ? 'Call ended'
+        : 'Connecting…';
 
     return (
       <SafeAreaView style={styles.shell} edges={['top']}>
@@ -194,7 +203,7 @@ function AudioStage({
   const remotes = useRemoteParticipants();
   const isRinging = remotes.length === 0;
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
-  const [speakerOn, setSpeakerOn] = useState(true);
+  const [speakerOn, setSpeakerOn] = useState(false);
 
   const { hint, detail } = useLiveKitConnectionHints(room);
 
@@ -209,7 +218,7 @@ function AudioStage({
         if (Platform.OS === 'ios') {
           await AudioSession.selectAudioOutput('force_speaker');
         } else {
-          await AudioSession.selectAudioOutput('speaker');
+          await AudioSession.selectAudioOutput('earpiece');
         }
       } catch {
         /* ignore until session ready */
@@ -218,7 +227,7 @@ function AudioStage({
   }, []);
 
   const onEnd = () => {
-    void leaveCall();
+    leaveCall();
   };
 
   const toggleMic = useCallback(() => {
@@ -229,19 +238,14 @@ function AudioStage({
 
   const toggleSpeaker = useCallback(async () => {
     try {
-      const next = !speakerOn;
       if (Platform.OS === 'ios') {
-        await AudioSession.selectAudioOutput(
-          next ? 'force_speaker' : 'default',
-        );
+        // ignore for now
+        await AudioSession.selectAudioOutput('default');
       } else {
-        const outs = await AudioSession.getAudioOutputs();
-        const target = next
-          ? outs.find(o => o === 'speaker') ?? 'speaker'
-          : outs.find(o => o === 'earpiece') ?? 'earpiece';
+        const target = speakerOn ? 'earpiece' : 'speaker';
         await AudioSession.selectAudioOutput(target);
       }
-      setSpeakerOn(next);
+      setSpeakerOn(prev => !prev);
     } catch (e) {
       console.warn('[AudioCall] speaker route', e);
     }
@@ -257,11 +261,7 @@ function AudioStage({
 
       <View style={styles.userInfo}>
         <FastImage
-          source={
-            peerAvatarUrl
-              ? { uri: peerAvatarUrl }
-              : IC_PROFILE
-          }
+          source={peerAvatarUrl ? { uri: peerAvatarUrl } : IC_PROFILE}
           style={styles.avatar}
         />
         <Text style={styles.name}>{displayName}</Text>
@@ -269,15 +269,15 @@ function AudioStage({
           {hint === 'reconnecting' || hint === 'poor_network'
             ? detail || 'Adjusting for your network…'
             : isRinging
-              ? 'Ringing… waiting for them to answer'
-              : `Connected · ${participants.length} in room`}
+            ? 'Ringing… waiting for them to answer'
+            : `Connected · ${participants.length} in room`}
         </Text>
       </View>
 
       <View style={styles.actions}>
         <View style={styles.actionItem}>
           <TouchableOpacity
-            style={[styles.actionBtn, !speakerOn ? styles.actionBtnDim : null]}
+            style={[styles.actionBtn, speakerOn ? styles.actionBtnDim : null]}
             onPress={toggleSpeaker}
           >
             <Volume2 size={22} color={colorss.white} />
@@ -286,7 +286,10 @@ function AudioStage({
         </View>
         <View style={styles.actionItem}>
           <TouchableOpacity
-            style={[styles.actionBtn, !isMicrophoneEnabled ? styles.actionBtnDim : null]}
+            style={[
+              styles.actionBtn,
+              !isMicrophoneEnabled ? styles.actionBtnDim : null,
+            ]}
             onPress={toggleMic}
           >
             {isMicrophoneEnabled ? (
@@ -330,12 +333,20 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
       try {
         await AudioSession.configureAudio({
           android: {
-            preferredOutputList: ['speaker', 'bluetooth', 'headset', 'earpiece'],
+            preferredOutputList: [
+              'speaker',
+              'bluetooth',
+              'headset',
+              'earpiece',
+            ],
             audioTypeOptions: AndroidAudioTypePresets.communication,
           },
           ios: { defaultOutput: 'speaker' },
         });
         await AudioSession.startAudioSession();
+        setInterval(() => {
+          console.log('[AudioCall] AudioSession');
+        }, 1000);
       } catch (e) {
         console.error('[AudioCall] AudioSession', e);
         Alert.alert(

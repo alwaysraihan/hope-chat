@@ -40,14 +40,16 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     const introFirst =
       (msg.threadIntro.peerName ?? '').trim().split(/\s+/)[0] || 'Friend';
     return (
-      <View style={{ width: SCREEN_WIDTH, alignSelf: 'center', marginBottom: 6 }}>
+      <View
+        style={{ width: SCREEN_WIDTH, alignSelf: 'center', marginBottom: 6 }}
+      >
         <ChatThreadIntroCard
+          messagesExist={props.nextMessage != null}
           peerName={msg.threadIntro.peerName}
           subtitle={msg.threadIntro.subtitle}
           avatarUrl={msg.threadIntro.avatarUrl}
           prompt={
-            msg.text ||
-            `Say hi to your new Hopenity friend, ${introFirst}.`
+            msg.text || `Say hi to your new Hopenity friend, ${introFirst}.`
           }
         />
       </View>
@@ -213,27 +215,6 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
         >
           {msg?.text ?? ''}
         </Text>
-        {isOwn && !msg.pending && msg.delivery?.state ? (
-          <Text
-            style={[
-              styles.deliveryFoot,
-              isOwn ? styles.deliveryFootOut : styles.deliveryFootIn,
-            ]}
-            accessibilityLabel={
-              msg.delivery.state === 'read'
-                ? 'Read'
-                : msg.delivery.state === 'delivered'
-                  ? 'Delivered'
-                  : 'Sent'
-            }
-          >
-            {msg.delivery.state === 'read'
-              ? 'Read'
-              : msg.delivery.state === 'delivered'
-                ? 'Delivered'
-                : 'Sent'}
-          </Text>
-        ) : null}
       </View>
     </Reaction>
   );

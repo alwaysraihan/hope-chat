@@ -18,6 +18,8 @@ import {
   MoreHorizontal,
   Reply,
   Forward,
+  Check,
+  CheckCheck,
 } from 'lucide-react-native';
 
 import ReactorList from './ReactorList';
@@ -26,7 +28,7 @@ import { useInbox } from '../../context/InboxContext';
 import { ExtendedMessage, Anchor } from '../types/chat';
 import { colorss } from '../../theme';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+//  Types
 
 type ReactionProps = {
   currentMessage: ExtendedMessage;
@@ -42,10 +44,61 @@ type ActionButton = {
   onPress: () => void;
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+//  Constants
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-// ─── Component ────────────────────────────────────────────────────────────────
+
+//  Helpers
+
+function formatMessageTime(date: Date | number | string): string {
+  const d = new Date(date as any);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+//  MessageTimeMeta
+
+interface TimeMetaProps {
+  createdAt?: Date | number | string;
+  isOwn: boolean;
+  deliveryState?: 'sent' | 'delivered' | 'read';
+}
+
+const MessageTimeMeta: React.FC<TimeMetaProps> = ({
+  createdAt,
+  isOwn,
+  deliveryState,
+}) => {
+  const timeString = createdAt ? formatMessageTime(createdAt) : '';
+  if (!timeString) return null;
+
+  const SeenIcon = () => {
+    if (!isOwn) return null;
+    if (deliveryState === 'read')
+      return <CheckCheck size={12} color={colorss.primary} />;
+    if (deliveryState === 'delivered')
+      return <CheckCheck size={12} color={colorss.textSecondary} />;
+    return <Check size={12} color={colorss.textSecondary} />;
+  };
+
+  return (
+    <View
+      style={[
+        styles.timeMeta,
+        isOwn ? styles.timeMetaRight : styles.timeMetaLeft,
+      ]}
+    >
+      <Text style={styles.timeMetaText}>{timeString}</Text>
+      <SeenIcon />
+    </View>
+  );
+};
+
+//  Component
 // All message actions (react, reply, delete, forward) come from InboxContext.
 // No callback props needed from the parent.
 
@@ -76,7 +129,7 @@ export default function Reaction({
 
   const media = currentMessage?.media;
 
-  // ── Animations
+  //  Animations
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const trayScale = useRef(new Animated.Value(0.85)).current;
   const trayOpacity = useRef(new Animated.Value(0)).current;
@@ -84,7 +137,7 @@ export default function Reaction({
   const sheetTranslateY = useRef(new Animated.Value(60)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
 
-  // ── Open / close tray ─────────────────────────────────────────────────────
+  //  Open / close tray
 
   const openTray = useCallback(() => {
     setTrayVisible(true);
@@ -180,7 +233,7 @@ export default function Reaction({
     ],
   );
 
-  // ── Long press → open tray
+  //  Long press → open tray
   const handleLongPress = useCallback(() => {
     swipeRef.current?.close();
     wrapRef.current?.measure((_x, _y, w, h, pageX, pageY) => {
@@ -189,7 +242,7 @@ export default function Reaction({
     });
   }, [openTray]);
 
-  // ── Swipe to reply
+  //  Swipe to reply
   const dispatchReply = useCallback(() => {
     handleReply(currentMessage);
   }, [currentMessage, handleReply]);
@@ -210,7 +263,7 @@ export default function Reaction({
     [isRight, dispatchReply],
   );
 
-  // ── Emoji reaction
+  //  Emoji reaction
   const handleEmojiPress = useCallback(
     (emoji: string) => {
       closeTray(() => handleReact(emoji, currentMessage));
@@ -218,7 +271,7 @@ export default function Reaction({
     [closeTray, handleReact, currentMessage],
   );
 
-  // ── Media preview
+  //  Media preview
   const handleMediaPress = useCallback(() => {
     if (media?.type === 'image' || media?.type === 'video') {
       setPreviewUrl(media.remoteUri ?? media.url ?? '');
@@ -226,7 +279,7 @@ export default function Reaction({
     }
   }, [media]);
 
-  // ── Action buttons (all wired to context functions)
+  //  Action buttons (all wired to context functions)
   const actions: ActionButton[] = [
     {
       id: 'reply',
@@ -264,7 +317,7 @@ export default function Reaction({
     },
   ];
 
-  // ── Tray positioning
+  //  Tray positioning
 
   const trayStyle = anchor
     ? {
@@ -275,7 +328,7 @@ export default function Reaction({
       }
     : { top: 0, left: 10 };
 
-  // ── Reaction badge summary
+  //  Reaction badge summary
   const hasReactions =
     currentMessage.reactions && currentMessage.reactions.length > 0;
   const reactionSummary = hasReactions
@@ -295,7 +348,14 @@ export default function Reaction({
     </View>
   );
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  //  Delivery state for time meta
+  const deliveryState = currentMessage.delivery?.state as
+    | 'sent'
+    | 'delivered'
+    | 'read'
+    | undefined;
+
+  //  Render
   return (
     <View ref={wrapRef} collapsable={false} style={[styles.wrapper]}>
       {/* Context sheet modal */}
@@ -400,6 +460,12 @@ export default function Reaction({
             {children}
           </Pressable>
 
+          <MessageTimeMeta
+            createdAt={currentMessage.createdAt as any}
+            isOwn={isRight}
+            deliveryState={deliveryState}
+          />
+
           {hasReactions && (
             <Pressable
               style={[
@@ -433,7 +499,7 @@ export default function Reaction({
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+//  Styles
 
 const styles = StyleSheet.create({
   wrapper: { marginBottom: 6 },
@@ -537,4 +603,20 @@ const styles = StyleSheet.create({
   badgeLeft: { left: 28 },
   badgeRight: { right: 28 },
   badgeText: { fontSize: 11, color: colorss.textPrimary, fontWeight: '500' },
+
+  // Time + seen indicator
+  timeMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 2,
+    marginBottom: 1,
+  },
+  timeMetaLeft: { alignSelf: 'flex-start', marginLeft: 4 },
+  timeMetaRight: { alignSelf: 'flex-end', marginRight: 4 },
+  timeMetaText: {
+    fontSize: 10,
+    color: colorss.textSecondary,
+    fontWeight: '400',
+  },
 });

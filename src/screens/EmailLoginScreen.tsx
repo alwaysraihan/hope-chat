@@ -22,7 +22,10 @@ import { normalizeHopenityPersistedBlob } from '../services/hopenitySessionNorma
 import { API_BASE_URL } from '../config/env';
 import { extractLoginSessionBlob } from '../utils/extractLoginSession';
 
-type Props = NativeStackScreenProps<PublicStackNavigatorParamList, 'EmailLogin'>;
+type Props = NativeStackScreenProps<
+  PublicStackNavigatorParamList,
+  'EmailLogin'
+>;
 
 const LOGIN_ENDPOINT = '/api/v1/auth/login';
 
@@ -43,7 +46,10 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
     const trimmedPassword = password.trim();
 
     if (!trimmedIdentifier || !trimmedPassword) {
-      Alert.alert('Login required', 'Please enter both email/phone and password.');
+      Alert.alert(
+        'Login required',
+        'Please enter both email/phone and password.',
+      );
       return;
     }
 
@@ -51,7 +57,11 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
 
     try {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const payload: { email?: string; phoneNumber?: string; password: string } = {
+      const payload: {
+        email?: string;
+        phoneNumber?: string;
+        password: string;
+      } = {
         password: trimmedPassword,
       };
 
@@ -62,7 +72,7 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
         if (!cleanPhone) {
           Alert.alert(
             'Invalid phone',
-            'Enter a valid phone number, for example 01XXXXXXXXX.'
+            'Enter a valid phone number, for example 01XXXXXXXXX.',
           );
           return;
         }
@@ -107,7 +117,10 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
       );
       const blob = normalizeHopenityPersistedBlob(rawBlob);
       if (!blob?.token) {
-        Alert.alert('Login failed', 'No login token was returned by the server.');
+        Alert.alert(
+          'Login failed',
+          'No login token was returned by the server.',
+        );
         return;
       }
 
@@ -118,7 +131,7 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
         'Login error',
         typeof error === 'string'
           ? error
-          : error?.message || 'Unable to reach the login server.'
+          : error?.message || 'Unable to reach the login server.',
       );
     } finally {
       setLoading(false);
@@ -165,7 +178,10 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
           </View>
 
           <TouchableOpacity
-            style={[styles.primaryBtn, loading ? styles.primaryBtnDisabled : null]}
+            style={[
+              styles.primaryBtn,
+              loading ? styles.primaryBtnDisabled : null,
+            ]}
             activeOpacity={0.88}
             onPress={handleLogin}
             disabled={loading}
