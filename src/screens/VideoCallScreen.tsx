@@ -21,6 +21,7 @@ import {
   Mic,
   MicOff,
   MonitorUp,
+  Phone,
   PhoneOff,
   SwitchCamera,
   Video,
@@ -70,6 +71,13 @@ import { useSafeSingleNavigationPop } from '../hooks/useSafeSingleNavigationPop'
 import { useGracefulRoomLeave } from '../hooks/useGracefulRoomLeave';
 import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
+import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
+import { useOverlayPermissionPrompt } from '../hooks/useOverlayPermissionPrompt';
+import { registerActiveCall } from '../services/livekit/activeCallRegistry';
+import {
+  sendCallModeChange,
+  subscribeCallModeChanges,
+} from '../services/livekit/callModeBus';
 import { mediaDevices } from '@livekit/react-native-webrtc';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
@@ -94,6 +102,7 @@ function VideoCallGate({
   peerAvatarUrl,
   outcomeOpts,
   forceEndCallWithAlert,
+  routeParams,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
@@ -105,6 +114,7 @@ function VideoCallGate({
     callDirection?: 'outgoing' | 'incoming';
   };
   forceEndCallWithAlert: (title: string, body: string) => void;
+  routeParams: Props['route']['params'];
 }) {
   const room = useRoomContext();
   const cs = useConnectionState(room);
@@ -126,6 +136,78 @@ function VideoCallGate({
   });
   const leaveRef = useRef(leaveCall);
   leaveRef.current = leaveCall;
+
+  /** Android: foreground service + ongoing notification so the call survives minimize. */
+  useLiveKitAndroidForeground(room, displayName, 'video');
+
+  /**
+   * Register this call so a 2nd incoming call can tear it down cleanly. We register a *silent*
+   * disconnect — IncomingCallScreen.accept resets the nav stack itself, so calling
+   * navigation.goBack() here would race with that reset.
+   */
+  useEffect(() => {
+    if (!room?.name) return;
+    const silentDisconnect = async () => {
+      try {
+        const lp = room?.localParticipant;
+        if (lp) {
+          await lp.setScreenShareEnabled(false).catch(() => undefined);
+          await lp.setCameraEnabled(false).catch(() => undefined);
+          await lp.setMicrophoneEnabled(false).catch(() => undefined);
+        }
+        await room?.disconnect().catch(() => undefined);
+      } catch (e) {
+        if (__DEV__) console.warn('[VideoCall] silentDisconnect', e);
+      }
+    };
+    const unregister = registerActiveCall({
+      liveKitRoom: room.name,
+      kind: 'video',
+      leave: silentDisconnect,
+    });
+    return unregister;
+  }, [room]);
+
+  /** Peer flipped their side back to audio — mirror by replacing this screen with AudioCall. */
+  useEffect(() => {
+    if (!room) return;
+    return subscribeCallModeChanges(room, msg => {
+      if (msg.mode !== 'audio') return;
+      try {
+        navigation.replace('AudioCall', {
+          displayName: routeParams?.displayName ?? displayName,
+          liveKitRoom: routeParams?.liveKitRoom,
+          avatarUrl: routeParams?.avatarUrl ?? peerAvatarUrl ?? null,
+          conversationId: routeParams?.conversationId,
+          peerUserId: routeParams?.peerUserId,
+          callDirection: routeParams?.callDirection,
+        });
+      } catch (e) {
+        if (__DEV__) console.warn('[VideoCall] mirror mode change', e);
+      }
+    });
+  }, [room, navigation, routeParams, displayName, peerAvatarUrl]);
+
+  const handleSwitchToAudio = useCallback(async () => {
+    try {
+      sendCallModeChange(room, 'audio');
+      await new Promise(resolve => setTimeout(resolve, 120));
+    } catch (e) {
+      if (__DEV__) console.warn('[VideoCall] sendCallModeChange', e);
+    }
+    try {
+      navigation.replace('AudioCall', {
+        displayName: routeParams?.displayName ?? displayName,
+        liveKitRoom: routeParams?.liveKitRoom,
+        avatarUrl: routeParams?.avatarUrl ?? peerAvatarUrl ?? null,
+        conversationId: routeParams?.conversationId,
+        peerUserId: routeParams?.peerUserId,
+        callDirection: routeParams?.callDirection,
+      });
+    } catch (e) {
+      if (__DEV__) console.warn('[VideoCall] navigate AudioCall', e);
+    }
+  }, [room, navigation, routeParams, displayName, peerAvatarUrl]);
 
   useEffect(() => {
     if (!room) {
@@ -234,6 +316,7 @@ function VideoCallGate({
       displayName={displayName}
       peerAvatarUrl={peerAvatarUrl}
       tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
+      onSwitchToAudio={handleSwitchToAudio}
     />
   ) : (
     <VideoStage
@@ -242,6 +325,7 @@ function VideoCallGate({
       peerAvatarUrl={peerAvatarUrl}
       tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
       forceEndCallWithAlert={forceEndCallWithAlert}
+      onSwitchToAudio={handleSwitchToAudio}
     />
   );
 }
@@ -251,12 +335,14 @@ function AndroidConnectedCallStage({
   displayName,
   peerAvatarUrl,
   tryEmitOutgoingWithoutConnect,
+  onSwitchToAudio,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
   displayName: string;
   peerAvatarUrl?: string | null;
   tryEmitOutgoingWithoutConnect: () => void;
+  onSwitchToAudio: () => void;
 }) {
   const room = useRoomContext();
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
@@ -388,6 +474,14 @@ function AndroidConnectedCallStage({
           )}
         </TouchableOpacity>
         <TouchableOpacity
+          style={styles.ctrlBtn}
+          onPress={onSwitchToAudio}
+          accessibilityRole="button"
+          accessibilityLabel="Switch to voice call"
+        >
+          <Phone size={22} color={colorss.white} />
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.ctrlBtn, styles.ctrlBtnDim]}
           onPress={showAndroidVideoNotice}
         >
@@ -410,12 +504,14 @@ function VideoStage({
   peerAvatarUrl,
   tryEmitOutgoingWithoutConnect,
   forceEndCallWithAlert,
+  onSwitchToAudio,
 }: {
   safePop: () => void;
   displayName: string;
   peerAvatarUrl?: string | null;
   tryEmitOutgoingWithoutConnect: () => void;
   forceEndCallWithAlert: (title: string, body: string) => void;
+  onSwitchToAudio: () => void;
 }) {
   const room = useRoomContext();
   const {
@@ -790,6 +886,14 @@ function VideoStage({
                 <VideoOff size={22} color={colorss.white} />
               )}
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.ctrlBtn}
+              onPress={onSwitchToAudio}
+              accessibilityRole="button"
+              accessibilityLabel="Switch to voice call"
+            >
+              <Phone size={22} color={colorss.white} />
+            </TouchableOpacity>
             {isCameraEnabled &&
             (Platform.OS === 'ios' ||
               (Platform.OS === 'android' &&
@@ -830,6 +934,7 @@ function VideoStage({
 }
 
 const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
+  useOverlayPermissionPrompt();
   const safePop = useSafeSingleNavigationPop(navigation as never);
   const { onDisconnected, onError, onEncryptionError, forceEndCallWithAlert } =
     useLiveKitSessionEnd({
@@ -945,6 +1050,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
               displayName={calleeName}
               peerAvatarUrl={route.params?.avatarUrl}
               forceEndCallWithAlert={forceEndCallWithAlert}
+              routeParams={route.params}
               outcomeOpts={{
                 conversationId: route.params?.conversationId,
                 peerUserId: route.params?.peerUserId,

@@ -7,7 +7,11 @@ import com.facebook.react.uimanager.ViewManager
 
 class CrossAppAuthPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-    return listOf(CrossAppAuthModule(reactContext), HopeChatCallRingtoneModule(reactContext))
+    return listOf(
+      CrossAppAuthModule(reactContext),
+      HopeChatCallRingtoneModule(reactContext),
+      HopeChatOverlayPermissionModule(reactContext),
+    )
   }
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {

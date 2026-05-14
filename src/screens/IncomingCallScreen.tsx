@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import FastImage from '@d11/react-native-fast-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CommonActions } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Phone, PhoneOff, Video as VideoIcon } from 'lucide-react-native';
 
@@ -23,6 +24,10 @@ import {
 } from '../services/incomingCall/callRingtone';
 import { cancelAndroidIncomingCallNotification } from '../services/incomingCall/androidIncomingCallUi';
 import { emitCallOutcome } from '../services/callOutcomeBus';
+import {
+  endActiveCallForReplacement,
+  getActiveCall,
+} from '../services/livekit/activeCallRegistry';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'IncomingCall'>;
 
@@ -68,10 +73,45 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
       peerUserId: callerId,
       callDirection: 'incoming' as const,
     };
-    navigation.replace(
-      callKind === 'video' ? 'VideoCall' : 'AudioCall',
-      params,
-    );
+    const targetRoute = callKind === 'video' ? 'VideoCall' : 'AudioCall';
+
+    /**
+     * Concurrent-call handover: if there's already a LiveKit call alive in another screen, tear
+     * it down before joining the new room. Two simultaneous LiveKit rooms on the same client
+     * race for the mic/audio session and trip an "already in call"-class error.
+     */
+    const active = getActiveCall();
+
+    void (async () => {
+      try {
+        if (active && active.liveKitRoom !== liveKitRoom) {
+          await endActiveCallForReplacement(liveKitRoom);
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[IncomingCall] end previous call', e);
+      }
+      try {
+        if (active && active.liveKitRoom !== liveKitRoom) {
+          /**
+           * Reset the stack so the old call screen is gone — leaving it in place would mean
+           * the user lands on a stale "Call ended" screen when they hang up the new one.
+           */
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 1,
+              routes: [
+                { name: 'BottomTab' },
+                { name: targetRoute, params },
+              ],
+            }),
+          );
+        } else {
+          navigation.replace(targetRoute, params);
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[IncomingCall] navigate accept', e);
+      }
+    })();
   }, [
     navigation,
     displayName,

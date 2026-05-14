@@ -16,6 +16,12 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
 
+  <!--
+    Lets us pop a WhatsApp-style mini-call bubble over other apps when the user minimises the
+    call. Runtime-granted via Settings.canDrawOverlays; we never require it.
+  -->
+  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
   <queries>
     <package android:name="com.hopenity" />
     <intent>

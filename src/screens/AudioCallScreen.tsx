@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   Mic,
   MicOff,
+  Video as VideoIcon,
   Volume2,
   PhoneOff,
 } from 'lucide-react-native';
@@ -55,6 +56,13 @@ import { useSafeSingleNavigationPop } from '../hooks/useSafeSingleNavigationPop'
 import { useGracefulRoomLeave } from '../hooks/useGracefulRoomLeave';
 import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
+import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
+import { useOverlayPermissionPrompt } from '../hooks/useOverlayPermissionPrompt';
+import { registerActiveCall } from '../services/livekit/activeCallRegistry';
+import {
+  sendCallModeChange,
+  subscribeCallModeChanges,
+} from '../services/livekit/callModeBus';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'AudioCall'>;
 
@@ -64,6 +72,7 @@ function AudioCallGate({
   displayName,
   peerAvatarUrl,
   outcomeOpts,
+  routeParams,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
@@ -74,6 +83,7 @@ function AudioCallGate({
     peerUserId?: string;
     callDirection?: 'outgoing' | 'incoming';
   };
+  routeParams: Props['route']['params'];
 }) {
   const room = useRoomContext();
   const cs = useConnectionState(room);
@@ -95,6 +105,83 @@ function AudioCallGate({
   });
   const leaveRef = useRef(leaveCall);
   leaveRef.current = leaveCall;
+
+  /** Android: foreground service + ongoing notification so the call survives minimize. */
+  useLiveKitAndroidForeground(room, displayName, 'audio');
+
+  /**
+   * Register the current call so a second incoming call (concurrent-call handling) can tear this
+   * one down cleanly before joining the new room.
+   *
+   * NOTE: we register a *silent* disconnect (no safePop) — the IncomingCall accept handler
+   * resets the nav stack itself, so calling `navigation.goBack()` here would race with that
+   * reset and pop the wrong screen.
+   */
+  useEffect(() => {
+    if (!room?.name) return;
+    const silentDisconnect = async () => {
+      try {
+        const lp = room?.localParticipant;
+        if (lp) {
+          await lp.setScreenShareEnabled(false).catch(() => undefined);
+          await lp.setCameraEnabled(false).catch(() => undefined);
+          await lp.setMicrophoneEnabled(false).catch(() => undefined);
+        }
+        await room?.disconnect().catch(() => undefined);
+      } catch (e) {
+        if (__DEV__) console.warn('[AudioCall] silentDisconnect', e);
+      }
+    };
+    const unregister = registerActiveCall({
+      liveKitRoom: room.name,
+      kind: 'audio',
+      leave: silentDisconnect,
+    });
+    return unregister;
+  }, [room]);
+
+  /** Peer flipped their side to video — mirror it so both sides stay in sync. */
+  useEffect(() => {
+    if (!room) return;
+    return subscribeCallModeChanges(room, msg => {
+      if (msg.mode !== 'video') return;
+      try {
+        navigation.replace('VideoCall', {
+          displayName: routeParams?.displayName ?? displayName,
+          liveKitRoom: routeParams?.liveKitRoom,
+          avatarUrl: routeParams?.avatarUrl ?? peerAvatarUrl ?? null,
+          conversationId: routeParams?.conversationId,
+          peerUserId: routeParams?.peerUserId,
+          callDirection: routeParams?.callDirection,
+        });
+      } catch (e) {
+        if (__DEV__) console.warn('[AudioCall] mirror mode change', e);
+      }
+    });
+  }, [room, navigation, routeParams, displayName, peerAvatarUrl]);
+
+  /** Local "Switch to video" button — publish to peer, then swap screens. */
+  const handleSwitchToVideo = useCallback(async () => {
+    try {
+      sendCallModeChange(room, 'video');
+      /** Give the data channel a tick so the peer receives the mode flip before we tear down. */
+      await new Promise(resolve => setTimeout(resolve, 120));
+    } catch (e) {
+      if (__DEV__) console.warn('[AudioCall] sendCallModeChange', e);
+    }
+    try {
+      navigation.replace('VideoCall', {
+        displayName: routeParams?.displayName ?? displayName,
+        liveKitRoom: routeParams?.liveKitRoom,
+        avatarUrl: routeParams?.avatarUrl ?? peerAvatarUrl ?? null,
+        conversationId: routeParams?.conversationId,
+        peerUserId: routeParams?.peerUserId,
+        callDirection: routeParams?.callDirection,
+      });
+    } catch (e) {
+      if (__DEV__) console.warn('[AudioCall] navigate VideoCall', e);
+    }
+  }, [room, navigation, routeParams, displayName, peerAvatarUrl]);
 
   const remotes = useRemoteParticipants();
   const countRef = useRef(0);
@@ -183,6 +270,7 @@ function AudioCallGate({
       displayName={displayName}
       peerAvatarUrl={peerAvatarUrl}
       tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
+      onSwitchToVideo={handleSwitchToVideo}
     />
   );
 }
@@ -192,11 +280,13 @@ function AudioStage({
   displayName,
   peerAvatarUrl,
   tryEmitOutgoingWithoutConnect,
+  onSwitchToVideo,
 }: {
   safePop: () => void;
   displayName: string;
   peerAvatarUrl?: string | null;
   tryEmitOutgoingWithoutConnect: () => void;
+  onSwitchToVideo: () => void;
 }) {
   const room = useRoomContext();
   const participants = useParticipants();
@@ -286,6 +376,21 @@ function AudioStage({
         </View>
         <View style={styles.actionItem}>
           <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={onSwitchToVideo}
+            accessibilityRole="button"
+            accessibilityLabel="Switch to video call"
+            disabled={isRinging}
+          >
+            <VideoIcon
+              size={22}
+              color={isRinging ? 'rgba(255,255,255,0.4)' : colorss.white}
+            />
+          </TouchableOpacity>
+          <Text style={styles.actionLabel}>Video</Text>
+        </View>
+        <View style={styles.actionItem}>
+          <TouchableOpacity
             style={[
               styles.actionBtn,
               !isMicrophoneEnabled ? styles.actionBtnDim : null,
@@ -312,6 +417,7 @@ function AudioStage({
 }
 
 const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
+  useOverlayPermissionPrompt();
   const safePop = useSafeSingleNavigationPop(navigation as never);
   const { onDisconnected, onError, onEncryptionError, forceEndCallWithAlert } =
     useLiveKitSessionEnd({
@@ -344,9 +450,6 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
           ios: { defaultOutput: 'speaker' },
         });
         await AudioSession.startAudioSession();
-        setInterval(() => {
-          console.log('[AudioCall] AudioSession');
-        }, 1000);
       } catch (e) {
         console.error('[AudioCall] AudioSession', e);
         Alert.alert(
@@ -417,6 +520,7 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
                 safePop={safePop}
                 displayName={calleeName}
                 peerAvatarUrl={route.params?.avatarUrl}
+                routeParams={route.params}
                 outcomeOpts={{
                   conversationId: route.params?.conversationId,
                   peerUserId: route.params?.peerUserId,
