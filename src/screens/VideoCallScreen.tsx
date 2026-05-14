@@ -74,6 +74,7 @@ import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
 import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
 import { useOverlayPermissionPrompt } from '../hooks/useOverlayPermissionPrompt';
 import { registerActiveCall } from '../services/livekit/activeCallRegistry';
+import { useCallTimer } from '../hooks/useCallTimer';
 import {
   sendCallModeChange,
   subscribeCallModeChanges,
@@ -274,12 +275,22 @@ function VideoCallGate({
     return () => clearTimeout(t);
   }, [outgoing]);
 
+  // If stuck reconnecting for 25 s, give up and show a clear message.
+  useEffect(() => {
+    if (cs !== ConnectionState.Reconnecting) return;
+    const t = setTimeout(() => {
+      try { Alert.alert('Call ended', 'Connection was lost and could not be restored.'); } catch { /* */ }
+      void leaveRef.current();
+    }, 25_000);
+    return () => clearTimeout(t);
+  }, [cs]);
+
   if (cs !== ConnectionState.Connected) {
     const label =
       cs === ConnectionState.Connecting
         ? 'Calling…'
         : cs === ConnectionState.Reconnecting
-        ? 'Reconnecting…'
+        ? 'Reconnecting… call may resume'
         : cs === ConnectionState.Disconnected
         ? 'Call ended'
         : 'Connecting…';
@@ -350,6 +361,7 @@ function AndroidConnectedCallStage({
   const { hint, detail } = useLiveKitConnectionHints(room);
   const remotes = useRemoteParticipants();
   const isRinging = remotes.length === 0;
+  const timer = useCallTimer(!isRinging);
 
   useEffect(() => {
     const subscribeAudioOnly = () => {
@@ -430,6 +442,8 @@ function AndroidConnectedCallStage({
             <Text style={styles.netHint} numberOfLines={2}>
               {detail || 'Working on connection...'}
             </Text>
+          ) : timer ? (
+            <Text style={styles.timerText}>{timer}</Text>
           ) : null}
         </View>
         <View style={{ width: 28 }} />
@@ -559,6 +573,7 @@ function VideoStage({
   const { hint, detail } = useLiveKitConnectionHints(room);
   const remotes = useRemoteParticipants();
   const isRinging = remotes.length === 0;
+  const videoTimer = useCallTimer(!isRinging);
 
   const leaveCall = useGracefulRoomLeave({
     safePop,
@@ -835,6 +850,8 @@ function VideoStage({
               <Text style={styles.netHint} numberOfLines={2}>
                 {detail || 'Working on connection…'}
               </Text>
+            ) : videoTimer ? (
+              <Text style={styles.timerText}>{videoTimer}</Text>
             ) : null}
           </View>
           <View style={{ width: 28 }} />
@@ -1233,6 +1250,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     paddingHorizontal: 8,
+  },
+  timerText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 13,
+    letterSpacing: 0.5,
   },
   controlsRow: {
     flexDirection: 'row',

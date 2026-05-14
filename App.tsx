@@ -16,6 +16,7 @@ import {
 import { ChatsProvider } from './src/context/ChatsContext';
 import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
+import AppErrorBoundary from './src/components/AppErrorBoundary';
 import { navigationRef } from './src/navigation/navigationRef';
 import { consumePendingIncomingCall } from './src/services/incomingCall/navigateIncomingCall';
 import BootSplash from 'react-native-bootsplash';
@@ -66,16 +67,18 @@ const NavigationWithAuthKey = () => {
 
 const App = () => {
   return (
-    <SafeAreaProvider>
-      <Provider store={store}>
-        <AuthBootstrap />
-        <GestureHandlerRootView>
-          <KeyboardProvider>
-            <NavigationWithAuthKey />
-          </KeyboardProvider>
-        </GestureHandlerRootView>
-      </Provider>
-    </SafeAreaProvider>
+    <AppErrorBoundary>
+      <SafeAreaProvider>
+        <Provider store={store}>
+          <AuthBootstrap />
+          <GestureHandlerRootView>
+            <KeyboardProvider>
+              <NavigationWithAuthKey />
+            </KeyboardProvider>
+          </GestureHandlerRootView>
+        </Provider>
+      </SafeAreaProvider>
+    </AppErrorBoundary>
   );
 };
 

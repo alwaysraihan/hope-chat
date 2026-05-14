@@ -59,6 +59,7 @@ import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
 import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
 import { useOverlayPermissionPrompt } from '../hooks/useOverlayPermissionPrompt';
 import { registerActiveCall } from '../services/livekit/activeCallRegistry';
+import { useCallTimer } from '../hooks/useCallTimer';
 import {
   sendCallModeChange,
   subscribeCallModeChanges,
@@ -229,12 +230,22 @@ function AudioCallGate({
     return () => clearTimeout(t);
   }, [outgoing]);
 
+  // If stuck reconnecting for 25 s, give up and show a clear message.
+  useEffect(() => {
+    if (cs !== ConnectionState.Reconnecting) return;
+    const t = setTimeout(() => {
+      try { Alert.alert('Call ended', 'Connection was lost and could not be restored.'); } catch { /* */ }
+      void leaveRef.current();
+    }, 25_000);
+    return () => clearTimeout(t);
+  }, [cs]);
+
   if (cs !== ConnectionState.Connected) {
     const label =
       cs === ConnectionState.Connecting
         ? 'Calling…'
         : cs === ConnectionState.Reconnecting
-        ? 'Reconnecting…'
+        ? 'Reconnecting… call may resume'
         : cs === ConnectionState.Disconnected
         ? 'Call ended'
         : 'Connecting…';
@@ -296,6 +307,7 @@ function AudioStage({
   const [speakerOn, setSpeakerOn] = useState(false);
 
   const { hint, detail } = useLiveKitConnectionHints(room);
+  const timer = useCallTimer(!isRinging);
 
   const leaveCall = useGracefulRoomLeave({
     safePop,
@@ -359,8 +371,8 @@ function AudioStage({
           {hint === 'reconnecting' || hint === 'poor_network'
             ? detail || 'Adjusting for your network…'
             : isRinging
-            ? 'Ringing… waiting for them to answer'
-            : `Connected · ${participants.length} in room`}
+            ? 'Ringing…'
+            : timer || 'Connected'}
         </Text>
       </View>
 
@@ -631,6 +643,12 @@ const styles = StyleSheet.create({
   actionLabel: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 11,
+  },
+  timerText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 15,
+    marginTop: 4,
+    letterSpacing: 0.5,
   },
   centerWrap: {
     flex: 1,

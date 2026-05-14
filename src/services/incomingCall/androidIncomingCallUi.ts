@@ -63,7 +63,7 @@ export async function displayAndroidIncomingCallNotification(
       importance: AndroidImportance.HIGH,
       visibility: AndroidVisibility.PUBLIC,
       ongoing: true,
-      autoCancel: true,
+      autoCancel: false,
       lightUpScreen: true,
       pressAction: {
         id: 'default',
@@ -74,6 +74,16 @@ export async function displayAndroidIncomingCallNotification(
         launchActivity: 'default',
         mainComponent: MAIN_COMPONENT_NAME,
       },
+      actions: [
+        {
+          title: 'Decline',
+          pressAction: { id: 'reject' },
+        },
+        {
+          title: 'Accept',
+          pressAction: { id: 'accept', launchActivity: 'default' },
+        },
+      ],
       sound: 'default',
       vibrationPattern: [400, 800, 400, 800],
     },

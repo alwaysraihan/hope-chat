@@ -14,11 +14,15 @@ export type IncomingCallPayload = {
   avatarUrl?: string;
   /** Optional chat id for missed-call timeline rows */
   conversationId?: string;
+  /** When true IncomingCallScreen skips the ringing UI and accepts immediately */
+  autoAccept?: boolean;
 };
 
 export const TYPE_KEY = 'type';
 /** Send this in `data.type` when using strict routing */
 export const INCOMING_CALL_MESSAGE_TYPE = 'incoming_call';
+/** Send this when a call is answered on another device or the caller hung up before answer */
+export const CALL_CANCELLED_MESSAGE_TYPE = 'call_cancelled';
 
 function pickString(record: Record<string, string>, ...keys: string[]): string | undefined {
   for (const k of keys) {
