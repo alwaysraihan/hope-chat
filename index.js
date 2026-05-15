@@ -2,7 +2,7 @@
  * @format
  */
 
-import './src/bootstrap/globalErrorHandler';
+// import './src/bootstrap/globalErrorHandler';
 import './src/bootstrap/domExceptionPolyfill';
 import './src/bootstrap/rnFirebaseDeprecationSilence';
 import 'react-native-get-random-values';
