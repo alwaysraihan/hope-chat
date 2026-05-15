@@ -1,8 +1,12 @@
-import { createMMKV } from 'react-native-mmkv';
+import { createMMKV, type MMKV } from 'react-native-mmkv';
 import type { ConversationSummary } from '../context/ChatsContext';
 import type { ExtendedMessage } from '../components/types/chat';
 
-const storage = createMMKV({ id: 'hopechat-offline-cache' });
+let _storage: MMKV | null = null;
+function storage(): MMKV {
+  if (!_storage) _storage = createMMKV({ id: 'hopechat-offline-cache' });
+  return _storage;
+}
 
 function dirKey(userId: string): string {
   return `chat_dir_v1_${userId}`;
@@ -32,7 +36,7 @@ function reviveConversationSummary(row: ConversationSummary): ConversationSummar
 
 export function readChatDirectoryCache(userId: string): ConversationSummary[] | null {
   if (!userId || userId === 'me') return null;
-  const raw = storage.getString(dirKey(userId));
+  const raw = storage().getString(dirKey(userId));
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -49,7 +53,7 @@ export function writeChatDirectoryCache(
 ): void {
   if (!userId || userId === 'me') return;
   try {
-    storage.set(dirKey(userId), JSON.stringify(rows));
+    storage().set(dirKey(userId), JSON.stringify(rows));
   } catch (e) {
     console.warn('[offlineCache] writeChatDirectoryCache', e);
   }
@@ -59,7 +63,7 @@ export function readThreadMessagesCache(
   conversationId: string,
 ): ExtendedMessage[] | null {
   if (!conversationId) return null;
-  const raw = storage.getString(threadPage1Key(conversationId));
+  const raw = storage().getString(threadPage1Key(conversationId));
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -79,7 +83,7 @@ export function writeThreadMessagesCache(
     const payload = JSON.stringify(messagesAsc, (_k, v) =>
       v instanceof Date ? v.toISOString() : v,
     );
-    storage.set(threadPage1Key(conversationId), payload);
+    storage().set(threadPage1Key(conversationId), payload);
   } catch (e) {
     console.warn('[offlineCache] writeThreadMessagesCache', e);
   }

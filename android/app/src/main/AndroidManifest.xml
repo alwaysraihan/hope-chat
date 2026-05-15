@@ -15,7 +15,6 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
 
   <!--
     Lets us pop a WhatsApp-style mini-call bubble over other apps when the user minimises the
@@ -66,12 +65,13 @@
     <!--
       Override Notifee core's foreground service declaration (it defaults to
       android:foregroundServiceType="shortService" which is incompatible with
-      phoneCall/microphone/camera on Android 14+, causing a crash when a call starts).
+      microphone/camera on Android 14+, causing a crash when a call starts).
+      phoneCall type requires MANAGE_OWN_CALLS/DIALER role which a VoIP app cannot hold.
     -->
     <service
       android:name="app.notifee.core.ForegroundService"
       android:exported="false"
-      android:foregroundServiceType="phoneCall|microphone|camera"
+      android:foregroundServiceType="microphone|camera"
       tools:replace="android:foregroundServiceType" />
 
     <activity

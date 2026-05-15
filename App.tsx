@@ -71,7 +71,7 @@ const App = () => {
       <SafeAreaProvider>
         <Provider store={store}>
           <AuthBootstrap />
-          <GestureHandlerRootView>
+          <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <NavigationWithAuthKey />
             </KeyboardProvider>

@@ -23,8 +23,9 @@ export type LiveKitCallForegroundKind = 'audio' | 'video';
 function serviceTypes(
   kind: LiveKitCallForegroundKind,
 ): AndroidForegroundServiceType[] {
+  // phoneCall type requires MANAGE_OWN_CALLS or DIALER role — not available to VoIP apps.
+  // microphone + camera cover the WebRTC media pipeline on Android 14+.
   const base: AndroidForegroundServiceType[] = [
-    AndroidForegroundServiceType.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
     AndroidForegroundServiceType.FOREGROUND_SERVICE_TYPE_MICROPHONE,
   ];
   if (kind === 'video') {
