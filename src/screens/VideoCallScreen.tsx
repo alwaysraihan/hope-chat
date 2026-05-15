@@ -588,9 +588,6 @@ function VideoStage({
         } else {
           await AudioSession.selectAudioOutput('speaker');
         }
-        const devices = localParticipant.getTrackPublications();
-
-        console.log(devices);
       } catch {
         /* route may be unavailable until audio session is ready */
       }
