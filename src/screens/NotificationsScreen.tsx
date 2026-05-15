@@ -1,17 +1,25 @@
-import React, { useMemo } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
-  View,
-  Text,
+  Animated,
+  FlatList,
+  RefreshControl,
   StyleSheet,
+  Text,
   TouchableOpacity,
-  ScrollView,
-  Image,
-  Alert,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BellOff } from 'lucide-react-native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import FastImage from '@d11/react-native-fast-image';
 
 import { colorss } from '../theme';
 import { IC_PROFILE } from '../assets';
@@ -19,194 +27,299 @@ import type {
   BottomTabNavigatorParamList,
   RootStackNavigatorParamList,
 } from '../types/navigators';
-import { openHopenityBestEffort } from '../services/hopenityLinking';
-
-/** Hope Chat actionable items vs main Hopenity social graph (deep link into Hopenity). */
-type NotificationSource = 'hope_chat' | 'hopenity_world';
-
-type NotifRow = {
-  id: string;
-  section: string;
-  name: string;
-  message: string;
-  time: string;
-  unread: boolean;
-  source: NotificationSource;
-  /** When hope_chat — optional routing hint */
-  target?: 'inbox_demo' | 'requests';
-};
-
-const ROWS: NotifRow[] = [
-  {
-    id: 'hc1',
-    section: 'Today',
-    name: 'Hope Chat',
-    message: 'You have unread messages.',
-    source: 'hope_chat',
-    target: 'inbox_demo',
-    time: '2m',
-    unread: true,
-  },
-  {
-    id: 'hw1',
-    section: 'Today',
-    name: 'Hopenity · Story',
-    source: 'hopenity_world',
-    message: 'Maria reacted 🔥 on your story.',
-    time: '18m',
-    unread: true,
-  },
-  {
-    id: 'hw2',
-    section: 'Today',
-    name: 'Hopenity',
-    source: 'hopenity_world',
-    message: 'New follower: James.',
-    time: '52m',
-    unread: false,
-  },
-  {
-    id: 'hw3',
-    section: 'Earlier',
-    name: 'Hopenity · Post',
-    source: 'hopenity_world',
-    message: 'Taylor mentioned you in a comment.',
-    time: '3h',
-    unread: false,
-  },
-  {
-    id: 'hc2',
-    section: 'Earlier',
-    name: 'Hope Chat · Requests',
-    source: 'hope_chat',
-    target: 'requests',
-    message: 'Someone wants to chat with you.',
-    time: '1d',
-    unread: true,
-  },
-  {
-    id: 'hw4',
-    section: 'Earlier',
-    name: 'Hopenity · Feels',
-    source: 'hopenity_world',
-    message: 'Your feel reached 250 hearts.',
-    time: '5d',
-    unread: false,
-  },
-];
+import { useAppSelector } from '../hooks/redux';
+import { API_BASE_URL } from '../config/env';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Notifications'>,
   NativeStackScreenProps<RootStackNavigatorParamList>
 >;
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type NotifActor = {
+  user_id?: string;
+  name?: string;
+  image?: string | null;
+};
+
+type NotifItem = {
+  id: number;
+  type: string;
+  is_read: boolean;
+  created_at: string;
+  actor?: NotifActor;
+  post?: { content?: string };
+  comment?: { content?: string };
+  friendship_status?: string;
+};
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+function SkeletonBox({ width, height, borderRadius = 6, style }: {
+  width: number | string; height: number; borderRadius?: number; style?: object;
+}) {
+  const opacity = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    const a = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    a.start();
+    return () => a.stop();
+  }, [opacity]);
+  return (
+    <Animated.View
+      style={[{ width, height, borderRadius, backgroundColor: colorss.backgroundDeep }, { opacity }, style]}
+    />
+  );
+}
+
+function SkeletonRow() {
+  return (
+    <View style={styles.item}>
+      <SkeletonBox width={52} height={52} borderRadius={26} />
+      <View style={{ flex: 1, gap: 8 }}>
+        <SkeletonBox width="70%" height={14} />
+        <SkeletonBox width="40%" height={11} />
+      </View>
+    </View>
+  );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function relativeTime(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
+  return `${Math.floor(diff / 604800)}w`;
+}
+
+function notifMessage(n: NotifItem): string {
+  const name = n.actor?.name ?? 'Someone';
+  switch (n.type) {
+    case 'POST_LIKE': return `${name} liked your post.`;
+    case 'COMMENT': return `${name} commented on your post.`;
+    case 'COMMENT_REPLY': return `${name} replied to your comment.`;
+    case 'STORY_REACTION': return `${name} reacted to your story.`;
+    case 'PAGE_FOLLOW': return `${name} followed your page.`;
+    case 'FRIEND_REQUEST': return `${name} sent you a friend request.`;
+    case 'FRIEND_REQUEST_ACCEPTED': return `${name} accepted your friend request.`;
+    case 'MESSAGE': return `${name} sent you a message.`;
+    case 'BLOOD_REQUEST': return `${name} posted a blood request.`;
+    case 'DONATION_REQUEST': return `${name} made a donation request.`;
+    case 'DONATION_ACCEPTED': return `Your donation was accepted by ${name}.`;
+    case 'DONATION_REJECTED': return `Your donation was declined by ${name}.`;
+    case 'POST_UPLOAD_QUEUED': return 'Your post is being uploaded.';
+    case 'POST_PUBLISHED': return 'Your post has been published.';
+    case 'POST_BLOCKED': return 'Your post was removed for violating community guidelines.';
+    case 'RECHARGE_APPROVED': return 'Your recharge request was approved.';
+    case 'RECHARGE_DECLINED': return 'Your recharge request was declined.';
+    case 'WITHDRAWAL_APPROVED': return 'Your withdrawal request was approved.';
+    case 'WITHDRAWAL_REJECTED': return 'Your withdrawal request was rejected.';
+    case 'VERIFICATION_APPROVED': return 'Your account has been verified.';
+    case 'VERIFICATION_REJECTED': return 'Your verification request was rejected.';
+    case 'DEVICE_APPROVAL_REQUEST': return 'A new device is requesting access to your account.';
+    case 'AD_CAMPAIGN_ACTIVITY': return 'Your ad campaign has activity.';
+    case 'AD_CAMPAIGN_COMPLETED': return 'Your ad campaign has completed.';
+    case 'CONTEST_APPROVED': return 'Your contest entry was approved.';
+    case 'CONTEST_REJECTED': return 'Your contest entry was rejected.';
+    default: return `New notification from ${name}.`;
+  }
+}
+
+function sectionLabel(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 86400) return 'Today';
+  if (diff < 172800) return 'Yesterday';
+  if (diff < 604800) return 'This week';
+  return 'Earlier';
+}
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+
+async function apiFetch(url: string, token: string | null, init?: RequestInit) {
+  return fetch(url, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...((init?.headers as object) ?? {}),
+    },
+  });
+}
+
+async function loadNotifications(token: string | null): Promise<NotifItem[]> {
+  const res = await apiFetch(
+    `${API_BASE_URL}/api/v1/notifications?page=1&limit=50`,
+    token,
+  );
+  const json = await res.json();
+  const list = json?.responseObject ?? json?.data ?? json?.notifications ?? [];
+  return Array.isArray(list) ? list : [];
+}
+
+async function markRead(id: number, token: string | null): Promise<void> {
+  await apiFetch(
+    `${API_BASE_URL}/api/v1/notifications/${id}/read`,
+    token,
+    { method: 'PATCH', body: '{}' },
+  );
+}
+
+async function markAllRead(token: string | null): Promise<void> {
+  await apiFetch(
+    `${API_BASE_URL}/api/v1/notifications/read-all`,
+    token,
+    { method: 'PATCH', body: '{}' },
+  );
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
-  const grouped = useMemo(() => {
-    const m = new Map<string, NotifRow[]>();
-    for (const r of ROWS) {
-      const g = m.get(r.section) ?? [];
-      g.push(r);
-      m.set(r.section, g);
-    }
-    return [...m.entries()];
-  }, []);
+  const token = useAppSelector(s => s.auth.token);
 
-  const onPress = (item: NotifRow) => {
-    if (item.source === 'hopenity_world') {
-      Alert.alert(
-        'Open Hopenity',
-        'Social notifications live in Hopenity. Continue there now?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open app', onPress: () => void openHopenityBestEffort() },
-        ],
+  const [items, setItems] = useState<NotifItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const data = await loadNotifications(token);
+      setItems(data);
+    } catch {
+      /* keep existing list on error */
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [token]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const handlePress = useCallback(async (item: NotifItem) => {
+    // Optimistically mark as read in UI
+    if (!item.is_read) {
+      setItems(prev =>
+        prev.map(n => n.id === item.id ? { ...n, is_read: true } : n),
       );
-      return;
+      try { await markRead(item.id, token); } catch { /* silent */ }
     }
 
-    const parentNav = navigation.getParent();
-    if (item.target === 'requests') {
-      if (parentNav) {
-        (parentNav as { navigate: (n: string) => void }).navigate(
-          'MessageRequests',
-        );
-      }
-      return;
+    // Route to relevant screen
+    if (item.type === 'FRIEND_REQUEST') {
+      try { navigation.navigate('MessageRequests'); } catch { /* */ }
     }
-    Alert.alert('Hope Chat', 'Use Home to open your conversations.');
-    navigation.navigate('Home');
-  };
+  }, [token, navigation]);
 
-  const renderRow = (item: NotifRow) => (
+  const handleMarkAllRead = useCallback(async () => {
+    setItems(prev => prev.map(n => ({ ...n, is_read: true })));
+    try { await markAllRead(token); } catch { /* silent */ }
+  }, [token]);
+
+  const unreadCount = useMemo(() => items.filter(n => !n.is_read).length, [items]);
+
+  // Group by section label
+  const grouped = useMemo(() => {
+    const map = new Map<string, NotifItem[]>();
+    const order: string[] = [];
+    for (const n of items) {
+      const sec = sectionLabel(n.created_at);
+      if (!map.has(sec)) { map.set(sec, []); order.push(sec); }
+      map.get(sec)!.push(n);
+    }
+    return order.map(sec => ({ section: sec, data: map.get(sec)! }));
+  }, [items]);
+
+  const renderItem = useCallback(({ item }: { item: NotifItem }) => (
     <TouchableOpacity
-      key={item.id}
-      style={styles.item}
-      activeOpacity={0.7}
-      onPress={() => onPress(item)}
-      accessibilityHint={
-        item.source === 'hopenity_world'
-          ? 'Opens partner app'
-          : 'Hope Chat action'
-      }
+      style={[styles.item, !item.is_read && styles.itemUnread]}
+      activeOpacity={0.75}
+      onPress={() => void handlePress(item)}
     >
-      <Image
-        source={IC_PROFILE}
-        style={{
-          width: 52,
-          height: 52,
-          borderRadius: 26,
-          opacity: item.source === 'hopenity_world' ? 0.85 : 1,
-        }}
-      />
-
-      <View style={styles.itemContent}>
-        <View style={styles.titleRow}>
-          <Text style={styles.itemText} numberOfLines={2}>
-            <Text style={styles.itemName}>{item.name}</Text>{' '}
-            <Text style={styles.itemMsg}>{item.message}</Text>
-          </Text>
-          <View
-            style={[
-              styles.pill,
-              item.source === 'hope_chat' ? styles.pillHope : styles.pillHopenity,
-            ]}
-          >
-            <Text style={styles.pillTxt}>
-              {item.source === 'hope_chat' ? 'Hope Chat' : 'Hopenity'}
-            </Text>
-          </View>
-        </View>
-
-        <Text style={[styles.itemTime, item.unread && styles.itemTimeUnread]}>
-          · {item.time}
-        </Text>
+      <View style={styles.avatarWrap}>
+        <FastImage
+          source={item.actor?.image ? { uri: item.actor.image } : IC_PROFILE}
+          style={styles.avatar}
+        />
+        {!item.is_read && <View style={styles.unreadDot} />}
       </View>
 
-      {item.unread ? <View style={styles.unreadDot} /> : null}
+      <View style={styles.itemBody}>
+        <Text style={styles.itemMsg} numberOfLines={2}>
+          {notifMessage(item)}
+        </Text>
+        <Text style={[styles.itemTime, !item.is_read && styles.itemTimeUnread]}>
+          {relativeTime(item.created_at)}
+        </Text>
+      </View>
     </TouchableOpacity>
-  );
+  ), [handlePress]);
+
+  // ── Skeleton ──
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Notifications</Text>
+        </View>
+        {[...Array(10)].map((_, i) => <SkeletonRow key={i} />)}
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.title}>Notifications</Text>
-        <Text style={styles.sub}>Hope Chat inbox vs social on Hopenity</Text>
+        {unreadCount > 0 && (
+          <TouchableOpacity onPress={handleMarkAllRead} style={styles.markAllBtn}>
+            <Text style={styles.markAllText}>Mark all read</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {grouped.map(([section, rows]) => (
-          <View key={section}>
-            <Text style={styles.sectionLabel}>{section}</Text>
-            {rows.map(renderRow)}
-          </View>
-        ))}
-        <View style={{ height: 30 }} />
-      </ScrollView>
+      {items.length === 0 ? (
+        <View style={styles.empty}>
+          <BellOff size={44} color={colorss.placeholder} />
+          <Text style={styles.emptyText}>No notifications yet</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={grouped}
+          keyExtractor={g => g.section}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 30 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void load(true)}
+              tintColor={colorss.primary}
+            />
+          }
+          renderItem={({ item: group }) => (
+            <View>
+              <Text style={styles.sectionLabel}>{group.section}</Text>
+              {group.data.map(n => renderItem({ item: n }))}
+            </View>
+          )}
+        />
+      )}
     </SafeAreaView>
   );
 };
 
 export default NotificationsScreen;
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -214,6 +327,9 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.white,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 10,
@@ -225,17 +341,23 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '700',
   },
-  sub: {
-    marginTop: 4,
-    color: colorss.textSecondary,
+  markAllBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: `${colorss.primary}18`,
+  },
+  markAllText: {
+    color: colorss.primary,
     fontSize: 13,
+    fontWeight: '600',
   },
   sectionLabel: {
     color: colorss.textSecondary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 18,
     paddingBottom: 6,
   },
   item: {
@@ -245,57 +367,53 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 12,
   },
-  itemContent: {
+  itemUnread: {
+    backgroundColor: `${colorss.primary}08`,
+  },
+  avatarWrap: {
+    position: 'relative',
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+  },
+  unreadDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: colorss.primary,
+    borderWidth: 2,
+    borderColor: colorss.white,
+  },
+  itemBody: {
     flex: 1,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  itemText: {
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  itemName: {
-    color: colorss.textPrimary,
-    fontWeight: '700',
   },
   itemMsg: {
-    color: colorss.textSecondary,
-    fontWeight: '400',
-  },
-  pill: {
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    alignSelf: 'flex-start',
-  },
-  pillHope: {
-    backgroundColor: `${colorss.primary}22`,
-  },
-  pillHopenity: {
-    backgroundColor: 'rgba(99,102,241,0.15)',
-  },
-  pillTxt: {
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 14,
     color: colorss.textPrimary,
+    lineHeight: 20,
   },
   itemTime: {
-    color: colorss.textSecondary,
     fontSize: 12,
+    color: colorss.textSecondary,
     marginTop: 4,
   },
   itemTimeUnread: {
     color: colorss.primary,
     fontWeight: '600',
   },
-  unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colorss.primary,
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  emptyText: {
+    color: colorss.textSecondary,
+    fontSize: 15,
   },
 });
