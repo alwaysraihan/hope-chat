@@ -14,10 +14,14 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  BackHandler,
+  ToastAndroid,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  Bluetooth,
   ChevronLeft,
+  Headphones,
   Mic,
   MicOff,
   MonitorUp,
@@ -28,7 +32,10 @@ import {
   VideoOff,
   Volume2,
 } from 'lucide-react-native';
+import { useCallAudio, type AudioOutputKind } from '../hooks/useCallAudio';
+import AudioOutputPickerSheet from '../components/AudioOutputPickerSheet';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { StackActions } from '@react-navigation/native';
 import { useAppSelector } from '../hooks/redux';
 import {
   AudioSession,
@@ -236,6 +243,20 @@ function VideoCallGate({
   csRef.current = cs;
   const outgoing = outcomeOpts.callDirection === 'outgoing';
 
+  const prevRemoteCountRef = useRef(0);
+  useEffect(() => {
+    const wasConnected = prevRemoteCountRef.current > 0;
+    const nowGone = remotes.length === 0;
+    prevRemoteCountRef.current = remotes.length;
+    if (!wasConnected || !nowGone || cs !== ConnectionState.Connected) return;
+    const t = setTimeout(() => {
+      if (countRef.current > 0) return;
+      try { Alert.alert('Call ended', 'The other person has left the call.'); } catch { /* */ }
+      void leaveRef.current();
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [remotes.length, cs]);
+
   const playOutgoingRingback =
     outgoing &&
     cs !== ConnectionState.Disconnected &&
@@ -250,26 +271,20 @@ function VideoCallGate({
       return;
     }
     const t = setTimeout(() => {
-      if (countRef.current > 0) {
-        return;
-      }
+      if (countRef.current > 0) return;
       const state = csRef.current;
-      const body =
-        state === ConnectionState.Connected
-          ? 'The other person isn’t available or didn’t answer. They may be offline.'
-          : 'Could not complete the call. Check your network and try again.';
-      console.warn(
-        '[VideoCall] outgoing call timeout (no remote participant)',
-        {
-          connectionState: state,
-          remoteCount: countRef.current,
-        },
-      );
+      console.warn(‘[VideoCall] outgoing call timeout’, { connectionState: state });
       try {
-        Alert.alert('Call ended', body);
-      } catch {
-        /* */
-      }
+        if (state === ConnectionState.Connected) {
+          if (Platform.OS === ‘android’) {
+            ToastAndroid.show(`${displayName} didn’t receive your call`, ToastAndroid.LONG);
+          } else {
+            Alert.alert(‘No answer’, `${displayName} didn’t receive your call.`);
+          }
+        } else {
+          Alert.alert(‘Call ended’, ‘Could not complete the call. Check your network and try again.’);
+        }
+      } catch { /* */ }
       void leaveRef.current();
     }, 60_000);
     return () => clearTimeout(t);
@@ -320,6 +335,10 @@ function VideoCallGate({
     );
   }
 
+  const onMinimize = useCallback(() => {
+    navigation.dispatch(StackActions.push('BottomTab'));
+  }, [navigation]);
+
   return Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled() ? (
     <AndroidConnectedCallStage
       navigation={navigation}
@@ -328,6 +347,7 @@ function VideoCallGate({
       peerAvatarUrl={peerAvatarUrl}
       tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
       onSwitchToAudio={handleSwitchToAudio}
+      onMinimize={onMinimize}
     />
   ) : (
     <VideoStage
@@ -337,6 +357,7 @@ function VideoCallGate({
       tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
       forceEndCallWithAlert={forceEndCallWithAlert}
       onSwitchToAudio={handleSwitchToAudio}
+      onMinimize={onMinimize}
     />
   );
 }
@@ -347,6 +368,7 @@ function AndroidConnectedCallStage({
   peerAvatarUrl,
   tryEmitOutgoingWithoutConnect,
   onSwitchToAudio,
+  onMinimize,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
@@ -354,14 +376,29 @@ function AndroidConnectedCallStage({
   peerAvatarUrl?: string | null;
   tryEmitOutgoingWithoutConnect: () => void;
   onSwitchToAudio: () => void;
+  onMinimize: () => void;
 }) {
   const room = useRoomContext();
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
-  const [speakerOn, setSpeakerOn] = useState(true);
+  // Video calls default to loud-speaker; the hook auto-routes to Bluetooth /
+  // wired headphones whenever one is connected.
+  const audio = useCallAudio({ preferred: 'speaker' });
+  const [audioPickerOpen, setAudioPickerOpen] = useState(false);
+  const [autoSwitchBanner, setAutoSwitchBanner] = useState<string | null>(null);
   const { hint, detail } = useLiveKitConnectionHints(room);
   const remotes = useRemoteParticipants();
   const isRinging = remotes.length === 0;
   const timer = useCallTimer(!isRinging);
+
+  useEffect(() => {
+    if (!audio.autoSwitchMessage) return;
+    setAutoSwitchBanner(audio.autoSwitchMessage);
+    const t = setTimeout(() => {
+      setAutoSwitchBanner(null);
+      audio.clearAutoSwitchMessage();
+    }, 2400);
+    return () => clearTimeout(t);
+  }, [audio.autoSwitchMessage, audio]);
 
   useEffect(() => {
     const subscribeAudioOnly = () => {
@@ -400,19 +437,27 @@ function AndroidConnectedCallStage({
       .catch(err => console.warn('[VideoCall] mic toggle', err));
   }, [localParticipant, isMicrophoneEnabled]);
 
-  const toggleSpeaker = useCallback(async () => {
-    try {
-      const next = !speakerOn;
-      const outs = await AudioSession.getAudioOutputs();
-      const target = next
-        ? outs.find(o => o === 'speaker') ?? 'speaker'
-        : outs.find(o => o === 'earpiece') ?? 'earpiece';
-      await AudioSession.selectAudioOutput(target);
-      setSpeakerOn(next);
-    } catch (e) {
-      console.warn('[VideoCall] speaker route', e);
-    }
-  }, [speakerOn]);
+  const openAudioPicker = useCallback(() => setAudioPickerOpen(true), []);
+  const closeAudioPicker = useCallback(() => setAudioPickerOpen(false), []);
+  const onPickAudioOutput = useCallback(
+    async (device: { id: AudioOutputKind }) => {
+      await audio.select(device.id);
+      if (device.id !== 'route_picker') setAudioPickerOpen(false);
+    },
+    [audio],
+  );
+
+  const activeKind = audio.activeId;
+  const activeAudioIcon =
+    activeKind === 'bluetooth' ? (
+      <Bluetooth size={22} color={colorss.white} />
+    ) : activeKind === 'wired' ? (
+      <Headphones size={22} color={colorss.white} />
+    ) : activeKind === 'earpiece' ? (
+      <Phone size={22} color={colorss.white} />
+    ) : (
+      <Volume2 size={22} color={colorss.white} />
+    );
 
   const showAndroidVideoNotice = useCallback(() => {
     Alert.alert(
@@ -424,9 +469,17 @@ function AndroidConnectedCallStage({
   return (
     <SafeAreaView style={styles.overlay} edges={['top']}>
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={onEnd} accessibilityRole="button">
-          <ChevronLeft size={28} color={colorss.white} />
-        </TouchableOpacity>
+        {Platform.OS === 'android' ? (
+          <TouchableOpacity
+            onPress={onMinimize}
+            accessibilityRole="button"
+            accessibilityLabel="Go to chat list"
+          >
+            <ChevronLeft size={28} color={colorss.white} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 28 }} />
+        )}
         {peerAvatarUrl ? (
           <FastImage
             source={{ uri: peerAvatarUrl }}
@@ -467,12 +520,23 @@ function AndroidConnectedCallStage({
         </Text>
       </View>
 
+      {autoSwitchBanner ? (
+        <View pointerEvents="none" style={styles.autoSwitchBanner}>
+          <Text style={styles.autoSwitchBannerText}>{autoSwitchBanner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.controlsRow}>
         <TouchableOpacity
-          style={[styles.ctrlBtn, !speakerOn ? styles.ctrlBtnDim : null]}
-          onPress={toggleSpeaker}
+          style={[
+            styles.ctrlBtn,
+            activeKind === 'earpiece' ? styles.ctrlBtnDim : null,
+          ]}
+          onPress={openAudioPicker}
+          accessibilityRole="button"
+          accessibilityLabel="Choose audio output"
         >
-          <Volume2 size={22} color={colorss.white} />
+          {activeAudioIcon}
         </TouchableOpacity>
         <TouchableOpacity
           style={[
@@ -508,6 +572,13 @@ function AndroidConnectedCallStage({
           <PhoneOff size={26} color={colorss.white} />
         </TouchableOpacity>
       </View>
+
+      <AudioOutputPickerSheet
+        visible={audioPickerOpen}
+        outputs={audio.outputs}
+        onSelect={onPickAudioOutput}
+        onClose={closeAudioPicker}
+      />
     </SafeAreaView>
   );
 }
@@ -519,6 +590,7 @@ function VideoStage({
   tryEmitOutgoingWithoutConnect,
   forceEndCallWithAlert,
   onSwitchToAudio,
+  onMinimize,
 }: {
   safePop: () => void;
   displayName: string;
@@ -526,6 +598,7 @@ function VideoStage({
   tryEmitOutgoingWithoutConnect: () => void;
   forceEndCallWithAlert: (title: string, body: string) => void;
   onSwitchToAudio: () => void;
+  onMinimize: () => void;
 }) {
   const room = useRoomContext();
   const {
@@ -569,7 +642,9 @@ function VideoStage({
       item.publication?.track,
   );
 
-  const [speakerOn, setSpeakerOn] = useState(true);
+  const audio = useCallAudio({ preferred: 'speaker' });
+  const [audioPickerOpen, setAudioPickerOpen] = useState(false);
+  const [autoSwitchBanner, setAutoSwitchBanner] = useState<string | null>(null);
   const { hint, detail } = useLiveKitConnectionHints(room);
   const remotes = useRemoteParticipants();
   const isRinging = remotes.length === 0;
@@ -580,19 +655,22 @@ function VideoStage({
     beforeLeave: tryEmitOutgoingWithoutConnect,
   });
 
+  // Default video calls to loud-speaker. The hook keeps re-routing whenever a
+  // Bluetooth / wired device pairs mid-call.
   useEffect(() => {
-    (async () => {
-      try {
-        if (Platform.OS === 'ios') {
-          await AudioSession.selectAudioOutput('force_speaker');
-        } else {
-          await AudioSession.selectAudioOutput('speaker');
-        }
-      } catch {
-        /* route may be unavailable until audio session is ready */
-      }
-    })().catch(() => undefined);
+    void audio.select('speaker');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!audio.autoSwitchMessage) return;
+    setAutoSwitchBanner(audio.autoSwitchMessage);
+    const t = setTimeout(() => {
+      setAutoSwitchBanner(null);
+      audio.clearAutoSwitchMessage();
+    }, 2400);
+    return () => clearTimeout(t);
+  }, [audio.autoSwitchMessage, audio]);
 
   const onEnd = () => {
     leaveCall();
@@ -631,25 +709,26 @@ function VideoStage({
     });
   }, [localParticipant, isScreenShareEnabled]);
 
-  const toggleSpeaker = useCallback(async () => {
-    try {
-      const next = !speakerOn;
-      if (Platform.OS === 'ios') {
-        await AudioSession.selectAudioOutput(
-          next ? 'force_speaker' : 'default',
-        );
-      } else {
-        const outs = await AudioSession.getAudioOutputs();
-        const target = next
-          ? outs.find(o => o === 'speaker') ?? 'speaker'
-          : outs.find(o => o === 'earpiece') ?? 'earpiece';
-        await AudioSession.selectAudioOutput(target);
-      }
-      setSpeakerOn(next);
-    } catch (e) {
-      console.warn('[VideoCall] speaker route', e);
-    }
-  }, [speakerOn]);
+  const openAudioPicker = useCallback(() => setAudioPickerOpen(true), []);
+  const closeAudioPicker = useCallback(() => setAudioPickerOpen(false), []);
+  const onPickAudioOutput = useCallback(
+    async (device: { id: AudioOutputKind }) => {
+      await audio.select(device.id);
+      if (device.id !== 'route_picker') setAudioPickerOpen(false);
+    },
+    [audio],
+  );
+  const videoActiveKind = audio.activeId;
+  const videoActiveAudioIcon =
+    videoActiveKind === 'bluetooth' ? (
+      <Bluetooth size={22} color={colorss.white} />
+    ) : videoActiveKind === 'wired' ? (
+      <Headphones size={22} color={colorss.white} />
+    ) : videoActiveKind === 'earpiece' ? (
+      <Phone size={22} color={colorss.white} />
+    ) : (
+      <Volume2 size={22} color={colorss.white} />
+    );
 
   const [mainIsLocal, setMainIsLocal] = useState(false);
   const [facingUser, setFacingUser] = useState(true);
@@ -829,9 +908,17 @@ function VideoStage({
         </View>
 
         <View style={styles.topBarAbs}>
-          <TouchableOpacity onPress={onEnd} accessibilityRole="button">
-            <ChevronLeft size={28} color={colorss.white} />
-          </TouchableOpacity>
+          {Platform.OS === 'android' ? (
+            <TouchableOpacity
+              onPress={onMinimize}
+              accessibilityRole="button"
+              accessibilityLabel="Go to chat list"
+            >
+              <ChevronLeft size={28} color={colorss.white} />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 28 }} />
+          )}
           {peerAvatarUrl ? (
             <FastImage
               source={{ uri: peerAvatarUrl }}
@@ -867,12 +954,24 @@ function VideoStage({
         ) : null}
 
         <View style={styles.bottomStackAbs}>
+          {autoSwitchBanner ? (
+            <View pointerEvents="none" style={styles.autoSwitchBanner}>
+              <Text style={styles.autoSwitchBannerText}>
+                {autoSwitchBanner}
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.controlsRow}>
             <TouchableOpacity
-              style={[styles.ctrlBtn, !speakerOn ? styles.ctrlBtnDim : null]}
-              onPress={toggleSpeaker}
+              style={[
+                styles.ctrlBtn,
+                videoActiveKind === 'earpiece' ? styles.ctrlBtnDim : null,
+              ]}
+              onPress={openAudioPicker}
+              accessibilityRole="button"
+              accessibilityLabel="Choose audio output"
             >
-              <Volume2 size={22} color={colorss.white} />
+              {videoActiveAudioIcon}
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -943,6 +1042,13 @@ function VideoStage({
           </View>
         </View>
       </View>
+
+      <AudioOutputPickerSheet
+        visible={audioPickerOpen}
+        outputs={audio.outputs}
+        onSelect={onPickAudioOutput}
+        onClose={closeAudioPicker}
+      />
     </SafeAreaView>
   );
 }
@@ -950,6 +1056,15 @@ function VideoStage({
 const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
   useOverlayPermissionPrompt();
   const safePop = useSafeSingleNavigationPop(navigation as never);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      navigation.dispatch(StackActions.push('BottomTab'));
+      return true;
+    });
+    return () => sub.remove();
+  }, [navigation]);
   const { onDisconnected, onError, onEncryptionError, forceEndCallWithAlert } =
     useLiveKitSessionEnd({
       callLabel: 'Video call',
@@ -1157,6 +1272,19 @@ const styles = StyleSheet.create({
     zIndex: 25,
     paddingBottom: 10,
     backgroundColor: 'transparent',
+  },
+  autoSwitchBanner: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    marginBottom: 8,
+  },
+  autoSwitchBannerText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
   },
   pipWrap: {
     position: 'absolute',

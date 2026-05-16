@@ -6,6 +6,20 @@
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+  <!--
+    Required on Android 12 (API 31)+ for the system to surface a Bluetooth headset
+    as a selectable audio output during a call. Without BLUETOOTH_CONNECT the
+    LiveKit AudioSession.getAudioOutputs() call returns the device list without
+    any paired Bluetooth entries.
+  -->
+  <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+  <!-- Legacy Bluetooth permissions for Android 11 and below. -->
+  <uses-permission
+    android:name="android.permission.BLUETOOTH"
+    android:maxSdkVersion="30" />
+  <uses-permission
+    android:name="android.permission.BLUETOOTH_ADMIN"
+    android:maxSdkVersion="30" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.VIBRATE" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />

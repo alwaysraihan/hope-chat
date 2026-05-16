@@ -15,6 +15,8 @@ import {
 import {
   startIncomingCallRingtone,
   stopIncomingCallRingtone,
+  setPendingAutoAcceptData,
+  setPendingRejectData,
 } from './callRingtone';
 
 notifee.onBackgroundEvent(async ({ type, detail }) => {
@@ -30,14 +32,28 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     if (actionId === 'reject') {
       stopIncomingCallRingtone();
       if (notifId) await notifee.cancelNotification(notifId);
+      // Store the call data so the main app can emit the missed-call outcome and
+      // signal the backend (which cancels the caller's active ring) next time it foregrounds.
+      const notifData = detail.notification?.data;
+      if (notifData) {
+        try { setPendingRejectData(JSON.stringify(notifData)); } catch { /* noop */ }
+      }
       return;
     }
 
     if (actionId === 'accept') {
-      // Stop ringtone and clear the notification immediately so the call screen
-      // appears clean when the app opens via launchActivity.
       stopIncomingCallRingtone();
       if (notifId) await notifee.cancelNotification(notifId);
+      // Store the call data in the native module (shared across JS contexts in the same
+      // process). When the main app comes to foreground it reads this and auto-accepts.
+      const notifData = detail.notification?.data;
+      if (notifData) {
+        try {
+          setPendingAutoAcceptData(JSON.stringify(notifData));
+        } catch {
+          /* noop */
+        }
+      }
       return;
     }
 

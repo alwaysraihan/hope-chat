@@ -5,6 +5,10 @@ type NativeRing = {
   stopIncomingRingtone?: () => void;
   startOutgoingRingback?: () => void;
   stopOutgoingRingback?: () => void;
+  setPendingAutoAcceptData?: (json: string) => void;
+  consumePendingAutoAcceptData?: () => Promise<string | null>;
+  setPendingRejectData?: (json: string) => void;
+  consumePendingRejectData?: () => Promise<string | null>;
 };
 
 const native = NativeModules.HopeChatCallRingtone as NativeRing | undefined;
@@ -28,4 +32,42 @@ export function startOutgoingCallRingback(): void {
 
 export function stopOutgoingCallRingback(): void {
   native?.stopOutgoingRingback?.();
+}
+
+/**
+ * Store JSON call data from the background FCM accept-action handler.
+ * The native module is shared across the headless-JS context and the main app process,
+ * so this data survives until the main app reads it via consumePendingAutoAcceptData().
+ * Android-only; no-op on iOS.
+ */
+export function setPendingAutoAcceptData(json: string): void {
+  if (Platform.OS !== 'android') return;
+  native?.setPendingAutoAcceptData?.(json);
+}
+
+/**
+ * Reads and clears the pending auto-accept JSON set by setPendingAutoAcceptData.
+ * Returns null if nothing is pending. Call this when the app comes to foreground.
+ */
+export async function consumePendingAutoAcceptData(): Promise<string | null> {
+  if (Platform.OS !== 'android') return null;
+  try {
+    return (await native?.consumePendingAutoAcceptData?.()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function setPendingRejectData(json: string): void {
+  if (Platform.OS !== 'android') return;
+  native?.setPendingRejectData?.(json);
+}
+
+export async function consumePendingRejectData(): Promise<string | null> {
+  if (Platform.OS !== 'android') return null;
+  try {
+    return (await native?.consumePendingRejectData?.()) ?? null;
+  } catch {
+    return null;
+  }
 }

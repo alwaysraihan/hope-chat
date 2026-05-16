@@ -33,9 +33,17 @@ import {
 } from '../services/incomingCall/androidIncomingCallUi';
 import {
   stopIncomingCallRingtone,
+  consumePendingAutoAcceptData,
+  consumePendingRejectData,
 } from '../services/incomingCall/callRingtone';
 import { navigationRef } from '../navigation/navigationRef';
 import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
+import {
+  getActiveCall,
+  endActiveCallForReplacement,
+} from '../services/livekit/activeCallRegistry';
+import { StackActions, CommonActions } from '@react-navigation/native';
+import { emitCallOutcome } from '../services/callOutcomeBus';
 
 /**
  * If the IncomingCallScreen is currently showing for this room, dismiss it.
@@ -52,18 +60,74 @@ function dismissIncomingCallIfShowing(liveKitRoom?: string): void {
   navigationRef.goBack();
 }
 
+function endActiveCallIfMatchesRoom(liveKitRoom?: string): void {
+  if (!liveKitRoom) return;
+  const active = getActiveCall();
+  if (!active || active.liveKitRoom !== liveKitRoom) return;
+  void active.leave();
+}
+
+/**
+ * Accept a call directly — skips IncomingCallScreen entirely so the user lands
+ * straight on the call screen with no intermediate flash.
+ */
+async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPayload>): Promise<void> {
+  if (!parsed || !navigationRef.isReady()) return;
+  stopIncomingCallRingtone();
+  void cancelAndroidIncomingCallNotification();
+
+  const params = {
+    displayName: parsed.displayName ?? '',
+    liveKitRoom: parsed.liveKitRoom,
+    avatarUrl: parsed.avatarUrl ?? null,
+    conversationId: parsed.conversationId,
+    peerUserId: parsed.callerId,
+    callDirection: 'incoming' as const,
+  };
+  const targetRoute = parsed.callKind === 'video' ? 'VideoCall' : 'AudioCall';
+
+  const active = getActiveCall();
+  if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+    await endActiveCallForReplacement(parsed.liveKitRoom);
+    navigationRef.dispatch(
+      CommonActions.reset({ index: 1, routes: [{ name: 'BottomTab' }, { name: targetRoute, params }] }),
+    );
+  } else {
+    navigationRef.dispatch(StackActions.push(targetRoute, params));
+  }
+}
+
+/**
+ * Process a pending reject: emit the missed-call outcome so the server is
+ * notified and sends a cancel FCM to the caller.
+ */
+function processRejectPayload(raw: Record<string, string>): void {
+  const parsed = parseIncomingCallPayload(raw);
+  if (!parsed?.conversationId || !parsed?.callerId) return;
+  emitCallOutcome({
+    conversationId: parsed.conversationId,
+    callKind: parsed.callKind,
+    variant: 'incoming_missed',
+    peerUserId: parsed.callerId,
+    peerDisplayName: parsed.displayName,
+  });
+  dismissIncomingCallIfShowing(parsed.liveKitRoom);
+}
+
 function openFromNotificationData(
   raw: Record<string, string>,
   autoAccept = false,
 ): void {
   let parsed = parseIncomingCallPayload(raw);
   if (!parsed && raw.liveKitRoom) {
-    parsed = parseIncomingCallPayload({
-      ...raw,
-      type: INCOMING_CALL_MESSAGE_TYPE,
-    });
+    parsed = parseIncomingCallPayload({ ...raw, type: INCOMING_CALL_MESSAGE_TYPE });
   }
-  if (parsed) navigateIncomingCall({ ...parsed, autoAccept: autoAccept || undefined });
+  if (!parsed) return;
+  if (autoAccept) {
+    void acceptCallDirectly(parsed);
+  } else {
+    navigateIncomingCall(parsed);
+  }
 }
 
 /**
@@ -105,9 +169,21 @@ const IncomingCallListener = () => {
       }
     });
 
+    const consumePending = () => {
+      consumePendingIncomingCall();
+      void consumePendingAutoAcceptData().then(json => {
+        if (!json) return;
+        try { void acceptCallDirectly(parseIncomingCallPayload(JSON.parse(json) as Record<string, string>)); } catch { /* */ }
+      });
+      void consumePendingRejectData().then(json => {
+        if (!json) return;
+        try { processRejectPayload(JSON.parse(json) as Record<string, string>); } catch { /* */ }
+      });
+    };
+
     const unsubAppState = AppState.addEventListener('change', next => {
       if (next === 'active') {
-        consumePendingIncomingCall();
+        consumePending();
         void syncFcmToBackend();
       }
     });
@@ -155,7 +231,10 @@ const IncomingCallListener = () => {
           data.cancelled === '1' ||
           data.cancelled === 'true';
         if (isCancelled) {
-          dismissIncomingCallIfShowing(data.liveKitRoom || data.room);
+          const cancelledRoom = data.liveKitRoom || data.room;
+          dismissIncomingCallIfShowing(cancelledRoom);
+          // End the caller's active outgoing call if they're still ringing
+          endActiveCallIfMatchesRoom(cancelledRoom);
           return;
         }
 
@@ -191,12 +270,23 @@ const IncomingCallListener = () => {
 
       unsubNotifee = notifee.onForegroundEvent(({ type, detail }) => {
         if (type !== EventType.PRESS || !detail.notification?.data) return;
-        openFromNotificationData(
-          detail.notification.data as Record<string, string>,
-        );
+        const actionId = detail.pressAction?.id;
+        const data = detail.notification.data as Record<string, string>;
+
+        if (actionId === 'reject') {
+          // Reject pressed while app is in foreground — decline immediately.
+          stopIncomingCallRingtone();
+          void cancelAndroidIncomingCallNotification();
+          processRejectPayload(data);
+          return;
+        }
+
+        openFromNotificationData(data, actionId === 'accept');
       });
 
-      consumePendingIncomingCall();
+      // Also consume on initial mount — the AppState 'change' listener doesn't fire
+      // if the app launches directly into the 'active' state (cold-start via notification tap).
+      consumePending();
     })().catch(() => undefined);
 
     return () => {

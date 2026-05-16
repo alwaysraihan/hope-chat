@@ -79,8 +79,16 @@ const StackNavigator = () => {
         name="TypingIndicator"
         component={TypingIndicatorScreen}
       />
-      <RootStack.Screen name="AudioCall" component={AudioCallScreen} />
-      <RootStack.Screen name="VideoCall" component={VideoCallScreen} />
+      <RootStack.Screen
+        name="AudioCall"
+        component={AudioCallScreen}
+        options={{ gestureEnabled: false }}
+      />
+      <RootStack.Screen
+        name="VideoCall"
+        component={VideoCallScreen}
+        options={{ gestureEnabled: false }}
+      />
       <RootStack.Screen
         name="IncomingCall"
         component={IncomingCallScreen}

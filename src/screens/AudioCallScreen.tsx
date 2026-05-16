@@ -11,19 +11,27 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Platform,
   Alert,
+  BackHandler,
+  Platform,
+  ToastAndroid,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  Bluetooth,
   ChevronLeft,
+  Headphones,
   Mic,
   MicOff,
+  Phone as PhoneIcon,
   Video as VideoIcon,
   Volume2,
   PhoneOff,
 } from 'lucide-react-native';
+import { useCallAudio, type AudioOutputKind } from '../hooks/useCallAudio';
+import AudioOutputPickerSheet from '../components/AudioOutputPickerSheet';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { StackActions } from '@react-navigation/native';
 import { useAppSelector } from '../hooks/redux';
 import {
   AudioSession,
@@ -191,6 +199,22 @@ function AudioCallGate({
   csRef.current = cs;
   const outgoing = outcomeOpts.callDirection === 'outgoing';
 
+  // If the remote peer drops off mid-call (force-quit, network loss), give them
+  // 30 s to reconnect before ending the call on our side too.
+  const prevRemoteCountRef = useRef(0);
+  useEffect(() => {
+    const wasConnected = prevRemoteCountRef.current > 0;
+    const nowGone = remotes.length === 0;
+    prevRemoteCountRef.current = remotes.length;
+    if (!wasConnected || !nowGone || cs !== ConnectionState.Connected) return;
+    const t = setTimeout(() => {
+      if (countRef.current > 0) return;
+      try { Alert.alert('Call ended', 'The other person has left the call.'); } catch { /* */ }
+      void leaveRef.current();
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [remotes.length, cs]);
+
   const playOutgoingRingback =
     outgoing &&
     cs !== ConnectionState.Disconnected &&
@@ -205,26 +229,21 @@ function AudioCallGate({
       return;
     }
     const t = setTimeout(() => {
-      if (countRef.current > 0) {
-        return;
-      }
+      if (countRef.current > 0) return;
       const state = csRef.current;
-      const body =
-        state === ConnectionState.Connected
-          ? 'The other person isn’t available or didn’t answer. They may be offline.'
-          : 'Could not complete the call. Check your network and try again.';
-      console.warn(
-        '[AudioCall] outgoing call timeout (no remote participant)',
-        {
-          connectionState: state,
-          remoteCount: countRef.current,
-        },
-      );
+      console.warn(‘[AudioCall] outgoing call timeout’, { connectionState: state });
       try {
-        Alert.alert('Call ended', body);
-      } catch {
-        /* */
-      }
+        if (state === ConnectionState.Connected) {
+          // Peer didn’t answer — use a non-intrusive toast with their name.
+          if (Platform.OS === ‘android’) {
+            ToastAndroid.show(`${displayName} didn’t receive your call`, ToastAndroid.LONG);
+          } else {
+            Alert.alert(‘No answer’, `${displayName} didn’t receive your call.`);
+          }
+        } else {
+          Alert.alert(‘Call ended’, ‘Could not complete the call. Check your network and try again.’);
+        }
+      } catch { /* */ }
       void leaveRef.current();
     }, 60_000);
     return () => clearTimeout(t);
@@ -275,6 +294,10 @@ function AudioCallGate({
     );
   }
 
+  const onMinimize = useCallback(() => {
+    navigation.dispatch(StackActions.push('BottomTab'));
+  }, [navigation]);
+
   return (
     <AudioStage
       safePop={safePop}
@@ -282,6 +305,7 @@ function AudioCallGate({
       peerAvatarUrl={peerAvatarUrl}
       tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
       onSwitchToVideo={handleSwitchToVideo}
+      onMinimize={onMinimize}
     />
   );
 }
@@ -292,19 +316,27 @@ function AudioStage({
   peerAvatarUrl,
   tryEmitOutgoingWithoutConnect,
   onSwitchToVideo,
+  onMinimize,
 }: {
   safePop: () => void;
   displayName: string;
   peerAvatarUrl?: string | null;
   tryEmitOutgoingWithoutConnect: () => void;
   onSwitchToVideo: () => void;
+  onMinimize: () => void;
 }) {
   const room = useRoomContext();
   const participants = useParticipants();
   const remotes = useRemoteParticipants();
   const isRinging = remotes.length === 0;
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
-  const [speakerOn, setSpeakerOn] = useState(false);
+  // Default voice calls to the earpiece — matches phone-call expectation.
+  // The hook also auto-routes to Bluetooth / wired headphones the moment they
+  // connect mid-call.
+  const audio = useCallAudio({ preferred: 'earpiece' });
+  const [audioPickerOpen, setAudioPickerOpen] = useState(false);
+  // Transient in-call banner used as the iOS toast equivalent.
+  const [autoSwitchBanner, setAutoSwitchBanner] = useState<string | null>(null);
 
   const { hint, detail } = useLiveKitConnectionHints(room);
   const timer = useCallTimer(!isRinging);
@@ -314,19 +346,24 @@ function AudioStage({
     beforeLeave: tryEmitOutgoingWithoutConnect,
   });
 
+  // Apply the default route once the audio session is live. The hook will then
+  // keep it up to date as devices are plugged in / paired.
   useEffect(() => {
-    (async () => {
-      try {
-        if (Platform.OS === 'ios') {
-          await AudioSession.selectAudioOutput('force_speaker');
-        } else {
-          await AudioSession.selectAudioOutput('earpiece');
-        }
-      } catch {
-        /* ignore until session ready */
-      }
-    })().catch(() => undefined);
+    void audio.select('earpiece');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Show + auto-dismiss the auto-switch banner (the hook fires ToastAndroid for
+  // Android; we mirror it inline for iOS and as a stronger affordance).
+  useEffect(() => {
+    if (!audio.autoSwitchMessage) return;
+    setAutoSwitchBanner(audio.autoSwitchMessage);
+    const t = setTimeout(() => {
+      setAutoSwitchBanner(null);
+      audio.clearAutoSwitchMessage();
+    }, 2400);
+    return () => clearTimeout(t);
+  }, [audio.autoSwitchMessage, audio]);
 
   const onEnd = () => {
     leaveCall();
@@ -338,27 +375,56 @@ function AudioStage({
       .catch(err => console.warn('[AudioCall] mic toggle', err));
   }, [localParticipant, isMicrophoneEnabled]);
 
-  const toggleSpeaker = useCallback(async () => {
-    try {
-      if (Platform.OS === 'ios') {
-        // ignore for now
-        await AudioSession.selectAudioOutput('default');
-      } else {
-        const target = speakerOn ? 'earpiece' : 'speaker';
-        await AudioSession.selectAudioOutput(target);
-      }
-      setSpeakerOn(prev => !prev);
-    } catch (e) {
-      console.warn('[AudioCall] speaker route', e);
-    }
-  }, [speakerOn]);
+  const openAudioPicker = useCallback(() => {
+    setAudioPickerOpen(true);
+  }, []);
+  const closeAudioPicker = useCallback(() => {
+    setAudioPickerOpen(false);
+  }, []);
+  const onPickAudioOutput = useCallback(
+    async (device: { id: AudioOutputKind }) => {
+      await audio.select(device.id);
+      // Keep the sheet open for `route_picker` (iOS) so the user can see the
+      // native picker layered on top; close it for the inline options.
+      if (device.id !== 'route_picker') setAudioPickerOpen(false);
+    },
+    [audio],
+  );
+
+  const activeKind = audio.activeId;
+  const activeIcon =
+    activeKind === 'bluetooth' ? (
+      <Bluetooth size={22} color={colorss.white} />
+    ) : activeKind === 'wired' ? (
+      <Headphones size={22} color={colorss.white} />
+    ) : activeKind === 'speaker' ? (
+      <Volume2 size={22} color={colorss.white} />
+    ) : (
+      <PhoneIcon size={22} color={colorss.white} />
+    );
+  const activeLabel =
+    activeKind === 'bluetooth'
+      ? 'Bluetooth'
+      : activeKind === 'wired'
+      ? 'Headphones'
+      : activeKind === 'speaker'
+      ? 'Speaker'
+      : 'Phone';
 
   return (
     <SafeAreaView style={styles.shell} edges={['top']}>
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={onEnd} accessibilityRole="button">
-          <ChevronLeft size={28} color={colorss.white} />
-        </TouchableOpacity>
+        {Platform.OS === 'android' ? (
+          <TouchableOpacity
+            onPress={onMinimize}
+            accessibilityRole="button"
+            accessibilityLabel="Go to chat list"
+          >
+            <ChevronLeft size={28} color={colorss.white} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 28 }} />
+        )}
       </View>
 
       <View style={styles.userInfo}>
@@ -376,15 +442,32 @@ function AudioStage({
         </Text>
       </View>
 
+      {autoSwitchBanner ? (
+        <View pointerEvents="none" style={styles.autoSwitchBanner}>
+          <Text style={styles.autoSwitchBannerText}>{autoSwitchBanner}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.actions}>
         <View style={styles.actionItem}>
           <TouchableOpacity
-            style={[styles.actionBtn, speakerOn ? styles.actionBtnDim : null]}
-            onPress={toggleSpeaker}
+            style={[
+              styles.actionBtn,
+              activeKind === 'speaker' ||
+              activeKind === 'bluetooth' ||
+              activeKind === 'wired'
+                ? styles.actionBtnDim
+                : null,
+            ]}
+            onPress={openAudioPicker}
+            accessibilityRole="button"
+            accessibilityLabel={`Audio output, currently ${activeLabel}. Tap to choose another.`}
           >
-            <Volume2 size={22} color={colorss.white} />
+            {activeIcon}
           </TouchableOpacity>
-          <Text style={styles.actionLabel}>Speaker</Text>
+          <Text style={styles.actionLabel} numberOfLines={1}>
+            {activeLabel}
+          </Text>
         </View>
         <View style={styles.actionItem}>
           <TouchableOpacity
@@ -424,6 +507,13 @@ function AudioStage({
           <Text style={styles.actionLabel}>End</Text>
         </View>
       </View>
+
+      <AudioOutputPickerSheet
+        visible={audioPickerOpen}
+        outputs={audio.outputs}
+        onSelect={onPickAudioOutput}
+        onClose={closeAudioPicker}
+      />
     </SafeAreaView>
   );
 }
@@ -431,6 +521,18 @@ function AudioStage({
 const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
   useOverlayPermissionPrompt();
   const safePop = useSafeSingleNavigationPop(navigation as never);
+
+  // Hardware back button navigates to the chat list while keeping the call alive.
+  // AudioCallScreen stays mounted (LiveKit connection persists); user can return
+  // by pressing back from the chat list or tapping the ongoing notification.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      navigation.dispatch(StackActions.push('BottomTab'));
+      return true;
+    });
+    return () => sub.remove();
+  }, [navigation]);
   const { onDisconnected, onError, onEncryptionError, forceEndCallWithAlert } =
     useLiveKitSessionEnd({
       callLabel: 'Voice call',

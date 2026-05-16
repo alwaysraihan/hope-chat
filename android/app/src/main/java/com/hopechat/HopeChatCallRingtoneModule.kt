@@ -8,10 +8,12 @@ import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.module.annotations.ReactModule
+import java.util.concurrent.atomic.AtomicReference
 
 @ReactModule(name = HopeChatCallRingtoneModule.NAME)
 class HopeChatCallRingtoneModule(private val reactContext: ReactApplicationContext) :
@@ -42,7 +44,15 @@ class HopeChatCallRingtoneModule(private val reactContext: ReactApplicationConte
 
   companion object {
     const val NAME = "HopeChatCallRingtone"
+    private val pendingAutoAcceptJson = AtomicReference<String?>(null)
+    private val pendingRejectJson     = AtomicReference<String?>(null)
   }
+
+  @ReactMethod fun setPendingAutoAcceptData(json: String) { pendingAutoAcceptJson.set(json) }
+  @ReactMethod fun consumePendingAutoAcceptData(promise: Promise) { promise.resolve(pendingAutoAcceptJson.getAndSet(null)) }
+
+  @ReactMethod fun setPendingRejectData(json: String) { pendingRejectJson.set(json) }
+  @ReactMethod fun consumePendingRejectData(promise: Promise) { promise.resolve(pendingRejectJson.getAndSet(null)) }
 
   private fun stopIncomingRingtoneOnMainSync() {
     try {
