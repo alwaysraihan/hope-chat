@@ -273,16 +273,15 @@ function VideoCallGate({
     const t = setTimeout(() => {
       if (countRef.current > 0) return;
       const state = csRef.current;
-      console.warn(‘[VideoCall] outgoing call timeout’, { connectionState: state });
       try {
         if (state === ConnectionState.Connected) {
-          if (Platform.OS === ‘android’) {
-            ToastAndroid.show(`${displayName} didn’t receive your call`, ToastAndroid.LONG);
+          if (Platform.OS === 'android') {
+            ToastAndroid.show(displayName + " didn't receive your call", ToastAndroid.LONG);
           } else {
-            Alert.alert(‘No answer’, `${displayName} didn’t receive your call.`);
+            Alert.alert('No answer', displayName + " didn't receive your call.");
           }
         } else {
-          Alert.alert(‘Call ended’, ‘Could not complete the call. Check your network and try again.’);
+          Alert.alert('Call ended', 'Could not complete the call. Check your network and try again.');
         }
       } catch { /* */ }
       void leaveRef.current();
