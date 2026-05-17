@@ -29,7 +29,7 @@ import VoiceRecorder from './VoiceRecorder';
 import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
+import useKeyboard from '../../hooks/useKeyboard';
 
 const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const {
@@ -43,11 +43,11 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
     clearReply,
   } = useInbox();
 
+  const isKeyboardVisible = useKeyboard();
   const [isExpanded, setIsExpanded] = useState(false);
   const { bottom } = useSafeAreaInsets();
   const expandAnim = useRef(new Animated.Value(0)).current;
   const replyHeight = useRef(new Animated.Value(0)).current;
-
   // Expand when the user starts typing
   useEffect(() => {
     if (props.text?.trim()) setIsExpanded(true);
@@ -102,9 +102,11 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   };
 
   const hasText = Boolean(props.text?.trim());
-
+  const bottomPadding = isKeyboardVisible ? 10 : bottom;
   return (
-    <View style={[styles.container, { paddingBottom: bottom }]}>
+    <View
+      style={[styles.container, { paddingBottom: Math.max(10, bottomPadding) }]}
+    >
       {/* Reply Preview Bar */}
       <Animated.View
         style={[
@@ -232,13 +234,13 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
 
 export default React.memo(CustomInputToolbar);
 
-// ─── Styles 
+// ─── Styles
 
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colorss.white,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingTop: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colorss.border,
   },
