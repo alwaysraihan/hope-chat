@@ -257,6 +257,10 @@ function AudioCallGate({
     return () => clearTimeout(t);
   }, [cs]);
 
+  const onMinimize = useCallback(() => {
+    navigation.dispatch(StackActions.push('BottomTab'));
+  }, [navigation]);
+
   if (cs !== ConnectionState.Connected) {
     const label =
       cs === ConnectionState.Connecting
@@ -291,10 +295,6 @@ function AudioCallGate({
       </SafeAreaView>
     );
   }
-
-  const onMinimize = useCallback(() => {
-    navigation.dispatch(StackActions.push('BottomTab'));
-  }, [navigation]);
 
   return (
     <AudioStage

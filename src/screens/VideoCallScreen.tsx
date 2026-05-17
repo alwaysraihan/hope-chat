@@ -299,6 +299,10 @@ function VideoCallGate({
     return () => clearTimeout(t);
   }, [cs]);
 
+  const onMinimize = useCallback(() => {
+    navigation.dispatch(StackActions.push('BottomTab'));
+  }, [navigation]);
+
   if (cs !== ConnectionState.Connected) {
     const label =
       cs === ConnectionState.Connecting
@@ -333,10 +337,6 @@ function VideoCallGate({
       </SafeAreaView>
     );
   }
-
-  const onMinimize = useCallback(() => {
-    navigation.dispatch(StackActions.push('BottomTab'));
-  }, [navigation]);
 
   return Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled() ? (
     <AndroidConnectedCallStage
