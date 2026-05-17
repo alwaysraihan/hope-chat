@@ -131,9 +131,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
 
           <Text style={styles.title}>Hope Chat</Text>
           <Text style={styles.subtitle}>
-            Sign in with your Hopenity account. On iOS, your session can be read
-            from the shared App Group vault when both apps enable{' '}
-            <Text style={styles.mono}>group.com.hopenity.shared</Text>.
+            Sign in with your Hopenity account.
           </Text>
 
           {loading ? (
@@ -218,11 +216,11 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
                   </TouchableOpacity>
                 </>
               )}
-              <Text style={styles.storeHint}>
+              {/* <Text style={styles.storeHint}>
                 Android package{' '}
                 <Text style={styles.mono}>{HOPENITY_PACKAGE_ID}</Text> ·{' '}
                 {PLAY_STORE_WEB_URL}
-              </Text>
+              </Text> */}
               <TouchableOpacity
                 onPress={() => peekSession()}
                 style={styles.secondary}
@@ -232,12 +230,12 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           )}
 
-          <TouchableOpacity
+          {/* <TouchableOpacity
             onPress={() => navigation.navigate('ForgotPassword')}
             style={styles.linkWrapper}
           >
             <Text style={styles.linkText}>Forgotten password?</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
           <TouchableOpacity
             onPress={() => navigation.navigate('EmailLogin')}
             style={styles.secondaryBtn}

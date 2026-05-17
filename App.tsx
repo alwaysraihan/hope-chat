@@ -14,6 +14,7 @@ import {
   setHopenitySession,
 } from './src/redux/features/auth/authSlice';
 import { ChatsProvider } from './src/context/ChatsContext';
+import { LanguageProvider } from './src/context/LanguageContext';
 import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
 import AppErrorBoundary from './src/components/AppErrorBoundary';
@@ -70,12 +71,14 @@ const App = () => {
     <AppErrorBoundary>
       <SafeAreaProvider>
         <Provider store={store}>
-          <AuthBootstrap />
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
-              <NavigationWithAuthKey />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
+          <LanguageProvider>
+            <AuthBootstrap />
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <KeyboardProvider>
+                <NavigationWithAuthKey />
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </LanguageProvider>
         </Provider>
       </SafeAreaProvider>
     </AppErrorBoundary>

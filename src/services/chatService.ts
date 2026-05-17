@@ -433,6 +433,38 @@ export async function uploadChatMedia(
   return typeof urlValue === 'string' ? urlValue : null;
 }
 
+export async function blockHopeChatUser(
+  chatId: string | number,
+  token?: string | null,
+): Promise<boolean> {
+  if (!token) return false;
+  const url = `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(String(chatId))}/block`;
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  return response.ok;
+}
+
+export async function unblockHopeChatUser(
+  chatId: string | number,
+  token?: string | null,
+): Promise<boolean> {
+  if (!token) return false;
+  const url = `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(String(chatId))}/unblock`;
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  return response.ok;
+}
+
 export function formatChatTime(timestamp?: string): string {
   if (!timestamp) return '';
   const date = new Date(timestamp);

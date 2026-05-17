@@ -9,6 +9,18 @@ function prefs(): MMKV {
 const K_E2EE = 'e2ee_enabled_v1';
 const K_DIS_GLOBAL = 'disappear_global_sec_v1';
 const K_APPEARANCE = 'chat_appearance_v1';
+const K_LANG = 'ui_language_v1';
+
+export type AppLanguage = 'en' | 'bn';
+
+export function getAppLanguage(): AppLanguage {
+  const v = prefs().getString(K_LANG);
+  return v === 'bn' ? 'bn' : 'en';
+}
+
+export function setAppLanguage(lang: AppLanguage): void {
+  prefs().set(K_LANG, lang);
+}
 
 export const DEFAULT_REACTION_PALETTE = [
   '❤️',

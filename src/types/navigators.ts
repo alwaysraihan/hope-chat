@@ -39,6 +39,7 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     seedConversation?: ConversationSummary;
   };
   Profile: {
+    /** conversation ID (same as ConversationSummary.id) */
     userId: string;
   };
   Search: undefined;
@@ -61,7 +62,11 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   };
   NewGroup: undefined;
   TypingIndicator: undefined;
-  BlockedUser: undefined;
+  BlockedUser: {
+    chatId: string;
+    peerName: string;
+    isBlocked: boolean;
+  };
   ReadReceipts: undefined;
   Theme: undefined;
   RestrictUser: undefined;
