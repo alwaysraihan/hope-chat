@@ -39,6 +39,10 @@ import {
   openPlayStore,
 } from '../services/hopenityLinking';
 import { PLAY_STORE_WEB_URL, HOPENITY_PACKAGE_ID } from '../constants/hopenity';
+import {
+  isAutoLoginAcked,
+  markAutoLoginAcked,
+} from '../services/hopenityAutoLoginAck';
 
 type Props = NativeStackScreenProps<Record<string, undefined>, 'Login'>;
 
@@ -109,11 +113,24 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
       }
 
       persistHopenityUser(normalized);
+      markAutoLoginAcked();
       dispatch(setHopenitySession({ blob: normalized }));
     } finally {
       setContinueBusy(false);
     }
   };
+
+  // Auto-login: if the user has previously confirmed "Continue as {name}" and a valid
+  // Hopenity session is still present, skip the confirmation UI and log in immediately.
+  const autoLoginAttemptedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (autoLoginAttemptedRef.current) return;
+    if (!canContinueWithShare) return;
+    if (!isAutoLoginAcked()) return;
+    autoLoginAttemptedRef.current = true;
+    void onContinue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canContinueWithShare]);
 
   return (
     <SafeAreaView style={styles.container}>

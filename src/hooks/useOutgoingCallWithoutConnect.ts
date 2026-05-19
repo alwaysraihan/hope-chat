@@ -4,11 +4,14 @@ import { useRemoteParticipants } from '@livekit/react-native';
 import type { Room } from 'livekit-client';
 
 import { emitCallOutcome } from '../services/callOutcomeBus';
+import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
+import { store } from '../redux/store';
 
 type Opts = {
   callDirection?: 'outgoing' | 'incoming';
   conversationId?: string | null;
   peerUserId?: string | null;
+  liveKitRoom?: string | null;
   callKind: 'audio' | 'video';
   peerDisplayName?: string;
 };
@@ -71,6 +74,15 @@ export function useOutgoingCallWithoutConnect(
       peerUserId: pid,
       peerDisplayName: o.peerDisplayName,
     });
+
+    // Tell the backend to cancel the ring on the callee's side immediately.
+    // The callee's IncomingCallScreen only receives data-channel hangups once they
+    // join LiveKit — if they haven't answered yet they need an FCM cancel instead.
+    const room = o.liveKitRoom?.trim();
+    const token = store.getState().auth.token;
+    if (token && room) {
+      void notifyPeerCallRejected({ token, conversationId: cid, liveKitRoom: room });
+    }
   }, []);
 
   useEffect(() => {

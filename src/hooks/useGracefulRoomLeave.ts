@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { InteractionManager } from 'react-native';
 import { useRoomContext } from '@livekit/react-native';
+import { sendCallHangup } from '../services/livekit/callHangupBus';
 
 type Options = {
   safePop: () => void;
@@ -10,6 +11,8 @@ type Options = {
 
 /**
  * Stops local camera/mic before disconnect to reduce native WebRTC teardown crashes on Android.
+ * Also sends a data-channel hangup signal to the peer so they end immediately
+ * instead of waiting for the 30-second remote-left fallback timer.
  */
 export function useGracefulRoomLeave({ safePop, beforeLeave }: Options) {
   const room = useRoomContext();
@@ -22,6 +25,9 @@ export function useGracefulRoomLeave({ safePop, beforeLeave }: Options) {
     leavingRef.current = true;
     try {
       beforeLeave?.();
+      // Signal the peer immediately so they end their side without the 30s wait.
+      // Must happen before room.disconnect() closes the data channel.
+      sendCallHangup(room);
       const lp = room?.localParticipant;
       if (lp) {
         await lp.setScreenShareEnabled(false).catch(e => {
@@ -46,8 +52,8 @@ export function useGracefulRoomLeave({ safePop, beforeLeave }: Options) {
     } catch (e) {
       console.warn('[LiveKit] graceful leave', e);
     } finally {
+      // leavingRef stays true — no re-entry after the call ends.
       setTimeout(() => {
-        leavingRef.current = false;
         try {
           safePop();
         } catch {

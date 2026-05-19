@@ -5,7 +5,7 @@ import notifee, {
 } from '@notifee/react-native';
 
 const ONGOING_CHANNEL_ID = 'hopechat_ongoing_call';
-const ONGOING_NOTIFICATION_ID = 'hopechat_ongoing_livekit';
+export const ONGOING_NOTIFICATION_ID = 'hopechat_ongoing_livekit';
 
 async function ensureOngoingChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;

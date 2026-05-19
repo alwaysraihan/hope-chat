@@ -31,7 +31,7 @@ import {
   conversationHasStoryRing,
   isDmEligibleForStoryStrips,
 } from '../services/story/storyStripEligibility';
-import { openHopenityBestEffort } from '../services/hopenityLinking';
+
 import { useAppSelector } from '../hooks/redux';
 import {
   selectHopenityProfile,
@@ -275,12 +275,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
-        onSearch={() => {
-          /* focus search bar */
-        }}
-        onNewChat={() =>
-          openHopenityBestEffort().catch(() => undefined)
-        }
+        onCamera={() => navigation.navigate('CreateStory')}
+        onNewGroup={() => navigation.navigate('NewGroup')}
       />
       <SearchBar onSearchPress={() => navigation.navigate('Search')} />
       <View style={styles.container}>

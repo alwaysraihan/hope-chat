@@ -6,6 +6,7 @@ import {
   Pressable,
   Text,
   Animated,
+  ScrollView,
 } from 'react-native';
 import {
   Camera,
@@ -44,7 +45,22 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   } = useInbox();
 
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const { bottom } = useSafeAreaInsets();
+
+  const COMMON_EMOJIS = [
+    '😀','😂','😍','😊','🥰','😎','😭','😅','🤣','😢',
+    '❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💕',
+    '👍','👎','👋','🙌','👏','🤝','🙏','💪','✌️','🤞',
+    '🎉','🎊','🔥','⭐','✨','💫','🌟','🎵','🎶','💯',
+    '😴','🤔','😤','😱','🤯','🥳','🤩','😏','😒','🙄',
+    '🐶','🐱','🦁','🐸','🐧','🦋','🌹','🌺','🍕','🍔',
+  ];
+
+  const appendEmoji = (emoji: string) => {
+    const current = props.text ?? '';
+    props.textInputProps?.onChangeText?.(current + emoji);
+  };
   const expandAnim = useRef(new Animated.Value(0)).current;
   const replyHeight = useRef(new Animated.Value(0)).current;
 
@@ -150,6 +166,23 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
         )}
       </Animated.View>
 
+      {/* Emoji Picker Panel */}
+      {showEmojiPicker && (
+        <View style={styles.emojiPanel}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.emojiScroll}>
+            {COMMON_EMOJIS.map(emoji => (
+              <TouchableOpacity
+                key={emoji}
+                style={styles.emojiItem}
+                onPress={() => appendEmoji(emoji)}
+              >
+                <Text style={styles.emojiChar}>{emoji}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* Input Row */}
       <View style={styles.inputRow}>
         {/* Left icons or collapse arrow */}
@@ -207,8 +240,11 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
               onChangeText: props?.textInputProps?.onChangeText,
             }}
           />
-          <TouchableOpacity style={styles.emojiBtn}>
-            <Smile size={20} color={colorss.primary} />
+          <TouchableOpacity
+            style={styles.emojiBtn}
+            onPress={() => setShowEmojiPicker(v => !v)}
+          >
+            <Smile size={20} color={showEmojiPicker ? colorss.primary : colorss.placeholder} />
           </TouchableOpacity>
         </View>
 
@@ -220,7 +256,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
         ) : (
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={() => props?.onSend({ text: 'Like' })}
+            onPress={() => props?.onSend?.({ text: '👍' } as any)}
           >
             <ThumbsUp size={22} color={colorss.primary} />
           </TouchableOpacity>
@@ -288,4 +324,20 @@ const styles = StyleSheet.create({
   },
   emojiBtn: { marginLeft: 8, padding: 2 },
   actionBtn: { padding: 6 },
+  emojiPanel: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colorss.border,
+    paddingVertical: 6,
+  },
+  emojiScroll: {
+    paddingHorizontal: 4,
+    gap: 2,
+  },
+  emojiItem: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  emojiChar: {
+    fontSize: 26,
+  },
 });

@@ -5,7 +5,12 @@ import { Camera, PenSquare } from 'lucide-react-native';
 import Hopenity from '../../assets/hopenity-logo.png';
 import FastImage from '@d11/react-native-fast-image';
 
-const Header = ({ onSearch, onNewChat }) => {
+type HeaderProps = {
+  onCamera?: () => void;
+  onNewGroup?: () => void;
+};
+
+const Header = ({ onCamera, onNewGroup }: HeaderProps) => {
   return (
     <View style={styles.container}>
       <FastImage
@@ -16,13 +21,19 @@ const Header = ({ onSearch, onNewChat }) => {
       <View style={styles.actions}>
         <TouchableOpacity
           style={styles.iconBtn}
-          onPress={onSearch}
+          onPress={onCamera}
           activeOpacity={0.7}
+          accessibilityLabel="Open camera or story"
         >
           <Camera color={colorss.textPrimary} size={20} />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={onNewGroup}
+          activeOpacity={0.7}
+          accessibilityLabel="Create new group"
+        >
           <PenSquare color={colorss.textPrimary} size={20} />
         </TouchableOpacity>
       </View>

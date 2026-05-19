@@ -42,8 +42,10 @@ import {
   getActiveCall,
   endActiveCallForReplacement,
 } from '../services/livekit/activeCallRegistry';
+import { ONGOING_NOTIFICATION_ID } from '../services/livekit/liveKitCallForeground';
 import { StackActions, CommonActions } from '@react-navigation/native';
 import { emitCallOutcome } from '../services/callOutcomeBus';
+import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
 
 /**
  * If the IncomingCallScreen is currently showing for this room, dismiss it.
@@ -89,11 +91,41 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
   const active = getActiveCall();
   if (active && active.liveKitRoom !== parsed.liveKitRoom) {
     await endActiveCallForReplacement(parsed.liveKitRoom);
+    // Give native WebRTC teardown a moment to settle before joining the new room.
+    await new Promise(resolve => setTimeout(resolve, 150));
     navigationRef.dispatch(
       CommonActions.reset({ index: 1, routes: [{ name: 'BottomTab' }, { name: targetRoute, params }] }),
     );
   } else {
     navigationRef.dispatch(StackActions.push(targetRoute, params));
+  }
+}
+
+/**
+ * When the user taps the ongoing-call foreground-service notification, bring the
+ * active call screen back to front. The minimize button pushes a BottomTab on top;
+ * we find the call screen in the stack and pop back to it.
+ */
+function navigateToActiveCallScreen(): void {
+  if (!navigationRef.isReady()) return;
+  const active = getActiveCall();
+  if (!active) return;
+  const targetRoute = active.kind === 'video' ? 'VideoCall' : 'AudioCall';
+  try {
+    const state = navigationRef.getRootState();
+    const routes = (state?.routes ?? []) as Array<{ name: string }>;
+    const callIdx = routes.findIndex(r => r.name === targetRoute);
+    if (callIdx === -1) {
+      // Call screen isn't in the stack (shouldn't happen, but fall back to pushing it).
+      navigationRef.dispatch(StackActions.push(targetRoute));
+      return;
+    }
+    const popCount = routes.length - 1 - callIdx;
+    if (popCount > 0) {
+      navigationRef.dispatch(StackActions.pop(popCount));
+    }
+  } catch (e) {
+    if (__DEV__) console.warn('[HopeChat] navigateToActiveCallScreen', e);
   }
 }
 
@@ -111,6 +143,16 @@ function processRejectPayload(raw: Record<string, string>): void {
     peerUserId: parsed.callerId,
     peerDisplayName: parsed.displayName,
   });
+  // Signal the backend so it sends a call_cancelled FCM to the caller, stopping
+  // their outgoing ring immediately instead of waiting up to 60s for the timeout.
+  const token = store.getState().auth.token;
+  if (token && parsed.liveKitRoom) {
+    void notifyPeerCallRejected({
+      token,
+      conversationId: parsed.conversationId,
+      liveKitRoom: parsed.liveKitRoom,
+    });
+  }
   dismissIncomingCallIfShowing(parsed.liveKitRoom);
 }
 
@@ -269,7 +311,15 @@ const IncomingCallListener = () => {
       }
 
       unsubNotifee = notifee.onForegroundEvent(({ type, detail }) => {
-        if (type !== EventType.PRESS || !detail.notification?.data) return;
+        if (type !== EventType.PRESS) return;
+
+        // Ongoing call notification tapped — bring the active call screen back into view.
+        if (detail.notification?.id === ONGOING_NOTIFICATION_ID) {
+          navigateToActiveCallScreen();
+          return;
+        }
+
+        if (!detail.notification?.data) return;
         const actionId = detail.pressAction?.id;
         const data = detail.notification.data as Record<string, string>;
 

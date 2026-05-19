@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
   ListRenderItem,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -16,12 +17,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colorss } from '../theme';
 import { useChats } from '../context/ChatsContext';
-import { setStoryFeedRings } from '../data/storyFeedCache';
-import {
-  storyRingsFromConversations,
-} from '../services/story/buildStoryRings';
-import { openHopenityBestEffort } from '../services/hopenityLinking';
+import { setStoryFeedRings, type StoryRing } from '../data/storyFeedCache';
+import { storyRingsFromConversations } from '../services/story/buildStoryRings';
+import { fetchStoryFeed } from '../services/story/storyApi';
 import type { RootStackNavigatorParamList } from '../types/navigators';
+import { useAppSelector } from '../hooks/redux';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
 
 const { width } = Dimensions.get('window');
 const GAP = 12;
@@ -41,13 +42,33 @@ type Tile = {
 const StoriesScreen = () => {
   const navigation = useNavigation();
   const { conversations } = useChats();
+  const token = useAppSelector(selectAuthToken);
   const stackNav =
     navigation.getParent() as
       | NativeStackNavigationProp<RootStackNavigatorParamList>
       | undefined;
 
+  const [apiRings, setApiRings] = useState<StoryRing[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadStories = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const fetched = await fetchStoryFeed(token);
+      if (fetched.length > 0) {
+        setApiRings(fetched);
+      }
+    } catch { /* keep existing */ } finally {
+      setRefreshing(false);
+    }
+  }, [token]);
+
+  useEffect(() => { void loadStories(); }, [loadStories]);
+
   const { rings, tiles } = useMemo(() => {
-    const ringsList = storyRingsFromConversations(conversations);
+    // Prefer real API rings; fall back to conversation-derived placeholder rings
+    const convRings = storyRingsFromConversations(conversations);
+    const ringsList: StoryRing[] = apiRings.length > 0 ? apiRings : convRings;
     const list: Tile[] = [];
     list.push({
       id: '__add',
@@ -66,12 +87,12 @@ const StoriesScreen = () => {
       });
     });
     return { rings: ringsList, tiles: list };
-  }, [conversations]);
+  }, [conversations, apiRings]);
 
   const onTile = useCallback(
     (t: Tile) => {
       if (t.isAdd) {
-        void openHopenityBestEffort();
+        stackNav?.navigate('CreateStory');
         return;
       }
       if (rings.length === 0 || !stackNav) return;
@@ -141,8 +162,7 @@ const StoriesScreen = () => {
       <View style={styles.head}>
         <Text style={styles.title}>Stories</Text>
         <Text style={styles.sub}>
-          From your chats — add new ones in{' '}
-          <Text style={styles.bold}>Hopenity</Text>
+          Tap <Text style={styles.bold}>＋ Story</Text> to share yours
         </Text>
       </View>
       <FlatList
@@ -152,6 +172,13 @@ const StoriesScreen = () => {
         numColumns={COLS}
         columnWrapperStyle={styles.column}
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={loadStories}
+            tintColor={colorss.primary}
+          />
+        }
       />
     </SafeAreaView>
   );

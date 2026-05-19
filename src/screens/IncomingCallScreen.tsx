@@ -28,6 +28,9 @@ import {
   endActiveCallForReplacement,
   getActiveCall,
 } from '../services/livekit/activeCallRegistry';
+import { beginCallTransition } from '../services/callTransitionGuard';
+import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
+import { store } from '../redux/store';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'IncomingCall'>;
 
@@ -51,6 +54,16 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
         peerDisplayName: displayName,
       });
     }
+    // Tell the backend to cancel the caller's outgoing ring immediately — without
+    // this the caller waits up to 60s for the no-answer timeout.
+    const token = store.getState().auth.token;
+    if (token && conversationId?.trim() && liveKitRoom) {
+      void notifyPeerCallRejected({
+        token,
+        conversationId: conversationId.trim(),
+        liveKitRoom,
+      });
+    }
     navigation.goBack();
   }, [
     navigation,
@@ -58,6 +71,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     conversationId,
     callerId,
     displayName,
+    liveKitRoom,
   ]);
 
   const accept = useCallback(() => {
@@ -85,7 +99,10 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     void (async () => {
       try {
         if (active && active.liveKitRoom !== liveKitRoom) {
+          beginCallTransition(800);
           await endActiveCallForReplacement(liveKitRoom);
+          // Give native WebRTC + audio session teardown time to settle before the new room joins.
+          await new Promise(resolve => setTimeout(resolve, 450));
         }
       } catch (e) {
         if (__DEV__) console.warn('[IncomingCall] end previous call', e);

@@ -82,6 +82,8 @@ const authSlice = createSlice({
           (nu.profile_image ??
             nu.profile_photo ??
             nu.avatar ??
+            (nu as { photo?: string }).photo ??
+            (nu as { image?: string }).image ??
             null) as string | null;
         const idRaw = nu.user_id ?? nu.userId ?? nu.id ?? nu._id;
         userId =

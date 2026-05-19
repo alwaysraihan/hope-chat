@@ -86,7 +86,15 @@ import {
   sendCallModeChange,
   subscribeCallModeChanges,
 } from '../services/livekit/callModeBus';
+import {
+  sendCallHangup,
+  subscribeCallHangup,
+} from '../services/livekit/callHangupBus';
 import { mediaDevices } from '@livekit/react-native-webrtc';
+import {
+  beginCallTransition,
+  isCallTransitioning,
+} from '../services/callTransitionGuard';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
 
@@ -120,6 +128,7 @@ function VideoCallGate({
     conversationId?: string;
     peerUserId?: string;
     callDirection?: 'outgoing' | 'incoming';
+    liveKitRoom?: string;
   };
   forceEndCallWithAlert: (title: string, body: string) => void;
   routeParams: Props['route']['params'];
@@ -133,6 +142,7 @@ function VideoCallGate({
       callDirection: outcomeOpts.callDirection,
       conversationId: outcomeOpts.conversationId,
       peerUserId: outcomeOpts.peerUserId,
+      liveKitRoom: outcomeOpts.liveKitRoom,
       callKind: 'video',
       peerDisplayName: displayName,
     },
@@ -157,6 +167,8 @@ function VideoCallGate({
     if (!room?.name) return;
     const silentDisconnect = async () => {
       try {
+        // Signal the peer before disconnecting so they end their side without the 30s wait.
+        sendCallHangup(room);
         const lp = room?.localParticipant;
         if (lp) {
           await lp.setScreenShareEnabled(false).catch(() => undefined);
@@ -176,12 +188,21 @@ function VideoCallGate({
     return unregister;
   }, [room]);
 
+  /** Peer sent a hangup signal — end the call immediately without the 30s fallback timer. */
+  useEffect(() => {
+    if (!room) return;
+    return subscribeCallHangup(room, () => {
+      void leaveRef.current();
+    });
+  }, [room]);
+
   /** Peer flipped their side back to audio — mirror by replacing this screen with AudioCall. */
   useEffect(() => {
     if (!room) return;
     return subscribeCallModeChanges(room, msg => {
       if (msg.mode !== 'audio') return;
       try {
+        beginCallTransition();
         navigation.replace('AudioCall', {
           displayName: routeParams?.displayName ?? displayName,
           liveKitRoom: routeParams?.liveKitRoom,
@@ -204,6 +225,7 @@ function VideoCallGate({
       if (__DEV__) console.warn('[VideoCall] sendCallModeChange', e);
     }
     try {
+      beginCallTransition();
       navigation.replace('AudioCall', {
         displayName: routeParams?.displayName ?? displayName,
         liveKitRoom: routeParams?.liveKitRoom,
@@ -1054,7 +1076,12 @@ function VideoStage({
 
 const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
   useOverlayPermissionPrompt();
-  const safePop = useSafeSingleNavigationPop(navigation as never);
+  const rawSafePop = useSafeSingleNavigationPop(navigation as never);
+  // Suppress safePop when we're intentionally swapping call screens (mode switch / call handover).
+  const safePop = useCallback(() => {
+    if (isCallTransitioning()) return;
+    rawSafePop();
+  }, [rawSafePop]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -1183,6 +1210,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
                 conversationId: route.params?.conversationId,
                 peerUserId: route.params?.peerUserId,
                 callDirection: route.params?.callDirection,
+                liveKitRoom: route.params?.liveKitRoom,
               }}
             />
           </CallRoomErrorBoundary>

@@ -29,6 +29,7 @@ import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { clearAuth, selectHopenityProfile } from '../redux/features/auth/authSlice';
 import { clearPersistedHopenityUser } from '../services/hopenitySharedAuth';
 import { useLanguage } from '../context/LanguageContext';
+import { openHopenityBestEffort } from '../services/hopenityLinking';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Menu'>,
@@ -101,7 +102,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
       id: 'settings',
       title: t.settings,
       icon: <LucideSettings size={20} color={colors.textPrimary} />,
-      onPress: () => {},
+      onPress: () => navigation.navigate('Settings'),
     },
     {
       id: 'message-requests',
@@ -119,7 +120,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
       id: 'friend-requests',
       title: t.friendRequests,
       icon: <LucideUsers size={20} color={colors.textPrimary} />,
-      onPress: () => {},
+      onPress: () => void openHopenityBestEffort().catch(() => undefined),
     },
   ];
 
@@ -135,7 +136,10 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
         />
         <View style={styles.profileText}>
           <Text style={styles.displayName} numberOfLines={1}>
-            {profile?.displayName ?? 'HopeChat'}
+            {profile?.displayName ?? 'HopeChat User'}
+          </Text>
+          <Text style={styles.profileSub} numberOfLines={1}>
+            View your profile
           </Text>
         </View>
       </View>
@@ -242,6 +246,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.textPrimary,
+  },
+  profileSub: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   divider: {
     height: 1,

@@ -254,7 +254,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
       </View>
 
       <View style={styles.itemBody}>
-        <Text style={styles.itemMsg} numberOfLines={2}>
+        <Text style={[styles.itemMsg, !item.is_read && styles.itemMsgUnread]} numberOfLines={2}>
           {notifMessage(item)}
         </Text>
         <Text style={[styles.itemTime, !item.is_read && styles.itemTimeUnread]}>
@@ -368,7 +368,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   itemUnread: {
-    backgroundColor: `${colorss.primary}08`,
+    backgroundColor: `${colorss.primary}18`,
+    borderLeftWidth: 3,
+    borderLeftColor: colorss.primary,
   },
   avatarWrap: {
     position: 'relative',
@@ -396,6 +398,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colorss.textPrimary,
     lineHeight: 20,
+  },
+  itemMsgUnread: {
+    fontWeight: '700',
   },
   itemTime: {
     fontSize: 12,

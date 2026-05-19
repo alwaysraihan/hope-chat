@@ -31,6 +31,7 @@ import { selectHopenityProfile } from '../redux/features/auth/authSlice';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { API_BASE_URL } from '../config/env';
+import { useChats } from '../context/ChatsContext';
 
 type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackNavigatorParamList, 'Search'>,
@@ -138,6 +139,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   const token = useAppSelector(s => s.auth.token);
   const profile = useAppSelector(selectHopenityProfile);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
+  const { conversations } = useChats();
   const localUserId =
     normalizeChatUserId(giftedChatUser?._id) ||
     normalizeChatUserId(profile?.userId) ||
@@ -186,18 +188,43 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   const openChat = useCallback(
     (user: UserResult) => {
       const peerId = String(user.user_id);
+
+      // Try to find an existing conversation with this peer by matching peerUserId.
+      // The API returns conversation IDs that are NOT the same as user IDs, so
+      // passing peerId directly as conversationId causes "Conversation not found".
+      const existing = conversations.find(
+        c =>
+          !c.isGroup &&
+          c.peerUserId != null &&
+          normalizeChatUserId(c.peerUserId) === normalizeChatUserId(peerId),
+      );
+
+      const conversationId = existing ? String(existing.id) : peerId;
+      const liveKitRoom = resolveLiveKitRoomName({
+        conversationId,
+        peerUserId: peerId,
+        localUserId,
+      });
+
       navigation.navigate('Inbox', {
-        conversationId: peerId,
+        conversationId,
         displayName: user.name,
         avatarUrl: user.image ?? null,
-        liveKitRoom: resolveLiveKitRoomName({
-          conversationId: peerId,
+        liveKitRoom,
+        // Seed lets InboxGate render even when the conversation isn't in the
+        // cache yet (e.g. first message to this person).
+        seedConversation: existing ?? {
+          id: conversationId,
+          name: user.name,
+          avatarUrl: user.image ?? null,
           peerUserId: peerId,
-          localUserId,
-        }),
+          isGroup: false,
+          needsAcceptance: false,
+          messages: [],
+        },
       });
     },
-    [navigation, localUserId],
+    [navigation, localUserId, conversations],
   );
 
   const renderUser = useCallback(

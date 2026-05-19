@@ -45,6 +45,8 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
   const token = useAppSelector(selectAuthToken);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const profile = useAppSelector(selectHopenityProfile);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const localUser = useMemo(
     () => ({
       _id:
@@ -124,7 +126,23 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
 
         <Text style={styles.navTitle}>Message requests</Text>
 
-        <TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => {
+            Alert.alert('Message Requests', 'What would you like to do?', [
+              {
+                text: 'Delete all requests',
+                style: 'destructive',
+                onPress: () => {
+                  Alert.alert('Delete all', 'This will remove all pending message requests.', [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: () => setRequested([]) },
+                  ]);
+                },
+              },
+              { text: 'Cancel', style: 'cancel' },
+            ]);
+          }}
+        >
           <MoreVertical size={22} color={C.textPrimary} />
         </TouchableOpacity>
       </View>
@@ -197,6 +215,20 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
 
                   <TouchableOpacity
                     style={styles.itemContent}
+                    onLongPress={() => {
+                      Alert.alert(row.summary.name, 'Choose an action', [
+                        {
+                          text: 'Accept',
+                          onPress: () => onAccept(row.summary.id),
+                        },
+                        {
+                          text: 'Delete request',
+                          style: 'destructive',
+                          onPress: () => setRequested(prev => prev.filter(c => String(c.id) !== row.summary.id)),
+                        },
+                        { text: 'Cancel', style: 'cancel' },
+                      ]);
+                    }}
                     onPress={() =>
                       navigation.navigate('Inbox', {
                         conversationId: row.summary.id,

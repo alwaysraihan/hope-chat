@@ -33,6 +33,9 @@ import EmailLoginScreen from '../screens/EmailLoginScreen';
 import DeviceApprovalWaitScreen from '../screens/DeviceApprovalWaitScreen';
 import IncomingCallScreen from '../screens/IncomingCallScreen';
 import StoryViewerScreen from '../screens/StoryViewerScreen';
+import CreateStoryScreen from '../screens/CreateStoryScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import BlockedPeopleScreen from '../screens/BlockedPeopleScreen';
 
 const RootStack = createNativeStackNavigator<RootStackNavigatorParamList>();
 
@@ -107,6 +110,9 @@ const StackNavigator = () => {
           gestureEnabled: true,
         }}
       />
+      <RootStack.Screen name="CreateStory" component={CreateStoryScreen} />
+      <RootStack.Screen name="Settings" component={SettingsScreen} />
+      <RootStack.Screen name="BlockedPeople" component={BlockedPeopleScreen} />
       <RootStack.Screen
         name="DisappearingMessages"
         component={DisappearingMessagesScreen}

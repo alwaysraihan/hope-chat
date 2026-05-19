@@ -97,6 +97,10 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   };
   /** Full-screen Story viewer (ring index into `setStoryFeedRings` cache). */
   StoryViewer: { ringIndex: number };
+  /** In-app story creation screen. */
+  CreateStory: undefined;
+  /** List of blocked people and pages with unblock action. */
+  BlockedPeople: undefined;
 };
 
 type MediaTabNavigatorParamList = {
