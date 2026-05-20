@@ -5,6 +5,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+
 import {
   Animated,
   FlatList,
@@ -29,6 +30,8 @@ import type {
   RootStackNavigatorParamList,
 } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
+import { selectHopenityProfile } from '../redux/features/auth/authSlice';
+import { readNotificationsCache, writeNotificationsCache } from '../services/offlineCache';
 import { API_BASE_URL } from '../config/env';
 import { useT } from '../hooks/useT';
 
@@ -143,6 +146,23 @@ function sectionLabel(iso: string): string {
   return 'Earlier';
 }
 
+// ─── Filter ───────────────────────────────────────────────────────────────────
+
+/** Types handled elsewhere (push notification tray / call UI) — hide from this screen. */
+const HIDDEN_TYPES = new Set([
+  'MESSAGE',
+  'FRIEND_REQUEST',
+  'FRIEND_REQUEST_ACCEPTED',
+  'CALL',
+  'MISSED_CALL',
+  'INCOMING_CALL',
+  'CALL_CANCELLED',
+]);
+
+function filterNotifications(list: NotifItem[]): NotifItem[] {
+  return list.filter(n => !HIDDEN_TYPES.has((n.type ?? '').toUpperCase()));
+}
+
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function apiFetch(url: string, token: string | null, init?: RequestInit) {
@@ -184,9 +204,10 @@ async function markAllRead(token: string | null): Promise<void> {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
+const NotificationsScreen: React.FC<Props> = () => {
   const t = useT();
   const token = useAppSelector(s => s.auth.token);
+  const userId = useAppSelector(selectHopenityProfile)?.userId ?? 'me';
 
   const [items, setItems] = useState<NotifItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,15 +217,28 @@ const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const data = await loadNotifications(token);
+      const data = filterNotifications(await loadNotifications(token));
       setItems(data);
+      writeNotificationsCache(userId, data);
     } catch {
       /* keep existing list on error */
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, userId]);
+
+  // Restore cached notifications instantly before the network response arrives
+  const cacheLoaded = useRef(false);
+  useEffect(() => {
+    if (cacheLoaded.current || userId === 'me') return;
+    cacheLoaded.current = true;
+    const cached = readNotificationsCache(userId);
+    if (cached && cached.length > 0) {
+      setItems(filterNotifications(cached as NotifItem[]));
+      setLoading(false);
+    }
+  }, [userId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -221,12 +255,9 @@ const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     }, [hasUnread, token]),
   );
 
-  const handlePress = useCallback((item: NotifItem) => {
-    // Route to relevant screen on tap.
-    if (item.type === 'FRIEND_REQUEST') {
-      try { navigation.navigate('MessageRequests'); } catch { /* */ }
-    }
-  }, [navigation]);
+  const handlePress = useCallback((_item: NotifItem) => {
+    // Messaging and call types are filtered out; add tap routing here for other types as needed.
+  }, []);
 
   // ── Group by section label
   const grouped = useMemo(() => {
@@ -265,8 +296,8 @@ const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     </TouchableOpacity>
   ), [handlePress]);
 
-  // ── Skeleton ──
-  if (loading) {
+  // ── Skeleton ── (only when loading with no cached data to show)
+  if (loading && items.length === 0) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.header}>

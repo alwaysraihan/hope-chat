@@ -42,6 +42,7 @@ import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import {
   consumePendingPeerLink,
   onPeerDeepLink,
+  type PeerLinkPayload,
 } from '../services/peerDeepLink';
 
 type Props = CompositeScreenProps<
@@ -144,23 +145,54 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     [navigation, localUserId],
   );
 
-  // Navigate to the correct Inbox when a hopechat://peer/{userId} deep link arrives
-  // while the app is already running (app was backgrounded / in foreground).
-  useEffect(() => {
-    return onPeerDeepLink(peerId => {
-      const conv = conversations.find(c => c.peerUserId === peerId);
-      if (conv) navigateInbox(conv);
-    });
-  }, [conversations, navigateInbox]);
+  // Open or create a 1-to-1 chat for a hopechat://peer/{userId} deep link.
+  // Mirrors SearchScreen.openChat: reuse the existing conversation when found,
+  // otherwise seed a placeholder so InboxScreen can render before the server
+  // returns a real conversationId on the first message.
+  const navigateInboxForPeer = useCallback(
+    ({ peerId, displayName, avatarUrl }: PeerLinkPayload) => {
+      const existing = conversations.find(
+        c =>
+          !c.isGroup &&
+          c.peerUserId != null &&
+          normalizeChatUserId(c.peerUserId) === normalizeChatUserId(peerId),
+      );
+      const conversationId = existing ? String(existing.id) : peerId;
+      navigation.navigate('Inbox', {
+        conversationId,
+        displayName: displayName ?? existing?.name ?? '',
+        avatarUrl: avatarUrl ?? existing?.avatarUrl ?? null,
+        liveKitRoom: resolveLiveKitRoomName({
+          conversationId,
+          peerUserId: peerId,
+          localUserId,
+        }),
+        seedConversation: existing ?? {
+          id: conversationId,
+          name: displayName ?? '',
+          avatarUrl: avatarUrl ?? null,
+          peerUserId: peerId,
+          isGroup: false,
+          needsAcceptance: false,
+          messages: [],
+        },
+      });
+    },
+    [navigation, conversations, localUserId],
+  );
 
-  // Navigate to the correct Inbox after a cold-start deep link once conversations load.
+  // Runtime deep link — app already running / backgrounded.
   useEffect(() => {
-    if (conversations.length === 0) return;
-    const peerId = consumePendingPeerLink();
-    if (!peerId) return;
-    const conv = conversations.find(c => c.peerUserId === peerId);
-    if (conv) navigateInbox(conv);
-  }, [conversations, navigateInbox]);
+    return onPeerDeepLink(payload => navigateInboxForPeer(payload));
+  }, [navigateInboxForPeer]);
+
+  // Cold-start deep link — wait for the list to finish loading, then consume.
+  useEffect(() => {
+    if (listLoading) return;
+    const payload = consumePendingPeerLink();
+    if (!payload) return;
+    navigateInboxForPeer(payload);
+  }, [listLoading, navigateInboxForPeer]);
 
   const openStoryViewer = useCallback(() => {
     const rings = storyRingsFromConversations(conversations);

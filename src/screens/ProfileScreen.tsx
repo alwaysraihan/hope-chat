@@ -22,6 +22,7 @@ import {
   Trash2,
   TypeIcon,
   Unlock,
+  User,
   Users,
 } from 'lucide-react-native';
 import { colorss } from '../theme';
@@ -32,6 +33,7 @@ import OptionModal from '../components/profile/OptionModal';
 import ProfileHeader from '../components/profile/ProfileHeader';
 import SectionItem from '../components/profile/SectionItem';
 import DeleteChat from '../components/profile/DeleteChat';
+import ComingSoonModal from '../components/ComingSoonModal';
 import { useChats } from '../context/ChatsContext';
 import { useAppSelector } from '../hooks/redux';
 import {
@@ -41,6 +43,7 @@ import {
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
 import { fetchHopenityChatDirectory } from '../services/chatService';
+import { openHopenityProfile } from '../services/hopenityLinking';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Profile'>;
 
@@ -71,6 +74,9 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
         .catch(() => {});
     }, [token, chatId]),
   );
+
+  const [comingSoonVisible, setComingSoonVisible] = useState(false);
+  const comingSoon = () => setComingSoonVisible(true);
 
   const [visibleMuteModal, setVisibleMuteModal] = useState(false);
   const [muteIndex, setMuteIndex] = useState<number | null>(null);
@@ -136,15 +142,15 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
     {
       id: 3,
       name: 'Profile',
-      icon: <LucidePersonStanding fill="white" stroke="white" />,
-      onPress: () => {},
+      icon: <User fill="white" stroke="white" />,
+      onPress: () => { openHopenityProfile(peerUserId ?? chatId).catch(() => {}); },
     },
-    {
-      id: 4,
-      name: 'Mute',
-      icon: <LucideBell fill="white" stroke="white" />,
-      onPress: () => setVisibleMuteModal(true),
-    },
+    // {
+    //   id: 4,
+    //   name: 'Mute',
+    //   icon: <LucideBell fill="white" stroke="white" />,
+    //   onPress: () => setVisibleMuteModal(true),
+    // },
   ];
 
   const sectionsData = [
@@ -152,151 +158,43 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       id: 1,
       title: 'Customization',
       data: [
-        {
-          id: 1,
-          title: 'Theme',
-          image: <LucidePalette size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('Theme'),
-        },
-        {
-          id: 2,
-          title: 'Quick reaction',
-          image: <ThumbsUp size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => {},
-        },
-        {
-          id: 3,
-          title: 'Nicknames',
-          image: <LucidePalette size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('Nicknames'),
-        },
-        {
-          id: 4,
-          title: 'Word effects',
-          image: <ALargeSmall size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('WordEffects'),
-        },
+        { id: 1, title: 'Theme',          image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
+        { id: 2, title: 'Quick reaction', image: <ThumbsUp size={22} color={colorss.primary} />,     type: 'switch', onPress: comingSoon },
+        { id: 3, title: 'Nicknames',      image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
+        { id: 4, title: 'Word effects',   image: <ALargeSmall size={22} color={colorss.primary} />,   type: 'switch', onPress: comingSoon },
       ],
     },
     {
       id: 2,
       title: 'More actions',
       data: [
-        {
-          id: 1,
-          title: 'Create group with',
-          image: <Users size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('NewGroup'),
-        },
-        {
-          id: 2,
-          title: 'View media, files, and links',
-          image: <ImageIcon size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('MediaTab', { screen: 'Media' }),
-        },
-        {
-          id: 3,
-          title: 'Auto-save photos',
-          image: <ArrowDownToLine size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('AutoSavePhotos'),
-        },
-        {
-          id: 4,
-          title: 'Pinned messages',
-          image: <Pin size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('PinnedMessages'),
-        },
-        {
-          id: 5,
-          title: 'Notification & sounds',
-          image: <Bell size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('NotificationsSounds'),
-        },
+        { id: 1, title: 'Create group with',          image: <Users size={22} color={colorss.primary} />,          type: 'switch', onPress: comingSoon },
+        { id: 2, title: 'View media, files, and links', image: <ImageIcon size={22} color={colorss.primary} />,    type: 'switch', onPress: comingSoon },
+        { id: 3, title: 'Auto-save photos',           image: <ArrowDownToLine size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
+        { id: 4, title: 'Pinned messages',            image: <Pin size={22} color={colorss.primary} />,            type: 'switch', onPress: comingSoon },
+        { id: 5, title: 'Notification & sounds',      image: <Bell size={22} color={colorss.primary} />,           type: 'switch', onPress: comingSoon },
       ],
     },
     {
       id: 3,
       title: 'Privacy & support',
       data: [
-        {
-          id: 1,
-          title: 'Message permissions',
-          image: (
-            <Shield fill={colorss.primary} size={22} color={colorss.primary} />
-          ),
-          type: 'switch',
-          onPress: () => navigation.navigate('MessagePermissions'),
-        },
-        {
-          id: 2,
-          title: 'Read receipts',
-          image: <Eye size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('ReadReceipts'),
-        },
-        {
-          id: 3,
-          title: 'Disappearing messages',
-          image: <ClockFading size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () =>
-            navigation.navigate('DisappearingMessages', {
-              conversationId: chatId,
-            }),
-        },
-        {
-          id: 4,
-          title: 'Restrict',
-          image: <CircleSlash size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('RestrictUser'),
-        },
+        { id: 1, title: 'Message permissions',    image: <Shield fill={colorss.primary} size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
+        { id: 2, title: 'Read receipts',          image: <Eye size={22} color={colorss.primary} />,         type: 'switch', onPress: comingSoon },
+        { id: 3, title: 'Disappearing messages',  image: <ClockFading size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
+        { id: 4, title: 'Restrict',               image: <CircleSlash size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
         {
           id: 5,
           title: isBlocked ? `Unblock ${peerName}` : `Block ${peerName}`,
-          image: isBlocked ? (
-            <Unlock size={22} color={colorss.error} />
-          ) : (
-            <Ban size={22} color={colorss.error} />
-          ),
+          image: isBlocked
+            ? <Unlock size={22} color={colorss.error} />
+            : <Ban size={22} color={colorss.error} />,
           type: 'switch',
-          onPress: () =>
-            navigation.navigate('BlockedUser', {
-              chatId,
-              peerName,
-              isBlocked,
-            }),
+          onPress: () => navigation.navigate('BlockedUser', { chatId, peerName, isBlocked }),
         },
-        {
-          id: 6,
-          title: 'Report a problem',
-          image: <AlertTriangle size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('ReportProblem'),
-        },
-        {
-          id: 7,
-          title: 'Typing indicator',
-          image: <TypeIcon size={22} color={colorss.primary} />,
-          type: 'switch',
-          onPress: () => navigation.navigate('TypingIndicator'),
-        },
-        {
-          id: 8,
-          title: 'Delete chat',
-          image: <Trash2 size={22} color={colorss.error} />,
-          type: 'switch',
-          onPress: () => setVisibleDeleteChatModal(true),
-        },
+        { id: 6, title: 'Report a problem', image: <AlertTriangle size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
+        { id: 7, title: 'Typing indicator', image: <TypeIcon size={22} color={colorss.primary} />,      type: 'switch', onPress: comingSoon },
+        { id: 8, title: 'Delete chat',      image: <Trash2 size={22} color={colorss.error} />,          type: 'switch', onPress: () => setVisibleDeleteChatModal(true) },
       ],
     },
   ];
@@ -364,6 +262,11 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       <DeleteChat
         visible={visibleDeleteChatModal}
         onCancel={() => setVisibleDeleteChatModal(false)}
+      />
+
+      <ComingSoonModal
+        visible={comingSoonVisible}
+        onClose={() => setComingSoonVisible(false)}
       />
     </SafeAreaView>
   );

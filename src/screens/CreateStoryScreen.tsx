@@ -452,7 +452,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
   }, [token, bgMode, caption, currentBg, selectedMusic, visibility, media, navigation]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* ── Header ─────────────────────────────────────────── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>

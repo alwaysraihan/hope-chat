@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import FastImage from '@d11/react-native-fast-image';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colorss } from '../theme';
@@ -22,7 +22,8 @@ import { storyRingsFromConversations } from '../services/story/buildStoryRings';
 import { fetchStoryFeed } from '../services/story/storyApi';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
-import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
+import { readStoryFeedCache, writeStoryFeedCache } from '../services/offlineCache';
 import { useT } from '../hooks/useT';
 
 const { width } = Dimensions.get('window');
@@ -45,6 +46,7 @@ const StoriesScreen = () => {
   const navigation = useNavigation();
   const { conversations } = useChats();
   const token = useAppSelector(selectAuthToken);
+  const userId = useAppSelector(selectHopenityProfile)?.userId ?? 'me';
   const stackNav =
     navigation.getParent() as
       | NativeStackNavigationProp<RootStackNavigatorParamList>
@@ -52,6 +54,15 @@ const StoriesScreen = () => {
 
   const [apiRings, setApiRings] = useState<StoryRing[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const cacheLoaded = useRef(false);
+
+  // Restore persisted rings before the network request completes
+  useEffect(() => {
+    if (cacheLoaded.current || userId === 'me') return;
+    cacheLoaded.current = true;
+    const cached = readStoryFeedCache(userId);
+    if (cached && cached.length > 0) setApiRings(cached);
+  }, [userId]);
 
   const loadStories = useCallback(async () => {
     setRefreshing(true);
@@ -59,13 +70,22 @@ const StoriesScreen = () => {
       const fetched = await fetchStoryFeed(token);
       if (fetched.length > 0) {
         setApiRings(fetched);
+        writeStoryFeedCache(userId, fetched);
       }
     } catch { /* keep existing */ } finally {
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, userId]);
 
   useEffect(() => { void loadStories(); }, [loadStories]);
+
+  // Re-fetch when the screen gains focus so a freshly created story appears
+  // immediately after the user navigates back from CreateStory.
+  useFocusEffect(
+    useCallback(() => {
+      loadStories().catch(() => {});
+    }, [loadStories]),
+  );
 
   const { rings, tiles } = useMemo(() => {
     // Prefer real API rings; fall back to conversation-derived placeholder rings

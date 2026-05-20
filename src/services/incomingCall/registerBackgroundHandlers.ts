@@ -1,6 +1,6 @@
 import { getApp } from '@react-native-firebase/app';
 import { getMessaging, setBackgroundMessageHandler } from '@react-native-firebase/messaging';
-import notifee, { EventType } from '@notifee/react-native';
+import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
 
 import {
   cancelAndroidIncomingCallNotification,
@@ -20,29 +20,110 @@ import {
   setPendingRejectData,
 } from './callRingtone';
 
+// ── Messaging notification channel ────────────────────────────────────────────
+
+const MESSAGE_CHANNEL_ID = 'hopechat_messages_v1';
+
+/**
+ * FCM data.type values that are allowed to produce a push notification.
+ * Calls are handled separately via the call-notification path.
+ * Every other type (POST_LIKE, COMMENT, STORY_REACTION, etc.) is silently dropped.
+ */
+const ALLOWED_PUSH_TYPES = new Set([
+  'MESSAGE',
+  'FRIEND_REQUEST',
+  'FRIEND_REQUEST_ACCEPTED',
+]);
+
+async function ensureMessagesChannel(): Promise<void> {
+  await notifee.createChannel({
+    id: MESSAGE_CHANNEL_ID,
+    name: 'Messages & Requests',
+    importance: AndroidImportance.HIGH,
+    sound: 'default',
+    vibration: true,
+  });
+}
+
+async function displayMessagingNotification(
+  data: Record<string, string>,
+): Promise<void> {
+  const type = (data.type ?? '').toUpperCase();
+  if (!ALLOWED_PUSH_TYPES.has(type)) return;
+
+  const senderName =
+    data.sender_name ?? data.name ?? data.displayName ?? data.callerName ?? '';
+
+  let title: string;
+  let body: string;
+
+  if (type === 'MESSAGE') {
+    title = senderName || 'New message';
+    body =
+      data.body ??
+      data.message ??
+      data.content ??
+      data.message_preview ??
+      'You have a new message';
+  } else if (type === 'FRIEND_REQUEST') {
+    title = 'Friend Request';
+    body = senderName
+      ? `${senderName} sent you a friend request`
+      : 'You have a new friend request';
+  } else {
+    // FRIEND_REQUEST_ACCEPTED
+    title = 'Friend Request Accepted';
+    body = senderName
+      ? `${senderName} accepted your friend request`
+      : 'Your friend request was accepted';
+  }
+
+  await ensureMessagesChannel();
+  await notifee.displayNotification({
+    title,
+    body,
+    data,
+    android: {
+      channelId: MESSAGE_CHANNEL_ID,
+      importance: AndroidImportance.HIGH,
+      pressAction: { id: 'default', launchActivity: 'default' },
+    },
+  });
+}
+
+// ── Channel ownership guard ────────────────────────────────────────────────────
+
 // Channels owned by HopeChat — never cancel these when suppressing unwanted auto-notifications.
 const HOPECHAT_OWNED_CHANNEL_IDS = new Set([
   INCOMING_CALL_ANDROID_CHANNEL_ID,
   'hopechat_ongoing_call',
+  MESSAGE_CHANNEL_ID,
 ]);
 
 /**
- * When a non-call FCM message has a notification payload, Android auto-displays it
- * before our JS handler runs. This cancels that spurious notification while leaving
- * our own call/ongoing-call notifications intact.
+ * When an FCM message has a notification payload, Android auto-displays it before
+ * our JS handler runs. This cancels that spurious banner while leaving our own
+ * call / ongoing-call / message notifications intact.
  */
-async function suppressAutoDisplayedNonCallNotification(): Promise<void> {
+async function suppressAutoDisplayedNotification(): Promise<void> {
   // Brief pause so Android finishes rendering the notification before we look for it.
   await new Promise<void>(resolve => setTimeout(resolve, 200));
   try {
     const displayed = await notifee.getDisplayedNotifications();
     await Promise.all(
       displayed
-        .filter(n => !HOPECHAT_OWNED_CHANNEL_IDS.has(n.notification?.android?.channelId ?? ''))
+        .filter(
+          n =>
+            !HOPECHAT_OWNED_CHANNEL_IDS.has(
+              n.notification?.android?.channelId ?? '',
+            ),
+        )
         .map(n => (n.id ? notifee.cancelNotification(n.id) : Promise.resolve())),
     );
   } catch { /* best-effort */ }
 }
+
+// ── Notifee background event handler ──────────────────────────────────────────
 
 notifee.onBackgroundEvent(async ({ type, detail }) => {
   const actionId = detail.pressAction?.id;
@@ -87,17 +168,22 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
   }
 });
 
+// ── FCM background message handler ────────────────────────────────────────────
+
 const messaging = getMessaging(getApp());
 
 /**
  * Headless JS: data-only FCM while backgrounded/killed.
- * Handles both incoming calls (show notification + start ringtone) and
- * call cancellations (stop ringtone + cancel notification for calls answered elsewhere).
+ *
+ * Push notification allow-list:
+ *   • incoming_call / call variants  → full-screen call UI + ringtone
+ *   • MESSAGE, FRIEND_REQUEST, FRIEND_REQUEST_ACCEPTED → chat notification banner
+ *   • everything else (likes, comments, etc.)          → silently suppressed
  */
 setBackgroundMessageHandler(messaging, async remoteMessage => {
   const data = normalizeFcmData(remoteMessage.data);
 
-  // Call cancelled / answered on another device — tear down ringing immediately.
+  // ── Call cancelled / answered on another device — tear down ringing immediately.
   const isCancelled =
     data.type === CALL_CANCELLED_MESSAGE_TYPE ||
     data.type === 'call_cancel' ||
@@ -110,17 +196,22 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
     return;
   }
 
+  // ── Incoming call — show full-screen call UI.
   const parsed = parseIncomingCallPayload(data);
-  if (!parsed) {
-    // Not a call message. If the FCM payload had a notification object, Android
-    // auto-displayed a banner — cancel it so only call notifications appear in HopeChat.
-    if (remoteMessage.notification) {
-      await suppressAutoDisplayedNonCallNotification();
-    }
+  if (parsed) {
+    await ensureIncomingCallAndroidChannel();
+    await displayAndroidIncomingCallNotification(parsed);
+    startIncomingCallRingtone();
     return;
   }
 
-  await ensureIncomingCallAndroidChannel();
-  await displayAndroidIncomingCallNotification(parsed);
-  startIncomingCallRingtone();
+  // ── Not a call — suppress any Android auto-displayed banner first (FCM with
+  //    notification payload gets auto-shown by Android before JS runs).
+  if (remoteMessage.notification) {
+    await suppressAutoDisplayedNotification();
+  }
+
+  // ── Only messaging-related types get a push notification.
+  //    All other types (POST_LIKE, COMMENT, STORY_REACTION, etc.) are dropped.
+  await displayMessagingNotification(data);
 });

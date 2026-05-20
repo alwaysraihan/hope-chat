@@ -47,3 +47,29 @@ export async function openPlayStore(): Promise<void> {
     await Linking.openURL(PLAY_STORE_WEB_URL);
   }
 }
+
+/**
+ * Opens the Hopenity app on the public profile page of the given user.
+ * Tries the deep-link scheme first (hopenity://hopenity.com/profile/{userId});
+ * falls back to opening the web profile URL in the browser if the app is not
+ * installed or the scheme is not handled.
+ */
+export async function openHopenityProfile(userId: string | number): Promise<void> {
+  const id = String(userId ?? '').trim();
+  if (!id) { await openHopenityBestEffort(); return; }
+
+  const deepLink =
+    Platform.OS === 'ios'
+      ? `${HOPENITY_IOS_SCHEME}profile/${id}`
+      : `hopenity://hopenity.com/profile/${id}`;
+
+  try {
+    const ok = await Linking.canOpenURL(deepLink);
+    if (ok) { await Linking.openURL(deepLink); return; }
+  } catch { /* fall through */ }
+
+  // Fallback: open the web profile so the user always lands somewhere useful.
+  try {
+    await Linking.openURL(`https://hopenity.com/profile/${id}`);
+  } catch { /* nothing else to try */ }
+}

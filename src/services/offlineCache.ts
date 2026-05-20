@@ -1,6 +1,7 @@
 import { createMMKV, type MMKV } from 'react-native-mmkv';
 import type { ConversationSummary } from '../context/ChatsContext';
 import type { ExtendedMessage } from '../components/types/chat';
+import type { StoryRing } from '../data/storyFeedCache';
 
 let _storage: MMKV | null = null;
 function storage(): MMKV {
@@ -88,6 +89,62 @@ export function writeThreadMessagesCache(
     console.warn('[offlineCache] writeThreadMessagesCache', e);
   }
 }
+
+// ─── Story feed cache ─────────────────────────────────────────────────────────
+
+function storyFeedKey(userId: string): string {
+  return `story_feed_v1_${userId}`;
+}
+
+export function readStoryFeedCache(userId: string): StoryRing[] | null {
+  if (!userId || userId === 'me') return null;
+  const raw = storage().getString(storyFeedKey(userId));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as StoryRing[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoryFeedCache(userId: string, rings: StoryRing[]): void {
+  if (!userId || userId === 'me') return;
+  try {
+    storage().set(storyFeedKey(userId), JSON.stringify(rings));
+  } catch (e) {
+    console.warn('[offlineCache] writeStoryFeedCache', e);
+  }
+}
+
+// ─── Notifications cache ───────────────────────────────────────────────────────
+
+function notificationsKey(userId: string): string {
+  return `notifications_v1_${userId}`;
+}
+
+export function readNotificationsCache(userId: string): unknown[] | null {
+  if (!userId || userId === 'me') return null;
+  const raw = storage().getString(notificationsKey(userId));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeNotificationsCache(userId: string, items: unknown[]): void {
+  if (!userId || userId === 'me') return;
+  try {
+    storage().set(notificationsKey(userId), JSON.stringify(items));
+  } catch (e) {
+    console.warn('[offlineCache] writeNotificationsCache', e);
+  }
+}
+
+// ─── Thread messages cache ────────────────────────────────────────────────────
 
 /** Append a local-only call row (asc order: newest at end, matching server page cache). */
 export function appendCallLogToThreadCache(

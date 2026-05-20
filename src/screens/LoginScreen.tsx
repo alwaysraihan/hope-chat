@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -40,10 +40,6 @@ import {
 } from '../services/hopenityLinking';
 import { PLAY_STORE_WEB_URL, HOPENITY_PACKAGE_ID } from '../constants/hopenity';
 import { useT } from '../hooks/useT';
-import {
-  isAutoLoginAcked,
-  markAutoLoginAcked,
-} from '../services/hopenityAutoLoginAck';
 
 type Props = NativeStackScreenProps<Record<string, undefined>, 'Login'>;
 
@@ -120,34 +116,11 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
       }
 
       persistHopenityUser(normalized);
-      markAutoLoginAcked();
       dispatch(setHopenitySession({ blob: normalized }));
     } finally {
       setContinueBusy(false);
     }
   }, [activeBlob, continueBusy, dispatch, t]);
-
-  /**
-   * Auto-login: the user has already confirmed "Continue as {name}" in a
-   * previous session, so we skip the network validation and log in
-   * immediately — exactly like reopening Facebook Messenger. If the token
-   * has since expired the first API call in the app returns 401, AuthBootstrap
-   * clears the session, and the user lands back here transparently.
-   */
-  const autoLoginAttemptedRef = useRef(false);
-  useEffect(() => {
-    if (autoLoginAttemptedRef.current) return;
-    if (!canContinueWithShare) return;
-    if (!isAutoLoginAcked()) return;
-    autoLoginAttemptedRef.current = true;
-    const normalized = normalizeHopenityPersistedBlob(activeBlob);
-    if (!normalized) return;
-    persistHopenityUser(normalized);
-    dispatch(setHopenitySession({ blob: normalized }));
-  // Run only when the blob first becomes available — `activeBlob` is stable
-  // after the synchronous init so this fires on the first render if acked.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canContinueWithShare]);
 
   return (
     <SafeAreaView style={styles.container}>
