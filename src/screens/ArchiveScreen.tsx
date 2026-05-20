@@ -2,6 +2,7 @@ import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import React, { useMemo } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, colorss, fonts, radius, spacing } from '../theme';
+import { useT } from '../hooks/useT';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { ArrowLeft, EllipsisVertical, X } from 'lucide-react-native';
@@ -12,6 +13,7 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Archive'>;
 
 /** Placeholder until archive folder is wired to the Hopenity API. */
 const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const archived: ConversationSummary[] = useMemo(() => [], []);
 
   return (
@@ -22,7 +24,7 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
           onPress={() => navigation.goBack()}
         >
           <ArrowLeft size={22} color={colorss.textPrimary} />
-          <Text style={styles.headerTitle}>Archive</Text>
+          <Text style={styles.headerTitle}>{t.archive}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity>
@@ -35,11 +37,8 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
         keyExtractor={item => item.id}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
-            <Text style={styles.emptyTitle}>No archived chats</Text>
-            <Text style={styles.emptyBody}>
-              Archived conversations will appear here when that folder is available
-              from your account.
-            </Text>
+            <Text style={styles.emptyTitle}>{t.no_archived_chats}</Text>
+            <Text style={styles.emptyBody}>{t.archived_empty_body}</Text>
           </View>
         }
         contentContainerStyle={styles.listContent}

@@ -10,6 +10,7 @@ import {
 import { ArrowLeft, X } from 'lucide-react-native';
 import { colorss } from '../theme';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useT } from '../hooks/useT';
 import { RootStackNavigatorParamList } from '../types/navigators';
 
 const data = [
@@ -39,6 +40,7 @@ type Props = NativeStackScreenProps<
 >;
 
 const EditSearchHistoryScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const renderItem = ({ item }) => (
     <View style={styles.itemContainer}>
       <View style={styles.left}>
@@ -63,21 +65,18 @@ const EditSearchHistoryScreen: React.FC<Props> = ({ navigation }) => {
           <ArrowLeft size={24} color={colorss.textPrimary} />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>Edit search history</Text>
+        <Text style={styles.headerTitle}>{t.edit_search_history}</Text>
       </View>
 
       {/* Info Text */}
-      <Text style={styles.infoText}>
-        Changes will only apply to your recent searches list, which is from your
-        history on this device.
-      </Text>
+      <Text style={styles.infoText}>{t.edit_search_note}</Text>
 
       {/* Section Header */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Recent searches</Text>
+        <Text style={styles.sectionTitle}>{t.recent_searches}</Text>
 
         <TouchableOpacity>
-          <Text style={styles.clearAll}>CLEAR ALL</Text>
+          <Text style={styles.clearAll}>{t.clear_all}</Text>
         </TouchableOpacity>
       </View>
 

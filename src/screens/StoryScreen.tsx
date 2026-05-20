@@ -23,6 +23,7 @@ import { fetchStoryFeed } from '../services/story/storyApi';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { useT } from '../hooks/useT';
 
 const { width } = Dimensions.get('window');
 const GAP = 12;
@@ -40,6 +41,7 @@ type Tile = {
 };
 
 const StoriesScreen = () => {
+  const t = useT();
   const navigation = useNavigation();
   const { conversations } = useChats();
   const token = useAppSelector(selectAuthToken);
@@ -72,7 +74,7 @@ const StoriesScreen = () => {
     const list: Tile[] = [];
     list.push({
       id: '__add',
-      name: 'Add story',
+      name: t.add_story,
       cover: '',
       isAdd: true,
       ringIndex: 0,
@@ -87,18 +89,18 @@ const StoriesScreen = () => {
       });
     });
     return { rings: ringsList, tiles: list };
-  }, [conversations, apiRings]);
+  }, [conversations, apiRings, t.add_story]);
 
   const onTile = useCallback(
-    (t: Tile) => {
-      if (t.isAdd) {
+    (tile: Tile) => {
+      if (tile.isAdd) {
         stackNav?.navigate('CreateStory');
         return;
       }
       if (rings.length === 0 || !stackNav) return;
       setStoryFeedRings(rings);
       stackNav.navigate('StoryViewer', {
-        ringIndex: Math.min(t.ringIndex, rings.length - 1),
+        ringIndex: Math.min(tile.ringIndex, rings.length - 1),
       });
     },
     [rings, stackNav],
@@ -160,10 +162,8 @@ const StoriesScreen = () => {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <View style={styles.head}>
-        <Text style={styles.title}>Stories</Text>
-        <Text style={styles.sub}>
-          Tap <Text style={styles.bold}>＋ Story</Text> to share yours
-        </Text>
+        <Text style={styles.title}>{t.stories_title}</Text>
+        <Text style={styles.sub}>{t.stories_sub}</Text>
       </View>
       <FlatList
         data={tiles}

@@ -17,6 +17,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Phone, PhoneOff, Video as VideoIcon } from 'lucide-react-native';
 
 import { colorss } from '../theme';
+import { useT } from '../hooks/useT';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import {
   startIncomingCallRingtone,
@@ -35,6 +36,7 @@ import { store } from '../redux/store';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'IncomingCall'>;
 
 const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
+  const t = useT();
   const { callKind, displayName, liveKitRoom, avatarUrl, conversationId, callerId, autoAccept } =
     route.params;
   const pulse = useRef(new Animated.Value(1)).current;
@@ -213,7 +215,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <Text style={styles.small}>Incoming {callKind} call</Text>
+      <Text style={styles.small}>{callKind === 'video' ? t.incoming_video_call : t.incoming_audio_call}</Text>
       <Text style={styles.name}>{displayName}</Text>
       <Animated.View
         style={[styles.avatarWrap, { transform: [{ scale: pulse }] }]}
@@ -234,7 +236,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
           style={[styles.circle, styles.reject]}
           onPress={decline}
           accessibilityRole="button"
-          accessibilityLabel="Decline call"
+          accessibilityLabel={t.decline_call}
         >
           <PhoneOff color={colorss.white} size={30} />
         </TouchableOpacity>
@@ -242,7 +244,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
           style={[styles.circle, styles.accept]}
           onPress={accept}
           accessibilityRole="button"
-          accessibilityLabel="Accept call"
+          accessibilityLabel={t.accept_call}
         >
           <Phone color={colorss.white} size={30} />
         </TouchableOpacity>

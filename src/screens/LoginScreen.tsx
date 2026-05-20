@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -39,6 +39,7 @@ import {
   openPlayStore,
 } from '../services/hopenityLinking';
 import { PLAY_STORE_WEB_URL, HOPENITY_PACKAGE_ID } from '../constants/hopenity';
+import { useT } from '../hooks/useT';
 import {
   isAutoLoginAcked,
   markAutoLoginAcked,
@@ -47,36 +48,44 @@ import {
 type Props = NativeStackScreenProps<Record<string, undefined>, 'Login'>;
 
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const dispatch = useAppDispatch();
-  const [loading, setLoading] = useState(true);
+
+  /**
+   * Read the shared MMKV vault synchronously on the first render so the
+   * "Continue as {name}" card appears on the very first frame — no loading
+   * spinner, no blank intermediate state. Like Facebook / Messenger showing
+   * the account immediately when you open the login screen.
+   */
+  const [peeked, setPeeked] = useState<HopenityPersistedUserBlob | null>(() =>
+    readPersistedHopenityUser(),
+  );
   const [canOpenPartner, setCanOpenPartner] = useState<boolean | null>(null);
-  const [peeked, setPeeked] = useState<HopenityPersistedUserBlob | null>(null);
   const [continueBusy, setContinueBusy] = useState(false);
 
   const peekSession = useCallback(() => {
-    setLoading(true);
-    try {
-      setPeeked(readPersistedHopenityUser());
-    } finally {
-      setLoading(false);
-    }
+    setPeeked(readPersistedHopenityUser());
   }, []);
 
+  // Check Play Store availability once (async, non-blocking).
+  useEffect(() => {
+    void canOpenHopenity().then(setCanOpenPartner);
+  }, []);
+
+  // Re-read MMKV when the screen comes into focus (e.g., user just returned
+  // from Hopenity after signing in) and recheck Play Store availability.
   useFocusEffect(
     useCallback(() => {
-      void (async () => {
-        peekSession();
-        setCanOpenPartner(await canOpenHopenity());
-      })();
+      peekSession();
+      void canOpenHopenity().then(setCanOpenPartner);
       return undefined;
     }, [peekSession]),
   );
 
+  // Live-sync: if Hopenity writes a new session while this screen is mounted
+  // (foreground cross-app login), reflect it without requiring a focus cycle.
   useEffect(() => {
-    const unsub = subscribePersistedHopenityUser(() => {
-      peekSession();
-    });
-    return unsub;
+    return subscribePersistedHopenityUser(() => peekSession());
   }, [peekSession]);
 
   const activeBlob = peeked;
@@ -89,7 +98,11 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const name = displayNameFromBlob(normalizedSession ?? activeBlob);
   const avatar = avatarFromBlob(normalizedSession ?? activeBlob);
 
-  const onContinue = async () => {
+  /**
+   * First-time confirmation: validates the token against the backend before
+   * logging in so the user never enters the app with a known-bad credential.
+   */
+  const onContinue = useCallback(async () => {
     if (!activeBlob || continueBusy) return;
     const normalized = normalizeHopenityPersistedBlob(activeBlob);
     if (!normalized?.token) return;
@@ -98,17 +111,11 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const probe = await validateHopeChatAccessToken(normalized.token);
       if (probe === 'unauthorized') {
-        Alert.alert(
-          'Session not valid',
-          'This Hopenity sign-in is expired or was signed out. Open Hopenity, log in again, then tap Refresh session here.',
-        );
+        Alert.alert(t.session_expired_title, t.session_expired_body);
         return;
       }
       if (probe === 'unavailable') {
-        Alert.alert(
-          'Cannot verify session',
-          'Check your internet connection and try again.',
-        );
+        Alert.alert(t.no_internet_title, t.no_internet_body);
         return;
       }
 
@@ -118,18 +125,28 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
     } finally {
       setContinueBusy(false);
     }
-  };
+  }, [activeBlob, continueBusy, dispatch, t]);
 
-  // Auto-login: if the user has previously confirmed "Continue as {name}" and a valid
-  // Hopenity session is still present, skip the confirmation UI and log in immediately.
-  const autoLoginAttemptedRef = React.useRef(false);
-  React.useEffect(() => {
+  /**
+   * Auto-login: the user has already confirmed "Continue as {name}" in a
+   * previous session, so we skip the network validation and log in
+   * immediately — exactly like reopening Facebook Messenger. If the token
+   * has since expired the first API call in the app returns 401, AuthBootstrap
+   * clears the session, and the user lands back here transparently.
+   */
+  const autoLoginAttemptedRef = useRef(false);
+  useEffect(() => {
     if (autoLoginAttemptedRef.current) return;
     if (!canContinueWithShare) return;
     if (!isAutoLoginAcked()) return;
     autoLoginAttemptedRef.current = true;
-    void onContinue();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const normalized = normalizeHopenityPersistedBlob(activeBlob);
+    if (!normalized) return;
+    persistHopenityUser(normalized);
+    dispatch(setHopenitySession({ blob: normalized }));
+  // Run only when the blob first becomes available — `activeBlob` is stable
+  // after the synchronous init so this fires on the first render if acked.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canContinueWithShare]);
 
   return (
@@ -146,17 +163,10 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
             <Image source={hopenityLogo} style={styles.logo} />
           </View>
 
-          <Text style={styles.title}>Hope Chat</Text>
-          <Text style={styles.subtitle}>
-            Sign in with your Hopenity account.
-          </Text>
+          <Text style={styles.title}>{t.app_name}</Text>
+          <Text style={styles.subtitle}>{t.login_subtitle}</Text>
 
-          {loading ? (
-            <View style={styles.centerRow}>
-              <ActivityIndicator color={colorss.primary} />
-              <Text style={styles.hint}>Checking Hopenity session…</Text>
-            </View>
-          ) : canContinueWithShare ? (
+          {canContinueWithShare ? (
             <View style={styles.card}>
               {avatar ? (
                 <FastImage source={{ uri: avatar }} style={styles.profile} />
@@ -169,7 +179,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
               )}
               <Text style={styles.profileName}>{name}</Text>
               <TouchableOpacity
-                onPress={() => onContinue()}
+                onPress={onContinue}
                 style={[
                   styles.primaryBtn,
                   continueBusy ? styles.primaryBtnDisabled : null,
@@ -180,33 +190,28 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
                 {continueBusy ? (
                   <ActivityIndicator color={colorss.white} />
                 ) : (
-                  <Text style={styles.primaryBtnText}>Continue as {name}</Text>
+                  <Text style={styles.primaryBtnText}>{t.continue_as} {name}</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => peekSession()}
+                onPress={peekSession}
                 style={styles.secondary}
                 disabled={continueBusy}
               >
-                <Text style={styles.secondaryText}>Refresh session</Text>
+                <Text style={styles.secondaryText}>{t.refresh_session}</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Sign in required</Text>
-              <Text style={styles.cardBody}>
-                Open Hopenity and log in once. Come back here and tap Refresh
-                session. If the app is not installed yet, download it below.
-              </Text>
+              <Text style={styles.cardTitle}>{t.sign_in_required}</Text>
+              <Text style={styles.cardBody}>{t.sign_in_instructions}</Text>
               {canOpenPartner === false ? (
                 <TouchableOpacity
                   onPress={() => openPlayStore()}
                   style={styles.primaryBtn}
                   activeOpacity={0.88}
                 >
-                  <Text style={styles.primaryBtnText}>
-                    Install Hopenity from Play Store
-                  </Text>
+                  <Text style={styles.primaryBtnText}>{t.install_from_store}</Text>
                 </TouchableOpacity>
               ) : (
                 <>
@@ -219,45 +224,31 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
                     style={styles.primaryBtn}
                     activeOpacity={0.88}
                   >
-                    <Text style={styles.primaryBtnText}>
-                      Open Hopenity to sign in
-                    </Text>
+                    <Text style={styles.primaryBtnText}>{t.open_hopenity}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => openPlayStore()}
                     style={styles.outlineBtn}
                   >
-                    <Text style={styles.outlineBtnText}>
-                      Get app from Store
+                    <Text style={styles.outlineBtnText}>{t.get_from_store}
                     </Text>
                   </TouchableOpacity>
                 </>
               )}
-              {/* <Text style={styles.storeHint}>
-                Android package{' '}
-                <Text style={styles.mono}>{HOPENITY_PACKAGE_ID}</Text> ·{' '}
-                {PLAY_STORE_WEB_URL}
-              </Text> */}
               <TouchableOpacity
-                onPress={() => peekSession()}
+                onPress={peekSession}
                 style={styles.secondary}
               >
-                <Text style={styles.secondaryText}>Refresh session</Text>
+                <Text style={styles.secondaryText}>{t.refresh_session}</Text>
               </TouchableOpacity>
             </View>
           )}
 
-          {/* <TouchableOpacity
-            onPress={() => navigation.navigate('ForgotPassword')}
-            style={styles.linkWrapper}
-          >
-            <Text style={styles.linkText}>Forgotten password?</Text>
-          </TouchableOpacity> */}
           <TouchableOpacity
             onPress={() => navigation.navigate('EmailLogin')}
             style={styles.secondaryBtn}
           >
-            <Text style={styles.secondaryText}>Login with email or phone</Text>
+            <Text style={styles.secondaryText}>{t.login_with_email}</Text>
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -306,16 +297,6 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 12,
   },
-  micro: {
-    textAlign: 'center',
-    color: colorss.textSecondary,
-    marginTop: 16,
-  },
-  hint: {
-    marginLeft: 10,
-    color: colorss.textSecondary,
-    fontSize: 14,
-  },
   card: {
     backgroundColor: colorss.background,
     borderRadius: 16,
@@ -341,11 +322,6 @@ const styles = StyleSheet.create({
     color: colorss.white,
     fontSize: 36,
     fontWeight: '800',
-  },
-  continueLabel: {
-    marginTop: 14,
-    color: colorss.textSecondary,
-    fontSize: 13,
   },
   profileName: {
     fontSize: 20,
@@ -403,15 +379,6 @@ const styles = StyleSheet.create({
     color: colorss.primary,
     fontWeight: '700',
   },
-  linkWrapper: {
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  linkText: {
-    color: colorss.textSecondary,
-    fontSize: 15,
-    fontWeight: '700',
-  },
   cardTitle: {
     fontSize: 18,
     fontWeight: '800',
@@ -425,17 +392,5 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 16,
     alignSelf: 'stretch',
-  },
-  centerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 24,
-  },
-  storeHint: {
-    fontSize: 11,
-    color: colorss.textSecondary,
-    textAlign: 'center',
-    marginTop: 12,
   },
 });

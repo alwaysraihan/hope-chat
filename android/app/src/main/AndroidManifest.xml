@@ -102,6 +102,17 @@
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
+
+      <!-- Deep link entry point used by the Hopenity companion app.
+           hopechat://peer/{userId}   → open / create conversation with that user
+           hopechat://                → open the app at the chat list (inbox)
+           React Navigation's Linking config handles path routing inside the JS layer. -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="hopechat" />
+      </intent-filter>
     </activity>
   </application>
 </manifest>

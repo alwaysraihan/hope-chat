@@ -15,6 +15,7 @@ import FastImage from '@d11/react-native-fast-image';
 
 import { colorss as C } from '../theme';
 import { RootStackNavigatorParamList } from '../types/navigators';
+import { useT } from '../hooks/useT';
 import {
   acceptHopenityChatRequest,
   fetchHopenityChatDirectory,
@@ -41,6 +42,7 @@ function requestedChatHasMessage(chat: HopenityChatItem): boolean {
 }
 
 const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const dispatch = useAppDispatch();
   const token = useAppSelector(selectAuthToken);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
@@ -124,22 +126,22 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
           <ArrowLeft size={22} color={C.textPrimary} />
         </TouchableOpacity>
 
-        <Text style={styles.navTitle}>Message requests</Text>
+        <Text style={styles.navTitle}>{t.message_requests}</Text>
 
         <TouchableOpacity
           onPress={() => {
-            Alert.alert('Message Requests', 'What would you like to do?', [
+            Alert.alert(t.message_requests, '', [
               {
-                text: 'Delete all requests',
+                text: t.delete_all_requests,
                 style: 'destructive',
                 onPress: () => {
-                  Alert.alert('Delete all', 'This will remove all pending message requests.', [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: () => setRequested([]) },
+                  Alert.alert(t.delete_all_requests, t.delete_all_confirm, [
+                    { text: t.cancel, style: 'cancel' },
+                    { text: t.delete, style: 'destructive', onPress: () => setRequested([]) },
                   ]);
                 },
               },
-              { text: 'Cancel', style: 'cancel' },
+              { text: t.cancel, style: 'cancel' },
             ]);
           }}
         >
@@ -151,7 +153,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
         {(['know', 'spam'] as const).map(tab => (
           <TouchableOpacity key={tab} style={styles.tab} onPress={() => setActiveTab(tab)}>
             <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-              {tab === 'know' ? 'YOU MAY KNOW' : 'SPAM'}
+              {tab === 'know' ? t.tab_you_may_know : t.tab_spam}
             </Text>
             {activeTab === tab && <View style={styles.tabIndicator} />}
           </TouchableOpacity>
@@ -166,27 +168,21 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
 
       {!token ? (
         <View style={styles.emptyWrap}>
-          <Text style={styles.emptyText}>Sign in to see message requests.</Text>
+          <Text style={styles.emptyText}>{t.signin_to_see_requests}</Text>
         </View>
       ) : activeTab === 'spam' ? (
         <View style={styles.emptyWrap}>
-          <Text style={styles.emptyText}>
-            Spam and filtered requests will appear here. Nothing to show yet.
-          </Text>
+          <Text style={styles.emptyText}>{t.spam_empty}</Text>
         </View>
       ) : (
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={styles.infoBanner}>
-            <Text style={styles.infoText}>
-              Open a chat to learn more about who sent it. Tap Accept on a row to move
-              the conversation into your inbox.
-              <Text style={styles.link}> Settings</Text>
-            </Text>
+            <Text style={styles.infoText}>{t.requests_info}</Text>
           </View>
 
           {rows.length === 0 && !loading ? (
             <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>No pending message requests.</Text>
+              <Text style={styles.emptyText}>{t.no_pending_requests}</Text>
             </View>
           ) : null}
 
@@ -216,17 +212,10 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                   <TouchableOpacity
                     style={styles.itemContent}
                     onLongPress={() => {
-                      Alert.alert(row.summary.name, 'Choose an action', [
-                        {
-                          text: 'Accept',
-                          onPress: () => onAccept(row.summary.id),
-                        },
-                        {
-                          text: 'Delete request',
-                          style: 'destructive',
-                          onPress: () => setRequested(prev => prev.filter(c => String(c.id) !== row.summary.id)),
-                        },
-                        { text: 'Cancel', style: 'cancel' },
+                      Alert.alert(row.summary.name, '', [
+                        { text: t.accept, onPress: () => onAccept(row.summary.id) },
+                        { text: t.delete_request, style: 'destructive', onPress: () => setRequested(prev => prev.filter(c => String(c.id) !== row.summary.id)) },
+                        { text: t.cancel, style: 'cancel' },
                       ]);
                     }}
                     onPress={() =>
@@ -263,7 +252,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                     {busy ? (
                       <ActivityIndicator size="small" color="#fff" />
                     ) : (
-                      <Text style={styles.acceptPillLabel}>Accept</Text>
+                      <Text style={styles.acceptPillLabel}>{t.accept}</Text>
                     )}
                   </TouchableOpacity>
                 </View>

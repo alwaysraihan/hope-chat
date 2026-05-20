@@ -12,12 +12,31 @@ import {
   LucideMenu,
   LucideMessageCircle,
 } from 'lucide-react-native';
+import { useLanguage } from '../context/LanguageContext';
+
+const TAB_LABELS: Record<string, { en: string; bn: string }> = {
+  Home:          { en: 'Chats',         bn: 'চ্যাট' },
+  Story:         { en: 'Stories',       bn: 'স্টোরি' },
+  Notifications: { en: 'Notifications', bn: 'বিজ্ঞপ্তি' },
+  Menu:          { en: 'Menu',          bn: 'মেনু' },
+  Media:         { en: 'Media',         bn: 'মিডিয়া' },
+  Files:         { en: 'Files',         bn: 'ফাইল' },
+  Links:         { en: 'Links',         bn: 'লিংক' },
+};
 
 const CustomTabBar: React.FC<BottomTabBarProps> = ({
   state,
   descriptors,
   navigation,
 }) => {
+  const { lang } = useLanguage();
+
+  const getLabel = (routeName: string): string => {
+    const entry = TAB_LABELS[routeName];
+    if (!entry) return routeName;
+    return lang === 'bn' ? entry.bn : entry.en;
+  };
+
   const getIcon = (routeName: string, isFocused: boolean) => {
     const iconColor = isFocused ? colors.pink : '#3D3B3B';
 
@@ -54,8 +73,8 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
     >
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
-        const label = options.tabBarLabel ? options.tabBarLabel : route.name;
         const isFocused = state.index === index;
+        const label = getLabel(route.name);
 
         const onPress = () => {
           const event = navigation.emit({
@@ -87,7 +106,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
                 },
               ]}
             >
-              {typeof label === 'string' ? label : ''}
+              {label}
             </Text>
           </TouchableOpacity>
         );

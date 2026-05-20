@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -36,8 +36,13 @@ import { useAppSelector } from '../hooks/redux';
 import {
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
+import { useT } from '../hooks/useT';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
+import {
+  consumePendingPeerLink,
+  onPeerDeepLink,
+} from '../services/peerDeepLink';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>,
@@ -45,6 +50,7 @@ type Props = CompositeScreenProps<
 >;
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const profile = useAppSelector(selectHopenityProfile);
   const localUserId = useMemo(
@@ -138,10 +144,28 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     [navigation, localUserId],
   );
 
+  // Navigate to the correct Inbox when a hopechat://peer/{userId} deep link arrives
+  // while the app is already running (app was backgrounded / in foreground).
+  useEffect(() => {
+    return onPeerDeepLink(peerId => {
+      const conv = conversations.find(c => c.peerUserId === peerId);
+      if (conv) navigateInbox(conv);
+    });
+  }, [conversations, navigateInbox]);
+
+  // Navigate to the correct Inbox after a cold-start deep link once conversations load.
+  useEffect(() => {
+    if (conversations.length === 0) return;
+    const peerId = consumePendingPeerLink();
+    if (!peerId) return;
+    const conv = conversations.find(c => c.peerUserId === peerId);
+    if (conv) navigateInbox(conv);
+  }, [conversations, navigateInbox]);
+
   const openStoryViewer = useCallback(() => {
     const rings = storyRingsFromConversations(conversations);
     if (rings.length === 0) {
-      Alert.alert('Stories', 'No stories yet for your chats.');
+      Alert.alert(t.stories_title, t.no_stories_chats);
       return;
     }
     setStoryFeedRings(rings);
@@ -163,7 +187,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         accessibilityLabel="Open stories viewer"
       >
         <PlayCircle size={28} color={colorss.primary} />
-        <Text style={styles.storyViewerLabel}>Stories</Text>
+        <Text style={styles.storyViewerLabel}>{t.stories}</Text>
       </TouchableOpacity>
     ),
     [openStoryViewer],
@@ -189,7 +213,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           <>
             {activePeers.length > 0 ? (
               <View style={styles.storySection}>
-                <Text style={styles.stripSectionLabel}>Active</Text>
+                <Text style={styles.stripSectionLabel}>{t.active}</Text>
                 <View style={styles.storyStripRow}>
                   <FlatList
                     data={activePeers}
@@ -212,7 +236,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
             {friendsStrip.length > 0 ? (
               <View style={styles.storySection}>
-                <Text style={styles.stripSectionLabel}>Stories</Text>
+                <Text style={styles.stripSectionLabel}>{t.stories}</Text>
                 <View style={styles.storyStripRow}>
                   <FlatList
                     data={friendsStrip}
@@ -237,7 +261,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={styles.messagesHeaderRow}>
           <View style={styles.messagesHeaderLeft}>
-            <Text style={styles.sectionLabel}>Messages</Text>
+            <Text style={styles.sectionLabel}>{t.messages}</Text>
             <BellOff size={18} color={colorss.textPrimary} />
           </View>
           <TouchableOpacity
@@ -247,7 +271,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             style={styles.requestsPillRow}
           >
             <Text style={[styles.sectionLabel, styles.requestsLabel]}>
-              Requests
+              {t.requests}
             </Text>
             {pendingRequestCount > 0 ? (
               <View style={styles.requestBadge}>
@@ -296,7 +320,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           }
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No conversations found</Text>
+              <Text style={styles.emptyText}>{t.no_conversations}</Text>
             </View>
           }
         />

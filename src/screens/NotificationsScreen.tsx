@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BellOff } from 'lucide-react-native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import FastImage from '@d11/react-native-fast-image';
 
@@ -29,6 +30,7 @@ import type {
 } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { API_BASE_URL } from '../config/env';
+import { useT } from '../hooks/useT';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Notifications'>,
@@ -183,6 +185,7 @@ async function markAllRead(token: string | null): Promise<void> {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const token = useAppSelector(s => s.auth.token);
 
   const [items, setItems] = useState<NotifItem[]>([]);
@@ -205,29 +208,27 @@ const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
 
   useEffect(() => { void load(); }, [load]);
 
-  const handlePress = useCallback(async (item: NotifItem) => {
-    // Optimistically mark as read in UI
-    if (!item.is_read) {
-      setItems(prev =>
-        prev.map(n => n.id === item.id ? { ...n, is_read: true } : n),
-      );
-      try { await markRead(item.id, token); } catch { /* silent */ }
-    }
+  // Auto-mark all unread notifications as read the moment the screen comes
+  // into focus — no manual button needed.
+  const hasUnread = useMemo(() => items.some(n => !n.is_read), [items]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasUnread) return;
+      // Optimistically update UI first for instant feedback.
+      setItems(prev => prev.map(n => ({ ...n, is_read: true })));
+      // Persist to backend silently.
+      markAllRead(token).catch(() => { /* silent */ });
+    }, [hasUnread, token]),
+  );
 
-    // Route to relevant screen
+  const handlePress = useCallback((item: NotifItem) => {
+    // Route to relevant screen on tap.
     if (item.type === 'FRIEND_REQUEST') {
       try { navigation.navigate('MessageRequests'); } catch { /* */ }
     }
-  }, [token, navigation]);
+  }, [navigation]);
 
-  const handleMarkAllRead = useCallback(async () => {
-    setItems(prev => prev.map(n => ({ ...n, is_read: true })));
-    try { await markAllRead(token); } catch { /* silent */ }
-  }, [token]);
-
-  const unreadCount = useMemo(() => items.filter(n => !n.is_read).length, [items]);
-
-  // Group by section label
+  // ── Group by section label
   const grouped = useMemo(() => {
     const map = new Map<string, NotifItem[]>();
     const order: string[] = [];
@@ -243,7 +244,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     <TouchableOpacity
       style={[styles.item, !item.is_read && styles.itemUnread]}
       activeOpacity={0.75}
-      onPress={() => void handlePress(item)}
+      onPress={() => handlePress(item)}
     >
       <View style={styles.avatarWrap}>
         <FastImage
@@ -269,7 +270,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <Text style={styles.title}>Notifications</Text>
+          <Text style={styles.title}>{t.notifications}</Text>
         </View>
         {[...Array(10)].map((_, i) => <SkeletonRow key={i} />)}
       </SafeAreaView>
@@ -279,18 +280,13 @@ const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Notifications</Text>
-        {unreadCount > 0 && (
-          <TouchableOpacity onPress={handleMarkAllRead} style={styles.markAllBtn}>
-            <Text style={styles.markAllText}>Mark all read</Text>
-          </TouchableOpacity>
-        )}
+        <Text style={styles.title}>{t.notifications}</Text>
       </View>
 
       {items.length === 0 ? (
         <View style={styles.empty}>
           <BellOff size={44} color={colorss.placeholder} />
-          <Text style={styles.emptyText}>No notifications yet</Text>
+          <Text style={styles.emptyText}>{t.no_notifications}</Text>
         </View>
       ) : (
         <FlatList
@@ -340,17 +336,6 @@ const styles = StyleSheet.create({
     color: colorss.textPrimary,
     fontSize: 26,
     fontWeight: '700',
-  },
-  markAllBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: `${colorss.primary}18`,
-  },
-  markAllText: {
-    color: colorss.primary,
-    fontSize: 13,
-    fontWeight: '600',
   },
   sectionLabel: {
     color: colorss.textSecondary,

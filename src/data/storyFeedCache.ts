@@ -3,6 +3,8 @@ export type StorySlide = {
   id: string;
   uri: string;
   durationMs: number;
+  /** 'video' when the URI points to a video file; defaults to 'image'. */
+  type?: 'image' | 'video';
 };
 
 export type StoryRing = {

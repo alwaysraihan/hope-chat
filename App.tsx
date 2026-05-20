@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import RootNavigator from './src/navigation/RootNavigator';
 import { SystemBars } from 'react-native-edge-to-edge';
@@ -22,6 +23,21 @@ import { navigationRef } from './src/navigation/navigationRef';
 import { consumePendingIncomingCall } from './src/services/incomingCall/navigateIncomingCall';
 import BootSplash from 'react-native-bootsplash';
 import { readPersistedHopenityUser } from './src/services/hopenitySharedAuth';
+import { setPendingPeerLink } from './src/services/peerDeepLink';
+
+const PEER_DEEP_LINK_RE = /^hopechat:\/\/peer\/([^/?#]+)/i;
+
+function handleDeepLinkUrl(url: string | null | undefined): void {
+  if (!url) return;
+  const m = url.match(PEER_DEEP_LINK_RE);
+  if (!m?.[1]) return;
+  const peerId = decodeURIComponent(m[1]);
+  setPendingPeerLink(peerId);
+  // Bring HomeScreen into view so its listener can navigate to the right chat.
+  if (navigationRef.isReady()) {
+    navigationRef.navigate('BottomTab' as never, { screen: 'Home' } as never);
+  }
+}
 
 const AppInner = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
@@ -50,6 +66,13 @@ const NavigationWithAuthKey = () => {
     if (!token) return;
     dispatch(setHopenitySession({ blob: token }));
   }, [dispatch]);
+
+  // Handle hopechat://peer/{userId} deep links — both cold-start and runtime.
+  useEffect(() => {
+    Linking.getInitialURL().then(handleDeepLinkUrl);
+    const sub = Linking.addEventListener('url', ({ url }) => handleDeepLinkUrl(url));
+    return () => sub.remove();
+  }, []);
 
   return (
     <NavigationContainer

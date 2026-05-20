@@ -1,24 +1,36 @@
 import { API_BASE_URL } from '../../config/env';
 import type { StoryRing } from '../../data/storyFeedCache';
 
-type ApiStoryItem = {
+/**
+ * Mirrors the Hopenity StoryGroup/StoryItem shapes from StoryApi.ts.
+ * The API returns:
+ *   { responseObject: { stories: StoryGroup[] } }
+ * where each StoryGroup has a `user` and a nested `stories` array.
+ */
+type ApiStoryUser = {
   id?: string | number;
   user_id?: string | number;
-  userId?: string | number;
+  name?: string;
+  image?: string | null;
+  profile_image?: string | null;
+};
+
+type ApiStoryItem = {
+  id?: string | number;
   type?: string;
   media_url?: string | null;
   thumbnail_url?: string | null;
   content?: string | null;
-  backgroundColor?: string | null;
+  background_color?: string | null;
   created_at?: string;
-  user?: {
-    id?: string | number;
-    user_id?: string | number;
-    name?: string;
-    image?: string | null;
-    profile_image?: string | null;
-  };
+  is_viewed?: boolean;
+  music_url?: string | null;
   duration?: number;
+};
+
+type ApiStoryGroup = {
+  user?: ApiStoryUser;
+  stories?: ApiStoryItem[];
 };
 
 function pickStr(...vals: (string | number | null | undefined)[]): string {
@@ -29,56 +41,75 @@ function pickStr(...vals: (string | number | null | undefined)[]): string {
   return '';
 }
 
-function storyMediaUri(item: ApiStoryItem): string {
-  return pickStr(item.media_url, item.thumbnail_url) || '';
-}
-
-/** Fetch stories from the Hopenity API feed. Returns an empty array on error. */
+/**
+ * Fetch story feed from the Hopenity API.
+ * Endpoint: GET /api/v1/stories
+ * Response shape: { responseObject: { stories: StoryGroup[] } }
+ */
 export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]> {
   if (!token) return [];
   try {
     const base = API_BASE_URL.replace(/\/+$/, '');
-    const res = await fetch(`${base}/api/v1/stories?limit=30`, {
+    const res = await fetch(`${base}/api/v1/stories?limit=30&page=1`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return [];
     const json = await res.json();
 
-    const list: ApiStoryItem[] =
+    // The API wraps groups under responseObject.stories (an array of StoryGroup).
+    const groups: ApiStoryGroup[] =
       json?.responseObject?.stories ??
-      json?.responseObject?.data ??
-      json?.responseObject ??
       json?.data?.stories ??
-      json?.data ??
       json?.stories ??
       [];
 
-    if (!Array.isArray(list) || list.length === 0) return [];
+    if (!Array.isArray(groups) || groups.length === 0) return [];
 
-    // Group by user
-    const byUser = new Map<string, { name: string; avatar: string | null; slides: { id: string; uri: string; durationMs: number }[] }>();
-    for (const item of list) {
-      const uid = pickStr(item.user?.id, item.user?.user_id, item.user_id, item.userId) || 'unknown';
-      const name = pickStr(item.user?.name) || 'Friend';
-      const avatar = pickStr(item.user?.image, item.user?.profile_image) || null;
-      const uri = storyMediaUri(item);
-      if (!uri) continue;
-      if (!byUser.has(uid)) {
-        byUser.set(uid, { name, avatar: avatar || null, slides: [] });
-      }
-      byUser.get(uid)!.slides.push({
-        id: pickStr(item.id) || `${uid}_${Date.now()}`,
-        uri,
-        durationMs: typeof item.duration === 'number' ? item.duration : 5000,
+    const rings: StoryRing[] = [];
+
+    for (const group of groups) {
+      const user = group.user ?? {};
+      const uid = pickStr(user.id, user.user_id) || String(Math.random());
+      const name = pickStr(user.name) || 'Friend';
+      const avatar = pickStr(user.image, user.profile_image) || null;
+
+      const storyItems = Array.isArray(group.stories) ? group.stories : [];
+
+      // Build slides — only include items that have a visible media URL.
+      const slides = storyItems
+        .map(s => {
+          const storyType = String(s.type ?? '').toUpperCase();
+          const isVideo = storyType === 'VIDEO';
+
+          // For video: prefer the direct video URL, fall back to thumbnail for display.
+          // For images / text: use media_url then thumbnail_url.
+          const uri = isVideo
+            ? pickStr(s.media_url, s.thumbnail_url)
+            : pickStr(s.media_url, s.thumbnail_url);
+
+          if (!uri) return null; // skip text-only stories with no cover image
+          return {
+            id: pickStr(s.id) || `${uid}_${Date.now()}`,
+            uri,
+            type: isVideo ? ('video' as const) : ('image' as const),
+            durationMs: typeof s.duration === 'number' && s.duration > 0
+              ? s.duration
+              : isVideo ? 15000 : 5000,
+          };
+        })
+        .filter((s): s is NonNullable<typeof s> => s !== null);
+
+      if (slides.length === 0) continue;
+
+      rings.push({
+        id: uid,
+        name: name.split(/\s+/)[0] || name,
+        avatarUri: avatar ?? undefined,
+        slides,
       });
     }
 
-    return Array.from(byUser.entries()).map(([uid, data]) => ({
-      id: uid,
-      name: data.name.split(/\s+/)[0] || data.name,
-      avatarUri: data.avatar ?? undefined,
-      slides: data.slides,
-    }));
+    return rings;
   } catch {
     return [];
   }

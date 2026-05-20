@@ -32,6 +32,7 @@ import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { API_BASE_URL } from '../config/env';
 import { useChats } from '../context/ChatsContext';
+import { useT } from '../hooks/useT';
 
 type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackNavigatorParamList, 'Search'>,
@@ -136,6 +137,7 @@ async function fetchUsers(
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 const SearchScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const token = useAppSelector(s => s.auth.token);
   const profile = useAppSelector(selectHopenityProfile);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
@@ -265,17 +267,24 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
 
         {/* Tabs */}
         <View style={styles.tabRow}>
-          {TABS.map(tab => (
-            <TouchableOpacity
-              key={tab}
-              onPress={() => setActiveTab(tab)}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
-            >
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {TABS.map(tab => {
+            const tabLabel =
+              tab === 'All' ? t.tab_all :
+              tab === 'People' ? t.tab_people :
+              tab === 'Messages' ? t.tab_messages_label :
+              t.tab_groups;
+            return (
+              <TouchableOpacity
+                key={tab}
+                onPress={() => setActiveTab(tab)}
+                style={[styles.tab, activeTab === tab && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                  {tabLabel}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {searchLoading ? (
@@ -284,7 +293,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         ) : results.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>No results for "{query}"</Text>
+            <Text style={styles.emptyText}>{t.no_results} "{query}"</Text>
           </View>
         ) : (
           <FlatList
@@ -316,9 +325,9 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
             {/* Recent Searches grid */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Recent searches</Text>
+                <Text style={styles.sectionTitle}>{t.recent_searches}</Text>
                 <TouchableOpacity onPress={() => navigation.navigate('EditSearchHistory')}>
-                  <Text style={styles.editText}>EDIT</Text>
+                  <Text style={styles.editText}>{t.edit}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -351,7 +360,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
             </View>
 
             {/* Suggested */}
-            <Text style={styles.sectionTitle}>Suggested</Text>
+            <Text style={styles.sectionTitle}>{t.suggested}</Text>
 
             {suggestionsLoading ? (
               <View>
@@ -409,7 +418,7 @@ function Header({
         <SearchIcon size={18} color={colorss.textSecondary} />
         <TextInput
           style={styles.input}
-          placeholder="Search people…"
+          placeholder={t.search_placeholder}
           placeholderTextColor={colors.textMuted}
           value={query}
           onChangeText={onChangeQuery}

@@ -6,6 +6,7 @@ import {
   cancelAndroidIncomingCallNotification,
   displayAndroidIncomingCallNotification,
   ensureIncomingCallAndroidChannel,
+  INCOMING_CALL_ANDROID_CHANNEL_ID,
 } from './androidIncomingCallUi';
 import {
   CALL_CANCELLED_MESSAGE_TYPE,
@@ -18,6 +19,30 @@ import {
   setPendingAutoAcceptData,
   setPendingRejectData,
 } from './callRingtone';
+
+// Channels owned by HopeChat — never cancel these when suppressing unwanted auto-notifications.
+const HOPECHAT_OWNED_CHANNEL_IDS = new Set([
+  INCOMING_CALL_ANDROID_CHANNEL_ID,
+  'hopechat_ongoing_call',
+]);
+
+/**
+ * When a non-call FCM message has a notification payload, Android auto-displays it
+ * before our JS handler runs. This cancels that spurious notification while leaving
+ * our own call/ongoing-call notifications intact.
+ */
+async function suppressAutoDisplayedNonCallNotification(): Promise<void> {
+  // Brief pause so Android finishes rendering the notification before we look for it.
+  await new Promise<void>(resolve => setTimeout(resolve, 200));
+  try {
+    const displayed = await notifee.getDisplayedNotifications();
+    await Promise.all(
+      displayed
+        .filter(n => !HOPECHAT_OWNED_CHANNEL_IDS.has(n.notification?.android?.channelId ?? ''))
+        .map(n => (n.id ? notifee.cancelNotification(n.id) : Promise.resolve())),
+    );
+  } catch { /* best-effort */ }
+}
 
 notifee.onBackgroundEvent(async ({ type, detail }) => {
   const actionId = detail.pressAction?.id;
@@ -86,7 +111,14 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
   }
 
   const parsed = parseIncomingCallPayload(data);
-  if (!parsed) return;
+  if (!parsed) {
+    // Not a call message. If the FCM payload had a notification object, Android
+    // auto-displayed a banner — cancel it so only call notifications appear in HopeChat.
+    if (remoteMessage.notification) {
+      await suppressAutoDisplayedNonCallNotification();
+    }
+    return;
+  }
 
   await ensureIncomingCallAndroidChannel();
   await displayAndroidIncomingCallNotification(parsed);

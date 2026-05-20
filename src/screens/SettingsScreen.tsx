@@ -1,10 +1,14 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
+  Animated,
+  Linking,
+  Modal,
   ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -12,11 +16,13 @@ import {
   Ban,
   Bell,
   Eye,
+  FileText,
   MessageCircle,
   Moon,
   Shield,
   Trash2,
   User,
+  X,
 } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -26,6 +32,7 @@ import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { selectHopenityProfile } from '../redux/features/auth/authSlice';
+import { useT } from '../hooks/useT';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Settings'>;
 
@@ -37,106 +44,143 @@ type SettingRow = {
   onPress?: () => void;
 };
 
+// ─── Coming Soon Modal ────────────────────────────────────────────────────────
+
+function ComingSoonModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const scaleAnim = useRef(new Animated.Value(0.82)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          tension: 90,
+          friction: 8,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      scaleAnim.setValue(0.82);
+      opacityAnim.setValue(0);
+    }
+  }, [visible, scaleAnim, opacityAnim]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={modal.backdrop}>
+          <TouchableWithoutFeedback>
+            <Animated.View
+              style={[
+                modal.card,
+                { transform: [{ scale: scaleAnim }], opacity: opacityAnim },
+              ]}
+            >
+              {/* Close button */}
+              <TouchableOpacity style={modal.closeBtn} onPress={onClose}>
+                <X size={18} color={colorss.textSecondary} />
+              </TouchableOpacity>
+
+              {/* Emoji */}
+              <View style={modal.emojiWrap}>
+                <Text style={modal.emoji}>🍳</Text>
+              </View>
+
+              <Text style={modal.title}>{t.coming_soon_title}</Text>
+              <Text style={modal.body}>{t.coming_soon_body}</Text>
+              <View style={modal.divider} />
+              <View style={modal.chipRow}>
+                {([t.coming_soon_design, t.coming_soon_build, t.coming_soon_polish] as const).map((step, i) => (
+                  <View key={step} style={[modal.chip, i === 0 && modal.chipDone, i === 1 && modal.chipActive]}>
+                    <Text style={[modal.chipText, i === 0 && modal.chipTextDone, i === 1 && modal.chipTextActive]}>
+                      {i === 0 ? '✓ ' : i === 1 ? '⚡ ' : '⏳ '}{step}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity style={modal.okBtn} onPress={onClose} activeOpacity={0.85}>
+                <Text style={modal.okText}>{t.got_it}</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const profile = useAppSelector(selectHopenityProfile);
+  const [comingSoonVisible, setComingSoonVisible] = useState(false);
+
+  const comingSoon = () => setComingSoonVisible(true);
 
   const sections: { title: string; rows: SettingRow[] }[] = [
     {
-      title: 'Privacy',
+      title: t.section_privacy,
       rows: [
-        {
-          id: 'read-receipts',
-          icon: <Eye size={20} color={colorss.textPrimary} />,
-          label: 'Read receipts',
-          sub: "Show when you've read messages",
-          onPress: () => navigation.navigate('ReadReceipts'),
-        },
-        {
-          id: 'message-perms',
-          icon: <MessageCircle size={20} color={colorss.textPrimary} />,
-          label: 'Message permissions',
-          sub: 'Control who can message you',
-          onPress: () => navigation.navigate('MessagePermissions'),
-        },
-        {
-          id: 'typing',
-          icon: <User size={20} color={colorss.textPrimary} />,
-          label: 'Typing indicator',
-          sub: "Show when you're typing",
-          onPress: () => navigation.navigate('TypingIndicator'),
-        },
-        {
-          id: 'disappearing',
-          icon: <Moon size={20} color={colorss.textPrimary} />,
-          label: 'Disappearing messages',
-          sub: 'Messages delete automatically',
-          onPress: () => navigation.navigate('DisappearingMessages'),
-        },
+        { id: 'read-receipts',  icon: <Eye size={20} color={colorss.textPrimary} />,           label: t.read_receipts,         sub: t.read_receipts_sub,         onPress: comingSoon },
+        { id: 'message-perms',  icon: <MessageCircle size={20} color={colorss.textPrimary} />, label: t.message_permissions,   sub: t.message_permissions_sub,   onPress: comingSoon },
+        { id: 'typing',         icon: <User size={20} color={colorss.textPrimary} />,           label: t.typing_indicator,      sub: t.typing_indicator_sub,      onPress: comingSoon },
+        { id: 'disappearing',   icon: <Moon size={20} color={colorss.textPrimary} />,           label: t.disappearing_messages, sub: t.disappearing_messages_sub, onPress: comingSoon },
       ],
     },
     {
-      title: 'Notifications',
+      title: t.section_notifications,
       rows: [
-        {
-          id: 'notif-sounds',
-          icon: <Bell size={20} color={colorss.textPrimary} />,
-          label: 'Notification sounds',
-          sub: 'Ringtones and alert sounds',
-          onPress: () => navigation.navigate('NotificationsSounds'),
-        },
+        { id: 'notif-sounds', icon: <Bell size={20} color={colorss.textPrimary} />, label: t.notification_sounds, sub: t.notification_sounds_sub, onPress: comingSoon },
       ],
     },
     {
-      title: 'Appearance',
+      title: t.section_appearance,
       rows: [
-        {
-          id: 'theme',
-          icon: <Moon size={20} color={colorss.textPrimary} />,
-          label: 'Theme',
-          sub: 'Light or dark mode',
-          onPress: () => navigation.navigate('Theme'),
-        },
+        { id: 'theme', icon: <Moon size={20} color={colorss.textPrimary} />, label: t.theme, sub: t.theme_sub, onPress: comingSoon },
       ],
     },
     {
-      title: 'Security',
+      title: t.section_security,
       rows: [
-        {
-          id: 'blocked',
-          icon: <Ban size={20} color={colorss.textPrimary} />,
-          label: 'Blocked people & pages',
-          sub: 'Manage who you have blocked',
-          onPress: () => navigation.navigate('BlockedPeople'),
-        },
-        {
-          id: 'report',
-          icon: <Shield size={20} color={colorss.textPrimary} />,
-          label: 'Report a problem',
-          onPress: () => navigation.navigate('ReportProblem'),
-        },
-        {
-          id: 'auto-save',
-          icon: <Trash2 size={20} color={colorss.textPrimary} />,
-          label: 'Auto-save photos',
-          onPress: () => navigation.navigate('AutoSavePhotos'),
-        },
+        { id: 'blocked',         icon: <Ban size={20} color={colorss.textPrimary} />,      label: t.blocked_people,  sub: t.blocked_people_sub, onPress: () => navigation.navigate('BlockedPeople') },
+        { id: 'report',          icon: <Shield size={20} color={colorss.textPrimary} />,   label: t.report_problem,                             onPress: comingSoon },
+        { id: 'auto-save',       icon: <Trash2 size={20} color={colorss.textPrimary} />,   label: t.auto_save,                                  onPress: comingSoon },
+        { id: 'privacy-policy',  icon: <FileText size={20} color={colorss.textPrimary} />, label: t.privacy_policy,  sub: 'hopechat.chat/privacy-policy', onPress: () => Linking.openURL('https://hopechat.chat/privacy-policy/') },
       ],
     },
   ];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={24} color={colorss.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerTitle}>{t.settings}</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Profile Card */}
         <View style={styles.profileCard}>
           <FastImage
             source={profile?.avatarUrl ? { uri: profile.avatarUrl } : IC_PROFILE}
@@ -146,9 +190,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.profileName} numberOfLines={1}>
               {profile?.displayName ?? 'HopeChat User'}
             </Text>
-            <Text style={styles.profileSub} numberOfLines={1}>
-              Hopenity account
-            </Text>
+            <Text style={styles.profileSub} numberOfLines={1}>{t.hopenity_account}</Text>
           </View>
         </View>
 
@@ -182,11 +224,18 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <ComingSoonModal
+        visible={comingSoonVisible}
+        onClose={() => setComingSoonVisible(false)}
+      />
     </SafeAreaView>
   );
 };
 
 export default SettingsScreen;
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colorss.background },
@@ -227,7 +276,6 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     backgroundColor: colorss.white,
-    marginHorizontal: 0,
   },
   row: {
     flexDirection: 'row',
@@ -245,5 +293,107 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colorss.border,
     marginLeft: 58,
+  },
+});
+
+const modal = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  card: {
+    width: '100%',
+    backgroundColor: colorss.white,
+    borderRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: colorss.background,
+  },
+  emojiWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: `${colorss.primary}12`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  emoji: { fontSize: 40 },
+  title: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colorss.textPrimary,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  body: {
+    fontSize: 15,
+    color: colorss.textSecondary,
+    textAlign: 'center',
+    lineHeight: 23,
+    marginBottom: 20,
+  },
+  divider: {
+    width: '100%',
+    height: 1,
+    backgroundColor: colorss.border,
+    marginBottom: 18,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 24,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: colorss.background,
+    borderWidth: 1,
+    borderColor: colorss.border,
+  },
+  chipDone: {
+    backgroundColor: '#dcfce7',
+    borderColor: '#22c55e',
+  },
+  chipActive: {
+    backgroundColor: `${colorss.primary}15`,
+    borderColor: colorss.primary,
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colorss.textSecondary,
+  },
+  chipTextDone: { color: '#15803d' },
+  chipTextActive: { color: colorss.primary },
+  okBtn: {
+    width: '100%',
+    backgroundColor: colorss.primary,
+    borderRadius: 50,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  okText: {
+    color: colorss.white,
+    fontWeight: '700',
+    fontSize: 16,
   },
 });

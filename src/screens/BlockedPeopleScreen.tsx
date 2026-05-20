@@ -27,10 +27,12 @@ import {
 } from '../services/chatService';
 import { mapChatItemToSummary } from '../context/ChatsContext';
 import { normalizeChatUserId } from '../utils/chatUserId';
+import { useT } from '../hooks/useT';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'BlockedPeople'>;
 
 const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const token = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
@@ -70,12 +72,12 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleUnblock = useCallback((item: ReturnType<typeof mapChatItemToSummary>) => {
     Alert.alert(
-      `Unblock ${item.name}?`,
+      `${t.unblock} ${item.name}?`,
       `${item.name} will be able to message and call you again.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t.cancel, style: 'cancel' },
         {
-          text: 'Unblock',
+          text: t.unblock,
           onPress: async () => {
             setUnblockingId(item.id);
             try {
@@ -99,7 +101,7 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={24} color={colorss.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Blocked people</Text>
+        <Text style={styles.title}>{t.blocked_people_title}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -110,15 +112,13 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
       ) : blocked.length === 0 ? (
         <View style={styles.center}>
           <UserX size={48} color={colorss.placeholder} />
-          <Text style={styles.emptyTitle}>No blocked accounts</Text>
-          <Text style={styles.emptyBody}>
-            People and pages you block will appear here.
-          </Text>
+          <Text style={styles.emptyTitle}>{t.blocked_empty_title}</Text>
+          <Text style={styles.emptyBody}>{t.blocked_empty_body}</Text>
         </View>
       ) : (
         <>
           <Text style={styles.count}>
-            {blocked.length} blocked {blocked.length === 1 ? 'account' : 'accounts'}
+            {blocked.length} {blocked.length === 1 ? t.blocked_count_one : t.blocked_count_many}
           </Text>
           <FlatList
             data={blocked}
@@ -139,21 +139,21 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
                       {item.name}
                     </Text>
                     <Text style={styles.sub} numberOfLines={1}>
-                      Blocked
+                      {t.blocked_label}
                     </Text>
                   </View>
                   <TouchableOpacity
                     style={[styles.unblockBtn, busy && styles.unblockBtnBusy]}
                     onPress={() => handleUnblock(item)}
                     disabled={busy}
-                    accessibilityLabel={`Unblock ${item.name}`}
+                    accessibilityLabel={`${t.unblock} ${item.name}`}
                   >
                     {busy ? (
                       <ActivityIndicator size="small" color={colorss.primary} />
                     ) : (
                       <>
                         <Unlock size={14} color={colorss.primary} />
-                        <Text style={styles.unblockLabel}>Unblock</Text>
+                        <Text style={styles.unblockLabel}>{t.unblock}</Text>
                       </>
                     )}
                   </TouchableOpacity>

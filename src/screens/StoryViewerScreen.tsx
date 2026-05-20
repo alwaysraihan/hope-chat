@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import FastImage from '@d11/react-native-fast-image';
+import Video from 'react-native-video';
 
 import { colorss } from '../theme';
 import type { RootStackNavigatorParamList } from '../types/navigators';
@@ -151,12 +152,49 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
     );
   });
 
+  const isVideo = slide.type === 'video';
+
   return (
     <View style={styles.shell}>
       <StatusBar translucent backgroundColor="transparent" />
 
-      <FastImage source={{ uri: slide.uri }} style={styles.fullImage}>
-        <View style={styles.scrim}>
+      {/* ── Media layer: Video or Image ───────────────────────── */}
+      {isVideo ? (
+        <Video
+          source={{ uri: slide.uri }}
+          style={styles.fullImage}
+          resizeMode="contain"
+          repeat
+          paused={false}
+          muted={false}
+          // Restart timer from actual video duration once loaded
+          onLoad={data => {
+            const durMs = Math.max(1000, (data?.duration ?? 5) * 1000);
+            killAnim();
+            progress.setValue(0);
+            const a = Animated.timing(progress, {
+              toValue: 1,
+              duration: durMs,
+              useNativeDriver: false,
+            });
+            animRef.current = a;
+            a.start(({ finished }) => {
+              const currentRings = getStoryFeedRings();
+              if (!finished || !currentRings.length || !ring) return;
+              const nextSlide = slideIdx + 1;
+              if (nextSlide < slideCount) setSlideIdx(nextSlide);
+              else if (userIdx + 1 < currentRings.length) setUserIdx(userIdx + 1);
+              else navigation.goBack();
+            });
+          }}
+          ignoreSilentSwitch="ignore"
+        />
+      ) : (
+        <FastImage source={{ uri: slide.uri }} style={styles.fullImage} resizeMode={FastImage.resizeMode.cover} />
+      )}
+
+      {/* ── Overlay (progress, name, tap zones) ──────────────── */}
+      <View style={[styles.fullImage, styles.scrim]}>
           <SafeAreaView style={styles.overlayTop} edges={['top']}>
             <View style={styles.progressRow}>{segments}</View>
             <View style={styles.userRow}>
@@ -182,11 +220,7 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
             <Pressable style={styles.hitSide} onPress={goNext} />
           </View>
 
-          <SafeAreaView style={styles.bottomHint} edges={['bottom']}>
-            <Text style={styles.hintTxt}>Tap left · previous · Tap right · next</Text>
-          </SafeAreaView>
-        </View>
-      </FastImage>
+      </View>
 
       <Pressable
         style={styles.chromeClose}

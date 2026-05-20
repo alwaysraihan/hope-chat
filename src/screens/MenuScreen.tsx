@@ -30,6 +30,7 @@ import { clearAuth, selectHopenityProfile } from '../redux/features/auth/authSli
 import { clearPersistedHopenityUser } from '../services/hopenitySharedAuth';
 import { useLanguage } from '../context/LanguageContext';
 import { openHopenityBestEffort } from '../services/hopenityLinking';
+import { useT } from '../hooks/useT';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Menu'>,
@@ -46,45 +47,14 @@ const colors = {
   error: '#EF4444',
 };
 
-const strings = {
-  en: {
-    menu: 'Menu',
-    settings: 'Settings',
-    messageRequests: 'Message requests',
-    archive: 'Archive',
-    friendRequests: 'Friend requests',
-    language: 'Language',
-    english: 'English',
-    bangla: 'বাংলা',
-    logout: 'Log out',
-    logoutConfirmTitle: 'Log out',
-    logoutConfirmMessage: 'Are you sure you want to log out?',
-    cancel: 'Cancel',
-  },
-  bn: {
-    menu: 'মেনু',
-    settings: 'সেটিংস',
-    messageRequests: 'মেসেজ অনুরোধ',
-    archive: 'আর্কাইভ',
-    friendRequests: 'বন্ধুত্বের অনুরোধ',
-    language: 'ভাষা',
-    english: 'English',
-    bangla: 'বাংলা',
-    logout: 'লগ আউট',
-    logoutConfirmTitle: 'লগ আউট',
-    logoutConfirmMessage: 'আপনি কি সত্যিই লগ আউট করতে চান?',
-    cancel: 'বাতিল',
-  },
-};
-
 const MenuScreen: React.FC<Props> = ({ navigation }) => {
+  const t = useT();
   const dispatch = useAppDispatch();
   const profile = useAppSelector(selectHopenityProfile);
   const { lang, setLang } = useLanguage();
-  const t = strings[lang];
 
   const handleLogout = () => {
-    Alert.alert(t.logoutConfirmTitle, t.logoutConfirmMessage, [
+    Alert.alert(t.logout_confirm_title, t.logout_confirm_message, [
       { text: t.cancel, style: 'cancel' },
       {
         text: t.logout,
@@ -98,37 +68,16 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const menuItems = [
-    {
-      id: 'settings',
-      title: t.settings,
-      icon: <LucideSettings size={20} color={colors.textPrimary} />,
-      onPress: () => navigation.navigate('Settings'),
-    },
-    {
-      id: 'message-requests',
-      title: t.messageRequests,
-      icon: <LucideMessageCircleMore size={20} color={colors.textPrimary} />,
-      onPress: () => navigation.navigate('MessageRequests'),
-    },
-    {
-      id: 'archive',
-      title: t.archive,
-      icon: <LucideArchive size={20} color={colors.textPrimary} />,
-      onPress: () => navigation.navigate('Archive'),
-    },
-    {
-      id: 'friend-requests',
-      title: t.friendRequests,
-      icon: <LucideUsers size={20} color={colors.textPrimary} />,
-      onPress: () => void openHopenityBestEffort().catch(() => undefined),
-    },
+    { id: 'settings',         title: t.settings,              icon: <LucideSettings size={20} color={colors.textPrimary} />,           onPress: () => navigation.navigate('Settings') },
+    { id: 'message-requests', title: t.message_requests_label, icon: <LucideMessageCircleMore size={20} color={colors.textPrimary} />,  onPress: () => navigation.navigate('MessageRequests') },
+    { id: 'archive',          title: t.archive_label,          icon: <LucideArchive size={20} color={colors.textPrimary} />,            onPress: () => navigation.navigate('Archive') },
+    { id: 'friend-requests',  title: t.friend_requests,        icon: <LucideUsers size={20} color={colors.textPrimary} />,              onPress: () => void openHopenityBestEffort().catch(() => undefined) },
   ];
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Text style={styles.heading}>{t.menu}</Text>
 
-      {/* Profile row */}
       <View style={styles.profileRow}>
         <Image
           source={profile?.avatarUrl ? { uri: profile.avatarUrl } : IC_PROFILE}
@@ -138,9 +87,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
           <Text style={styles.displayName} numberOfLines={1}>
             {profile?.displayName ?? 'HopeChat User'}
           </Text>
-          <Text style={styles.profileSub} numberOfLines={1}>
-            View your profile
-          </Text>
+          <Text style={styles.profileSub} numberOfLines={1}>{t.view_profile}</Text>
         </View>
       </View>
 
