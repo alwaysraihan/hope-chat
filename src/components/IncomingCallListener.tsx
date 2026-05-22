@@ -26,6 +26,9 @@ import {
 import {
   consumePendingIncomingCall,
   navigateIncomingCall,
+  clearPendingIncomingCall,
+  markCallCancelled,
+  isCallCancelled,
 } from '../services/incomingCall/navigateIncomingCall';
 import {
   cancelAndroidIncomingCallNotification,
@@ -215,7 +218,15 @@ const IncomingCallListener = () => {
       consumePendingIncomingCall();
       void consumePendingAutoAcceptData().then(json => {
         if (!json) return;
-        try { void acceptCallDirectly(parseIncomingCallPayload(JSON.parse(json) as Record<string, string>)); } catch { /* */ }
+        try {
+          const parsed = parseIncomingCallPayload(
+            JSON.parse(json) as Record<string, string>,
+          );
+          // Guard: if a call_cancelled FCM already arrived in-process, don't
+          // join a dead LiveKit room.
+          if (!parsed || isCallCancelled(parsed.liveKitRoom)) return;
+          void acceptCallDirectly(parsed);
+        } catch { /* */ }
       });
       void consumePendingRejectData().then(json => {
         if (!json) return;
@@ -274,14 +285,24 @@ const IncomingCallListener = () => {
           data.cancelled === 'true';
         if (isCancelled) {
           const cancelledRoom = data.liveKitRoom || data.room;
+          if (cancelledRoom) markCallCancelled(cancelledRoom);
           dismissIncomingCallIfShowing(cancelledRoom);
-          // End the caller's active outgoing call if they're still ringing
           endActiveCallIfMatchesRoom(cancelledRoom);
+          // Kill any buffered pending navigation that hasn't fired yet — prevents
+          // the IncomingCallScreen from opening after nav becomes ready.
+          clearPendingIncomingCall(cancelledRoom);
           return;
         }
 
         const parsed = parseIncomingCallPayload(data);
         if (parsed) {
+          // Bug 2: if there's an active call in a different room, tear it down
+          // immediately so the user isn't stuck in two simultaneous calls while
+          // deciding whether to accept the new one.
+          const active = getActiveCall();
+          if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+            void endActiveCallForReplacement(parsed.liveKitRoom);
+          }
           navigateIncomingCall(parsed);
         } else if (__DEV__ && Object.keys(data).length > 0) {
           console.warn(

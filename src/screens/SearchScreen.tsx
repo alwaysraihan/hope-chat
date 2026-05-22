@@ -33,6 +33,7 @@ import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { API_BASE_URL } from '../config/env';
 import { useChats } from '../context/ChatsContext';
 import { useT } from '../hooks/useT';
+import { getOrCreatePeerChat } from '../services/chatService';
 
 type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackNavigatorParamList, 'Search'>,
@@ -188,12 +189,9 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   }, [query, token]);
 
   const openChat = useCallback(
-    (user: UserResult) => {
+    async (user: UserResult) => {
       const peerId = String(user.user_id);
 
-      // Try to find an existing conversation with this peer by matching peerUserId.
-      // The API returns conversation IDs that are NOT the same as user IDs, so
-      // passing peerId directly as conversationId causes "Conversation not found".
       const existing = conversations.find(
         c =>
           !c.isGroup &&
@@ -201,7 +199,14 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
           normalizeChatUserId(c.peerUserId) === normalizeChatUserId(peerId),
       );
 
-      const conversationId = existing ? String(existing.id) : peerId;
+      let conversationId: string;
+      if (existing) {
+        conversationId = String(existing.id);
+      } else {
+        const realId = token ? await getOrCreatePeerChat(peerId, token) : null;
+        conversationId = realId ?? peerId;
+      }
+
       const liveKitRoom = resolveLiveKitRoomName({
         conversationId,
         peerUserId: peerId,
@@ -213,8 +218,6 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
         displayName: user.name,
         avatarUrl: user.image ?? null,
         liveKitRoom,
-        // Seed lets InboxGate render even when the conversation isn't in the
-        // cache yet (e.g. first message to this person).
         seedConversation: existing ?? {
           id: conversationId,
           name: user.name,
@@ -222,11 +225,14 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
           peerUserId: peerId,
           isGroup: false,
           needsAcceptance: false,
+          preview: '',
+          time: '',
+          unreadCount: 0,
           messages: [],
         },
       });
     },
-    [navigation, localUserId, conversations],
+    [navigation, localUserId, conversations, token],
   );
 
   const renderUser = useCallback(
@@ -409,6 +415,7 @@ function Header({
   onChangeQuery: (v: string) => void;
   onBack: () => void;
 }) {
+  const t = useT();
   return (
     <View style={styles.header}>
       <TouchableOpacity onPress={onBack} style={styles.backBtn}>

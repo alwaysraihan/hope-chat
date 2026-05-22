@@ -26,11 +26,11 @@ import {
 } from 'lucide-react-native';
 import { IC_PROFILE } from '../assets';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { clearAuth, selectHopenityProfile } from '../redux/features/auth/authSlice';
-import { clearPersistedHopenityUser } from '../services/hopenitySharedAuth';
+import { selectHopenityProfile } from '../redux/features/auth/authSlice';
 import { useLanguage } from '../context/LanguageContext';
 import { openHopenityBestEffort } from '../services/hopenityLinking';
 import { useT } from '../hooks/useT';
+import { performLogout } from '../services/logout';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Menu'>,
@@ -59,10 +59,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
       {
         text: t.logout,
         style: 'destructive',
-        onPress: () => {
-          clearPersistedHopenityUser();
-          dispatch(clearAuth());
-        },
+        onPress: () => performLogout(dispatch),
       },
     ]);
   };

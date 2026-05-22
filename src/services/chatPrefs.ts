@@ -10,6 +10,22 @@ const K_E2EE = 'e2ee_enabled_v1';
 const K_DIS_GLOBAL = 'disappear_global_sec_v1';
 const K_APPEARANCE = 'chat_appearance_v1';
 const K_LANG = 'ui_language_v1';
+const K_AUTO_LOGIN_ACKED = 'auto_login_acked_v1';
+
+/**
+ * Set when the user taps "Continue as {name}" for the first time.
+ * Allows subsequent cold-starts to skip the login screen entirely.
+ * Cleared on logout so the confirmation is required again.
+ */
+export function isAutoLoginAcked(): boolean {
+  return prefs().getBoolean(K_AUTO_LOGIN_ACKED) === true;
+}
+export function markAutoLoginAcked(): void {
+  prefs().set(K_AUTO_LOGIN_ACKED, true);
+}
+export function clearAutoLoginAck(): void {
+  prefs().delete(K_AUTO_LOGIN_ACKED);
+}
 
 export type AppLanguage = 'en' | 'bn';
 

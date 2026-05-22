@@ -65,7 +65,8 @@ import { useGracefulRoomLeave } from '../hooks/useGracefulRoomLeave';
 import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
 import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
-import { useOverlayPermissionPrompt } from '../hooks/useOverlayPermissionPrompt';
+// useOverlayPermissionPrompt removed — SYSTEM_ALERT_WINDOW dropped from manifest.
+// Re-add when the floating in-call bubble feature is shipped.
 import { registerActiveCall } from '../services/livekit/activeCallRegistry';
 import { useCallTimer } from '../hooks/useCallTimer';
 import {
@@ -539,7 +540,6 @@ function AudioStage({
 }
 
 const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
-  useOverlayPermissionPrompt();
   const rawSafePop = useSafeSingleNavigationPop(navigation as never);
   // Suppress safePop when we're intentionally swapping call screens (mode switch / call handover).
   const safePop = useCallback(() => {

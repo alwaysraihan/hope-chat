@@ -291,6 +291,32 @@ function unwrapChatMessagesEnvelope(json: unknown): HopenityChatMessagesPage {
   return { messages: [], pagination: null };
 }
 
+/**
+ * POST /api/v1/chats — get or create a 1-to-1 conversation with targetUserId.
+ * Returns the real conversation ID, or null on failure.
+ */
+export async function getOrCreatePeerChat(
+  targetUserId: string,
+  token: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/chats`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ targetUserId }),
+    });
+    const json = await response.json().catch(() => null);
+    const raw = json?.responseObject ?? json?.data ?? json;
+    const id = raw?.id ?? raw?.chatId ?? raw?.conversation_id;
+    return id != null ? String(id) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Loads messages; unwraps `{ messages, pagination }` from `responseObject`. */
 export async function fetchHopenityChatMessages(
   chatId: string | number,

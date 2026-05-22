@@ -14,6 +14,8 @@ export type PeerLinkPayload = {
   peerId: string;
   displayName?: string;
   avatarUrl?: string | null;
+  /** Real conversation ID provisioned by Hopenity before opening HopeChat. */
+  chatId?: string | null;
 };
 
 let _pending: PeerLinkPayload | null = null;

@@ -58,6 +58,16 @@ export async function consumePendingAutoAcceptData(): Promise<string | null> {
   }
 }
 
+/**
+ * Discard any stored auto-accept data (e.g. call_cancelled FCM arrived before
+ * the main app foregrounded and could consume it).
+ */
+export async function clearPendingAutoAcceptData(): Promise<void> {
+  // consume-and-discard is the only way to clear native storage without adding
+  // a new native API.
+  await consumePendingAutoAcceptData();
+}
+
 export function setPendingRejectData(json: string): void {
   if (Platform.OS !== 'android') return;
   native?.setPendingRejectData?.(json);

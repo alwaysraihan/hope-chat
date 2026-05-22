@@ -44,6 +44,7 @@ import {
   onPeerDeepLink,
   type PeerLinkPayload,
 } from '../services/peerDeepLink';
+import { getOrCreatePeerChat } from '../services/chatService';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>,
@@ -53,6 +54,7 @@ type Props = CompositeScreenProps<
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
+  const token = useAppSelector(s => s.auth.token);
   const profile = useAppSelector(selectHopenityProfile);
   const localUserId = useMemo(
     () =>
@@ -146,18 +148,32 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   // Open or create a 1-to-1 chat for a hopechat://peer/{userId} deep link.
-  // Mirrors SearchScreen.openChat: reuse the existing conversation when found,
-  // otherwise seed a placeholder so InboxScreen can render before the server
-  // returns a real conversationId on the first message.
+  // For existing conversations: navigate immediately with the real conversationId.
+  // For new conversations: call POST /api/v1/chats to get or create a real
+  // conversationId before navigating (same pattern as FB Messenger — thread is
+  // provisioned server-side so InboxScreen has a valid ID from the first render).
   const navigateInboxForPeer = useCallback(
-    ({ peerId, displayName, avatarUrl }: PeerLinkPayload) => {
+    async ({ peerId, displayName, avatarUrl, chatId }: PeerLinkPayload) => {
       const existing = conversations.find(
         c =>
           !c.isGroup &&
           c.peerUserId != null &&
           normalizeChatUserId(c.peerUserId) === normalizeChatUserId(peerId),
       );
-      const conversationId = existing ? String(existing.id) : peerId;
+
+      let conversationId: string;
+      if (existing) {
+        conversationId = String(existing.id);
+      } else if (chatId) {
+        // Hopenity already created the chat — use the ID directly, no extra API call.
+        conversationId = chatId;
+      } else {
+        // Provision the conversation server-side first so we always navigate
+        // with a real ID. Fall back to peerId only if the API is unreachable.
+        const realId = token ? await getOrCreatePeerChat(peerId, token) : null;
+        conversationId = realId ?? peerId;
+      }
+
       navigation.navigate('Inbox', {
         conversationId,
         displayName: displayName ?? existing?.name ?? '',
@@ -174,11 +190,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           peerUserId: peerId,
           isGroup: false,
           needsAcceptance: false,
+          preview: '',
+          time: '',
+          unreadCount: 0,
           messages: [],
         },
       });
     },
-    [navigation, conversations, localUserId],
+    [navigation, conversations, localUserId, token],
   );
 
   // Runtime deep link — app already running / backgrounded.

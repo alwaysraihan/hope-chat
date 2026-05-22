@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Linking,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,7 @@ import {
   Bell,
   Eye,
   FileText,
+  LogOut,
   MessageCircle,
   Moon,
   Shield,
@@ -26,10 +28,11 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colorss } from '../theme';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
-import { useAppSelector } from '../hooks/redux';
+import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { selectHopenityProfile } from '../redux/features/auth/authSlice';
 import { useT } from '../hooks/useT';
 import ComingSoonModal from '../components/ComingSoonModal';
+import { performLogout } from '../services/logout';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Settings'>;
 
@@ -45,10 +48,22 @@ type SettingRow = {
 
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
+  const dispatch = useAppDispatch();
   const profile = useAppSelector(selectHopenityProfile);
   const [comingSoonVisible, setComingSoonVisible] = useState(false);
 
   const comingSoon = () => setComingSoonVisible(true);
+
+  const handleLogout = () => {
+    Alert.alert(t.logout_confirm_title, t.logout_confirm_message, [
+      { text: t.cancel, style: 'cancel' },
+      {
+        text: t.logout,
+        style: 'destructive',
+        onPress: () => performLogout(dispatch),
+      },
+    ]);
+  };
 
   const sections: { title: string; rows: SettingRow[] }[] = [
     {
@@ -134,6 +149,26 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           </View>
         ))}
+
+        {/* Sign out */}
+        <View style={styles.section}>
+          <View style={styles.sectionCard}>
+            <TouchableOpacity
+              style={styles.row}
+              onPress={handleLogout}
+              activeOpacity={0.7}
+            >
+              <View style={styles.rowIcon}>
+                <LogOut size={20} color={colorss.error} />
+              </View>
+              <View style={styles.rowContent}>
+                <Text style={[styles.rowLabel, { color: colorss.error }]}>
+                  {t.logout}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>

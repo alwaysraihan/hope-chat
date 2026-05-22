@@ -18,6 +18,7 @@ import {
   stopIncomingCallRingtone,
   setPendingAutoAcceptData,
   setPendingRejectData,
+  clearPendingAutoAcceptData,
 } from './callRingtone';
 
 // ── Messaging notification channel ────────────────────────────────────────────
@@ -193,6 +194,10 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
   if (isCancelled) {
     stopIncomingCallRingtone();
     await cancelAndroidIncomingCallNotification();
+    // If the user pressed "Accept" on the notification before the call was
+    // cancelled, discard the stored auto-accept data so the app doesn't
+    // join a dead LiveKit room when it next foregrounds.
+    await clearPendingAutoAcceptData();
     return;
   }
 

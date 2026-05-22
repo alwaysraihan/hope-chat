@@ -1,7 +1,6 @@
 <manifest
   xmlns:android="http://schemas.android.com/apk/res/android"
-  xmlns:tools="http://schemas.android.com/tools"
-  android:sharedUserId="com.hopenity.shared">
+  xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -29,12 +28,6 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-
-  <!--
-    Lets us pop a WhatsApp-style mini-call bubble over other apps when the user minimises the
-    call. Runtime-granted via Settings.canDrawOverlays; we never require it.
-  -->
-  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
   <queries>
     <package android:name="com.hopenity" />

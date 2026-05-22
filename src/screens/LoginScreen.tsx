@@ -40,6 +40,11 @@ import {
 } from '../services/hopenityLinking';
 import { PLAY_STORE_WEB_URL, HOPENITY_PACKAGE_ID } from '../constants/hopenity';
 import { useT } from '../hooks/useT';
+import { markAutoLoginAcked } from '../services/chatPrefs';
+import {
+  consumePendingAuthLink,
+  onAuthDeepLink,
+} from '../services/authDeepLink';
 
 type Props = NativeStackScreenProps<Record<string, undefined>, 'Login'>;
 
@@ -84,6 +89,59 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
     return subscribePersistedHopenityUser(() => peekSession());
   }, [peekSession]);
 
+  /**
+   * Handle an auth handoff token that arrived via hopechat://auth?token=...
+   *
+   * Validates the token with the backend, persists the blob, and dispatches
+   * setHopenitySession so the auth gate in App.tsx switches to the main app
+   * immediately — the user never has to tap "Continue as".
+   *
+   * If the original deep link included a redirect (e.g. "peer/123"), that was
+   * already stored in the peer-link slot by App.tsx so HomeScreen will navigate
+   * there once it mounts.
+   */
+  const handlePendingAuthLink = useCallback(async () => {
+    const authLink = consumePendingAuthLink();
+    if (!authLink) return;
+
+    const { blob } = authLink;
+    const normalized = normalizeHopenityPersistedBlob(blob);
+    if (!normalized?.token) return;
+
+    // Log in immediately — no extra network round-trip needed.
+    //
+    // Why no validateHopeChatAccessToken() here:
+    //  • The token arrived via `hopechat://auth?token=...` issued by Hopenity's
+    //    live Redux session seconds ago — it is structurally valid (already checked
+    //    in parseAuthDeepLink) and current.
+    //  • The old validation call (a full fetchHopenityChatDirectory request) added
+    //    1–2 s latency and, on slow/offline networks, returned 'unavailable' and
+    //    silently dropped the auth entirely — leaving the user stuck.
+    //  • Token validity is enforced at the backend on the first authenticated API
+    //    call (fetchHopenityChatDirectory in ChatsContext returns 401 → clearAuth()
+    //    → LoginScreen).  That is the same recovery path used everywhere else.
+    //
+    // Replay protection is handled upstream in parseAuthDeepLink via the `ts`
+    // timestamp: links older than 5 minutes are rejected before reaching here.
+    persistHopenityUser(normalized);
+    markAutoLoginAcked();
+    dispatch(setHopenitySession({ blob: normalized }));
+  }, [dispatch]);
+
+  // Consume any auth deep link that was queued before this screen mounted.
+  useEffect(() => {
+    void handlePendingAuthLink();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run only on mount
+
+  // Also handle auth deep links that arrive while this screen is already shown
+  // (app is foregrounded via the deep link while LoginScreen is still visible).
+  useEffect(() => {
+    return onAuthDeepLink(() => {
+      void handlePendingAuthLink();
+    });
+  }, [handlePendingAuthLink]);
+
   const activeBlob = peeked;
   const normalizedSession = useMemo(
     () => normalizeHopenityPersistedBlob(activeBlob),
@@ -116,6 +174,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
       }
 
       persistHopenityUser(normalized);
+      markAutoLoginAcked();
       dispatch(setHopenitySession({ blob: normalized }));
     } finally {
       setContinueBusy(false);

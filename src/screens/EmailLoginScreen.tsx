@@ -193,13 +193,13 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={styles.linkWrapper}
             onPress={() => navigation.navigate('ForgotPassword')}
             disabled={loading}
           >
             <Text style={styles.linkText}>Forgotten password?</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           <TouchableOpacity
             style={styles.secondaryBtn}

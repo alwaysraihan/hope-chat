@@ -8,9 +8,17 @@ import com.facebook.react.module.annotations.ReactModule
 import java.io.File
 
 /**
- * Android SharedUserId allows apps to share data directories.
- * With sharedUserId="com.hopenity.shared", both apps can access a shared MMKV directory.
- * This returns the shared files directory path for MMKV storage.
+ * Resolves the MMKV storage directory for cross-app auth between HopeChat and Hopenity.
+ *
+ * NOTE: android:sharedUserId has been removed from both manifests (deprecated, Play Store
+ * risk). createPackageContext() is retained as a best-effort probe: if the companion app is
+ * installed on the same device and exposes a readable files directory it still works.
+ * When that probe fails (typical after sharedUserId removal) the module returns "" and
+ * hopenitySharedAuth.ts falls back to HopeChat's own private MMKV storage. Cold-start
+ * auto-login from Hopenity will then rely on the deep-link / Intent handshake instead.
+ *
+ * TODO: Replace with a ContentProvider or signed-intent token-pass for a fully
+ * sharedUserId-free cross-app auth path.
  */
 @ReactModule(name = CrossAppAuthModule.NAME)
 class CrossAppAuthModule(reactContext: ReactApplicationContext) :
@@ -19,9 +27,9 @@ class CrossAppAuthModule(reactContext: ReactApplicationContext) :
   override fun getName(): String = NAME
 
   /**
-   * Returns the shared MMKV directory path for Android apps with SharedUserId.
-   * With sharedUserId="com.hopenity.shared", both hope-chat and hopenity can access
-   * /data/data/com.hopenity.shared/ directory for shared storage.
+   * Best-effort: returns a shared MMKV directory path when the companion package is
+   * accessible via createPackageContext. Returns "" when the probe fails so the JS layer
+   * can fall back to per-app private storage gracefully.
    */
   @ReactMethod(isBlockingSynchronousMethod = true)
   fun getSharedMMKVDirectorySync(): String {
@@ -33,7 +41,8 @@ class CrossAppAuthModule(reactContext: ReactApplicationContext) :
   }
 
   private fun resolveSharedMmkvDir(context: Context): File {
-    // Same path Hopenity + Hope Chat must resolve (paired apps, same signing key + sharedUserId).
+    // Probe companion packages. Without sharedUserId this will typically throw a
+    // security exception; the catch block falls through to the per-app fallback.
     val packageCandidates = arrayOf("com.hopenity", "com.hopechat")
     for (pkg in packageCandidates) {
       try {
