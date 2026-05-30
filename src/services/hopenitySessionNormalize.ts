@@ -36,13 +36,22 @@ export function normalizeHopenityPersistedBlob(
   return next;
 }
 
-/** Ignore empty / whitespace / ultra-short garbage so the login card does not flash “Continue as”. */
-const MIN_ACCESS_TOKEN_LEN = 12;
+/**
+ * A real Hopenity JWT is a base64url(header).base64url(payload).base64url(sig) string.
+ * Minimum plausible length is ~36 chars (very short JWTs don't exist in practice).
+ * Using 36 instead of 12 prevents garbage strings from triggering “Continue as”.
+ */
+const MIN_ACCESS_TOKEN_LEN = 36;
 
 export function hasShareableHopenityAccessToken(
   blob: HopenityPersistedUserBlob | null | undefined,
 ): boolean {
   const n = normalizeHopenityPersistedBlob(blob);
   const t = n?.token;
-  return typeof t === 'string' && t.trim().length >= MIN_ACCESS_TOKEN_LEN;
+  if (typeof t !== 'string') return false;
+  const trimmed = t.trim();
+  if (trimmed.length < MIN_ACCESS_TOKEN_LEN) return false;
+  // Structural JWT check: must have 3 dot-separated base64url segments.
+  const parts = trimmed.split('.');
+  return parts.length === 3 && parts[0].length >= 4 && parts[1].length >= 4;
 }

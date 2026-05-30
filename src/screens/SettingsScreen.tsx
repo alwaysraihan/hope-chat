@@ -60,7 +60,21 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       {
         text: t.logout,
         style: 'destructive',
-        onPress: () => performLogout(dispatch),
+        onPress: () => {
+          // Pop Settings off the stack BEFORE tearing down the navigation tree.
+          // dispatch(clearAuth()) triggers a NavigationContainer key-change that
+          // remounts the entire navigator; if SettingsScreen is still on the stack
+          // during that remount, React Navigation crashes trying to clean up a
+          // screen whose parent navigator has already been destroyed.
+          // goBack() here is safe — it moves us back to the BottomTabNavigator
+          // which is a sibling of the stack, so no circular removal occurs.
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          }
+          // One-frame delay lets the goBack transition begin before
+          // clearAuth() swaps the NavigationContainer key.
+          setTimeout(() => performLogout(dispatch), 50);
+        },
       },
     ]);
   };

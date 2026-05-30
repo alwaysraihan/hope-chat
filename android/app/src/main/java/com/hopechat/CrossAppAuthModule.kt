@@ -1,6 +1,5 @@
 package com.hopechat
 
-import android.content.Context
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
@@ -8,17 +7,43 @@ import com.facebook.react.module.annotations.ReactModule
 import java.io.File
 
 /**
- * Resolves the MMKV storage directory for cross-app auth between HopeChat and Hopenity.
+ * CrossAppAuthModule — Android companion for cross-app MMKV auth sharing.
  *
- * NOTE: android:sharedUserId has been removed from both manifests (deprecated, Play Store
- * risk). createPackageContext() is retained as a best-effort probe: if the companion app is
- * installed on the same device and exposes a readable files directory it still works.
- * When that probe fails (typical after sharedUserId removal) the module returns "" and
- * hopenitySharedAuth.ts falls back to HopeChat's own private MMKV storage. Cold-start
- * auto-login from Hopenity will then rely on the deep-link / Intent handshake instead.
+ * ── Strategy ─────────────────────────────────────────────────────────────────
  *
- * TODO: Replace with a ContentProvider or signed-intent token-pass for a fully
- * sharedUserId-free cross-app auth path.
+ * iOS: the App Group container (group.com.hopenity.shared) is returned by the
+ *   Objective-C counterpart so MMKV reads the shared file Hopenity wrote.
+ *
+ * Android: both apps declare `android:sharedUserId="com.hopenity.shared"` and
+ *   are signed with the **same keystore**.  Under this configuration both
+ *   processes run with the same Linux UID, which means:
+ *
+ *   1. `createPackageContext("com.hopenity", 0)` succeeds without SecurityException.
+ *   2. `hopenityContext.filesDir` resolves to /data/data/com.hopenity/files —
+ *      readable and writable by HopeChat because they share the same UID.
+ *   3. MMKV created at <hopenityFilesDir>/mmkv/ with mode=MULTI_PROCESS will
+ *      read the same encrypted file that Hopenity wrote.
+ *
+ * This mirrors the Facebook ↔ Messenger pattern on Android:
+ *   - Hopenity writes its session to its own MMKV (the source of truth).
+ *   - HopeChat reads from the same file via this shared path.
+ *   - MMKV's MULTI_PROCESS mode handles concurrent read/write safely via
+ *     file locking, so no data races occur when both apps are in the foreground.
+ *
+ * ── Fallback ─────────────────────────────────────────────────────────────────
+ *
+ * If Hopenity is not installed, `createPackageContext` throws NameNotFoundException.
+ * We catch it and return "" so hopenitySharedAuth.ts falls back to HopeChat's
+ * own private MMKV — the deep-link handshake (hopechat://auth?token=...) will
+ * seed it on first launch from Hopenity as before.
+ *
+ * ── Requirements ─────────────────────────────────────────────────────────────
+ *
+ * 1. Both apps must declare the same android:sharedUserId in AndroidManifest.xml.
+ * 2. Both APKs must be signed with the identical keystore / signing key.
+ *    (Play Store: sharedUserId is deprecated for NEW apps but works for existing
+ *    pairs that already use it.  For new installs, the deep-link fallback is used
+ *    until the user opens HopeChat from Hopenity at least once.)
  */
 @ReactModule(name = CrossAppAuthModule.NAME)
 class CrossAppAuthModule(reactContext: ReactApplicationContext) :
@@ -26,37 +51,25 @@ class CrossAppAuthModule(reactContext: ReactApplicationContext) :
 
   override fun getName(): String = NAME
 
-  /**
-   * Best-effort: returns a shared MMKV directory path when the companion package is
-   * accessible via createPackageContext. Returns "" when the probe fails so the JS layer
-   * can fall back to per-app private storage gracefully.
-   */
   @ReactMethod(isBlockingSynchronousMethod = true)
   fun getSharedMMKVDirectorySync(): String {
     return try {
-      resolveSharedMmkvDir(reactApplicationContext).absolutePath
-    } catch (e: Exception) {
+      // createPackageContext succeeds when both apps share the same UID
+      // (android:sharedUserId + identical signing key).
+      val hopenityContext = reactApplicationContext.createPackageContext(
+        "com.hopenity",
+        0, // no flags — we only need the file paths, not code execution
+      )
+      val mmkvDir = File(hopenityContext.filesDir, "mmkv")
+      // Ensure the directory exists so MMKV can open the file immediately.
+      mmkvDir.mkdirs()
+      mmkvDir.absolutePath
+    } catch (_: Exception) {
+      // Hopenity not installed, or sharedUserId / keystore mismatch.
+      // Return "" → hopenitySharedAuth.ts falls back to per-app private MMKV
+      // and the deep-link handshake seeds the session on first open.
       ""
     }
-  }
-
-  private fun resolveSharedMmkvDir(context: Context): File {
-    // Probe companion packages. Without sharedUserId this will typically throw a
-    // security exception; the catch block falls through to the per-app fallback.
-    val packageCandidates = arrayOf("com.hopenity", "com.hopechat")
-    for (pkg in packageCandidates) {
-      try {
-        val pkgCtx = context.createPackageContext(pkg, 0)
-        val dir = File(pkgCtx.filesDir, "cross_app_mmkv")
-        dir.mkdirs()
-        if (dir.exists()) return dir
-      } catch (_: Exception) {
-        /* try next */
-      }
-    }
-    val fallback = File(context.filesDir, "cross_app_mmkv")
-    fallback.mkdirs()
-    return fallback
   }
 
   companion object {

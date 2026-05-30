@@ -27,28 +27,51 @@ const AuthBootstrap = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
 
   // ── Cold-start auto-login ──────────────────────────────────────────────────
-  // Runs exactly once on mount. If the user has confirmed login before (acked)
-  // and a valid session is persisted, dispatch immediately — the login screen
-  // never becomes visible because loggedIn becomes true before React renders.
+  // Runs exactly once on mount.
+  //
+  // Session sources:
+  //   iOS:     App Group shared MMKV — same encrypted file Hopenity wrote to.
+  //            Works instantly on any cold-start, no deep-link required.
+  //   Android: HopeChat's private MMKV, seeded by the deep-link handshake
+  //            (hopechat://auth?token=...) the first time user opens from Hopenity.
+  //
+  // If `isAutoLoginAcked()` (user previously confirmed "Continue as {name}"):
+  //   → dispatch silently — login screen never shown (Messenger-like behaviour)
+  // Otherwise:
+  //   → LoginScreen shows "Continue as {name}" card — user confirms once
+  //
+  // Token validation: structural JWT check only (no network). The first
+  // authenticated API call in ChatsContext validates server-side; 401 → clearAuth().
   useEffect(() => {
-    if (loggedIn) return;              // already logged in (hot reload / dev)
-    if (!isAutoLoginAcked()) return;   // first-time user — show the login screen
+    if (loggedIn) return;
 
-    const blob = normalizeHopenityPersistedBlob(readPersistedHopenityUser());
-    const hasToken =
-      !!blob?.token &&
-      typeof blob.token === 'string' &&
-      blob.token.trim().length > 0;
+    const raw = readPersistedHopenityUser();
+    const blob = normalizeHopenityPersistedBlob(raw);
+    if (!blob) return;
 
-    if (!hasToken) return; // session was cleared (e.g. Hopenity signed out)
+    const token = blob.token;
+    if (typeof token !== 'string' || token.trim().length < 36) return;
 
+    // Structural JWT guard: 3 non-empty base64url segments.
+    const parts = token.trim().split('.');
+    if (parts.length !== 3 || parts[0].length < 4 || parts[1].length < 4) return;
+
+    if (!isAutoLoginAcked()) {
+      // Session available but not yet confirmed — LoginScreen will show the
+      // "Continue as {name}" card. Don't dispatch here; let the user tap once.
+      return;
+    }
+
+    // Previously confirmed — log in immediately without any UI flicker.
     dispatch(setHopenitySession({ blob }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally empty — must run only on mount
 
-  // ── Live-sync ──────────────────────────────────────────────────────────────
-  // While the user is signed in, mirror Hopenity MMKV changes into Redux so
-  // a token refresh or cross-app sign-out propagates without a restart.
+  // ── Live-sync while signed in ──────────────────────────────────────────────
+  // Mirrors Hopenity MMKV changes into Redux so a token refresh or cross-app
+  // sign-out propagates without a restart.
+  // iOS: fires via NSDistributedNotificationCenter when Hopenity writes/deletes.
+  // Android: fires only within the same process (deep-link writes).
   useEffect(() => {
     if (!loggedIn) return undefined;
     return subscribePersistedHopenityUser(raw => {
@@ -61,6 +84,29 @@ const AuthBootstrap = () => {
         dispatch(clearAuth());
         return;
       }
+      dispatch(setHopenitySession({ blob }));
+    });
+  }, [loggedIn, dispatch]);
+
+  // ── Live auto-login while on LoginScreen ──────────────────────────────────
+  // Handles the scenario where HopeChat's LoginScreen is open and Hopenity
+  // logs in during the same device session (iOS App Groups: real-time via
+  // NSDistributedNotificationCenter).
+  //
+  // If the user has previously confirmed "Continue as {name}" (isAutoLoginAcked),
+  // skip straight to the app — no tap needed. This is the Messenger experience:
+  // open Messenger immediately after logging into Facebook and you're already in.
+  useEffect(() => {
+    if (loggedIn) return undefined; // already handled by the live-sync effect above
+    return subscribePersistedHopenityUser(raw => {
+      const blob = normalizeHopenityPersistedBlob(raw);
+      if (!blob?.token) return;
+      const t = blob.token.trim();
+      if (t.length < 36) return;
+      const parts = t.split('.');
+      if (parts.length !== 3 || parts[0].length < 4 || parts[1].length < 4) return;
+      if (!isAutoLoginAcked()) return; // LoginScreen's peekSession will show the card
+      // Silently log in — the NavigationContainer key change transitions to the main app.
       dispatch(setHopenitySession({ blob }));
     });
   }, [loggedIn, dispatch]);

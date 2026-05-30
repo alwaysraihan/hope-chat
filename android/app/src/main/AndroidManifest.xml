@@ -5,14 +5,9 @@
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-  <!--
-    Required on Android 12 (API 31)+ for the system to surface a Bluetooth headset
-    as a selectable audio output during a call. Without BLUETOOTH_CONNECT the
-    LiveKit AudioSession.getAudioOutputs() call returns the device list without
-    any paired Bluetooth entries.
-  -->
+
   <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-  <!-- Legacy Bluetooth permissions for Android 11 and below. -->
+
   <uses-permission
     android:name="android.permission.BLUETOOTH"
     android:maxSdkVersion="30" />
@@ -69,12 +64,6 @@
     android:usesCleartextTraffic="${usesCleartextTraffic}"
     android:enableOnBackInvokedCallback="false"
     android:supportsRtl="true">
-    <!--
-      Override Notifee core's foreground service declaration (it defaults to
-      android:foregroundServiceType="shortService" which is incompatible with
-      microphone/camera on Android 14+, causing a crash when a call starts).
-      phoneCall type requires MANAGE_OWN_CALLS/DIALER role which a VoIP app cannot hold.
-    -->
     <service
       android:name="app.notifee.core.ForegroundService"
       android:exported="false"
@@ -96,10 +85,6 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
 
-      <!-- Deep link entry point used by the Hopenity companion app.
-           hopechat://peer/{userId}   → open / create conversation with that user
-           hopechat://                → open the app at the chat list (inbox)
-           React Navigation's Linking config handles path routing inside the JS layer. -->
       <intent-filter>
         <action android:name="android.intent.action.VIEW" />
         <category android:name="android.intent.category.DEFAULT" />
@@ -108,4 +93,6 @@
       </intent-filter>
     </activity>
   </application>
+
+
 </manifest>

@@ -35,6 +35,7 @@ import {
   ensureIncomingCallAndroidChannel,
 } from '../services/incomingCall/androidIncomingCallUi';
 import {
+  startIncomingCallRingtone,
   stopIncomingCallRingtone,
   consumePendingAutoAcceptData,
   consumePendingRejectData,
@@ -286,6 +287,9 @@ const IncomingCallListener = () => {
         if (isCancelled) {
           const cancelledRoom = data.liveKitRoom || data.room;
           if (cancelledRoom) markCallCancelled(cancelledRoom);
+          // Stop any in-process ringtone immediately before anything else.
+          stopIncomingCallRingtone();
+          void cancelAndroidIncomingCallNotification();
           dismissIncomingCallIfShowing(cancelledRoom);
           endActiveCallIfMatchesRoom(cancelledRoom);
           // Kill any buffered pending navigation that hasn't fired yet — prevents

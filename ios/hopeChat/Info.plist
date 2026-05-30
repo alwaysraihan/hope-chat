@@ -2,6 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	  AppGroupIdentifier — read by react-native-mmkv (v3+) to automatically route
+	  MMKV storage into the iOS App Group shared container so HopeChat and
+	  Hopenity can read/write the same encrypted MMKV file.
+	  Requires: App Groups capability enabled in Xcode for this target,
+	  and group.com.hopenity.shared registered in Apple Developer portal.
+	  See: https://github.com/mrousavy/react-native-mmkv#app-groups-or-extensions
+	-->
+	<key>AppGroupIdentifier</key>
+	<string>group.com.hopenity.shared</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
