@@ -15,6 +15,8 @@ import {
   BackHandler,
   Platform,
   ToastAndroid,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -24,6 +26,7 @@ import {
   Mic,
   MicOff,
   Phone as PhoneIcon,
+  UserPlus,
   Video as VideoIcon,
   Volume2,
   PhoneOff,
@@ -81,8 +84,172 @@ import {
   beginCallTransition,
   isCallTransitioning,
 } from '../services/callTransitionGuard';
+import { useChats } from '../context/ChatsContext';
+import { inviteContactToExistingCall } from '../services/invitePeerToHopeChatCall';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'AudioCall'>;
+
+/** Bottom-sheet modal to invite contacts into the active call room. */
+function AddPeopleModal({
+  visible,
+  onClose,
+  liveKitRoom,
+  callKind,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  liveKitRoom: string;
+  callKind: 'audio' | 'video';
+}) {
+  const { conversations } = useChats();
+  const token = useAppSelector(selectAuthToken);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+
+  const contacts = useMemo(
+    () => conversations.filter(c => !c.isGroup && !c.needsAcceptance && c.peerUserId),
+    [conversations],
+  );
+
+  const handleInvite = async (conversationId: string, name: string) => {
+    if (!token) return;
+    setBusyIds(prev => new Set(prev).add(conversationId));
+    await inviteContactToExistingCall({
+      token,
+      conversationId,
+      liveKitRoom,
+      callKind,
+    });
+    setBusyIds(prev => {
+      const next = new Set(prev);
+      next.delete(conversationId);
+      return next;
+    });
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(`Invited ${name}`, ToastAndroid.SHORT);
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity
+        style={addPeopleStyles.backdrop}
+        activeOpacity={1}
+        onPress={onClose}
+      />
+      <View style={addPeopleStyles.sheet}>
+        <View style={addPeopleStyles.handle} />
+        <Text style={addPeopleStyles.title}>Add People</Text>
+        <ScrollView>
+          {contacts.length === 0 ? (
+            <Text style={addPeopleStyles.empty}>
+              No contacts available to add.
+            </Text>
+          ) : (
+            contacts.map(c => (
+              <View key={c.id} style={addPeopleStyles.row}>
+                <FastImage
+                  source={c.avatarUrl ? { uri: c.avatarUrl } : IC_PROFILE}
+                  style={addPeopleStyles.avatar}
+                  resizeMode={FastImage.resizeMode.cover}
+                />
+                <Text style={addPeopleStyles.name} numberOfLines={1}>
+                  {c.name}
+                </Text>
+                <TouchableOpacity
+                  style={addPeopleStyles.inviteBtn}
+                  onPress={() => handleInvite(c.id, c.name)}
+                  disabled={busyIds.has(c.id)}
+                >
+                  {busyIds.has(c.id) ? (
+                    <ActivityIndicator size="small" color={colorss.white} />
+                  ) : (
+                    <Text style={addPeopleStyles.inviteText}>Invite</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+const addPeopleStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  sheet: {
+    backgroundColor: colorss.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+    maxHeight: '60%',
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colorss.border,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colorss.textPrimary,
+    textAlign: 'center',
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colorss.border,
+    marginBottom: 8,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colorss.backgroundDeep,
+  },
+  name: {
+    flex: 1,
+    color: colorss.textPrimary,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  inviteBtn: {
+    backgroundColor: colorss.accent,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  inviteText: {
+    color: colorss.white,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  empty: {
+    color: colorss.textSecondary,
+    textAlign: 'center',
+    padding: 24,
+  },
+});
 
 function AudioCallGate({
   navigation,
@@ -103,7 +270,8 @@ function AudioCallGate({
     liveKitRoom?: string;
   };
   routeParams: Props['route']['params'];
-}) {
+})
+ {
   const room = useRoomContext();
   const cs = useConnectionState(room);
   const { tryEmitOutgoingWithoutConnect } = useOutgoingCallWithoutConnect(
@@ -319,15 +487,27 @@ function AudioCallGate({
     );
   }
 
+  const [addPeopleVisible, setAddPeopleVisible] = useState(false);
+
   return (
-    <AudioStage
-      safePop={safePop}
-      displayName={displayName}
-      peerAvatarUrl={peerAvatarUrl}
-      tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
-      onSwitchToVideo={handleSwitchToVideo}
-      onMinimize={onMinimize}
-    />
+    <>
+      <AudioStage
+        safePop={safePop}
+        displayName={displayName}
+        peerAvatarUrl={peerAvatarUrl}
+        tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
+        onSwitchToVideo={handleSwitchToVideo}
+        onMinimize={onMinimize}
+        onAddPeople={() => setAddPeopleVisible(true)}
+        liveKitRoom={routeParams?.liveKitRoom ?? ''}
+      />
+      <AddPeopleModal
+        visible={addPeopleVisible}
+        onClose={() => setAddPeopleVisible(false)}
+        liveKitRoom={routeParams?.liveKitRoom ?? ''}
+        callKind="audio"
+      />
+    </>
   );
 }
 
@@ -338,6 +518,8 @@ function AudioStage({
   tryEmitOutgoingWithoutConnect,
   onSwitchToVideo,
   onMinimize,
+  onAddPeople,
+  liveKitRoom: _liveKitRoom,
 }: {
   safePop: () => void;
   displayName: string;
@@ -345,11 +527,14 @@ function AudioStage({
   tryEmitOutgoingWithoutConnect: () => void;
   onSwitchToVideo: () => void;
   onMinimize: () => void;
+  onAddPeople?: () => void;
+  liveKitRoom?: string;
 }) {
   const room = useRoomContext();
   const participants = useParticipants();
   const remotes = useRemoteParticipants();
   const isRinging = remotes.length === 0;
+  const isGroupCall = remotes.length > 1;
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
   // Default voice calls to the earpiece — matches phone-call expectation.
   // The hook also auto-routes to Bluetooth / wired headphones the moment they
@@ -449,16 +634,38 @@ function AudioStage({
       </View>
 
       <View style={styles.userInfo}>
-        <FastImage
-          source={peerAvatarUrl ? { uri: peerAvatarUrl } : IC_PROFILE}
-          style={styles.avatar}
-        />
+        {isGroupCall ? (
+          // Multi-participant: show a row of small avatars
+          <View style={styles.groupParticipants}>
+            {remotes.slice(0, 4).map(p => (
+              <View key={p.identity} style={styles.participantBubble}>
+                <Text style={styles.participantInitial}>
+                  {(p.name ?? p.identity ?? '?').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            ))}
+            {remotes.length > 4 && (
+              <View style={styles.participantBubble}>
+                <Text style={styles.participantInitial}>
+                  +{remotes.length - 4}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <FastImage
+            source={peerAvatarUrl ? { uri: peerAvatarUrl } : IC_PROFILE}
+            style={styles.avatar}
+          />
+        )}
         <Text style={styles.name}>{displayName}</Text>
         <Text style={styles.status}>
           {hint === 'reconnecting' || hint === 'poor_network'
             ? detail || 'Adjusting for your network…'
             : isRinging
             ? 'Ringing…'
+            : isGroupCall
+            ? `${remotes.length + 1} participants · ${timer || 'Connected'}`
             : timer || 'Connected'}
         </Text>
       </View>
@@ -521,6 +728,19 @@ function AudioStage({
           </TouchableOpacity>
           <Text style={styles.actionLabel}>Mute</Text>
         </View>
+        {onAddPeople && !isRinging && (
+          <View style={styles.actionItem}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={onAddPeople}
+              accessibilityRole="button"
+              accessibilityLabel="Add people to call"
+            >
+              <UserPlus size={22} color={colorss.white} />
+            </TouchableOpacity>
+            <Text style={styles.actionLabel}>Add</Text>
+          </View>
+        )}
         <View style={styles.actionItem}>
           <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
             <PhoneOff size={22} color={colorss.white} />
@@ -837,5 +1057,25 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  groupParticipants: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  participantBubble: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  participantInitial: {
+    color: colorss.white,
+    fontSize: 20,
+    fontWeight: '700',
   },
 });

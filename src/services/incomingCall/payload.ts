@@ -149,5 +149,17 @@ export function parseIncomingCallPayload(
     'chat_id',
   );
 
+  // Reject stale call invites — prevents ghost IncomingCallScreen after call ends.
+  // FCM can deliver messages minutes late on congested networks; a ts > 30s old
+  // means the call has already timed out or ended on the caller's side.
+  const tsStr = pickString(data, 'ts', 'timestamp', 'sentAt');
+  if (tsStr) {
+    const sentAt = Number(tsStr);
+    if (Number.isFinite(sentAt) && Date.now() - sentAt > 30_000) {
+      // Silently drop — this FCM arrived too late.
+      return null;
+    }
+  }
+
   return { callKind, liveKitRoom, displayName, callerId, avatarUrl, conversationId };
 }

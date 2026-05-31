@@ -1,18 +1,29 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { colorss } from '../theme';
 import BackHeader from '../components/BackHeader';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackNavigatorParamList } from '../types/navigators';
-type Props = NativeStackScreenProps<
-  RootStackNavigatorParamList,
-  'TypingIndicator'
->;
+import { getTypingIndicator, setTypingIndicator } from '../services/chatPrefs';
+import { patchUserSettings } from '../services/userSettingsService';
+import { useAppSelector } from '../hooks/redux';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
+
+type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'TypingIndicator'>;
 
 const TypingIndicatorScreen: React.FC<Props> = ({ navigation }) => {
-  const [enabled, setEnabled] = useState(true);
+  const token = useAppSelector(selectAuthToken);
+  const [enabled, setEnabled] = useState(() => getTypingIndicator());
+
+  const handleToggle = (value: boolean) => {
+    setEnabled(value);
+    setTypingIndicator(value);
+    if (token) {
+      patchUserSettings({ typingIndicator: value }, token);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -20,24 +31,26 @@ const TypingIndicatorScreen: React.FC<Props> = ({ navigation }) => {
 
       <View style={styles.content}>
         <View style={styles.row}>
-          <View style={{ flex: 1, marginRight: 16 }}>
+          <View style={styles.rowText}>
             <Text style={styles.label}>Show typing indicator</Text>
             <Text style={styles.subLabel}>
-              Others can see when you're typing.
+              {enabled
+                ? 'Others can see when you are typing.'
+                : 'Others cannot see when you are typing.'}
             </Text>
           </View>
-
           <Switch
             value={enabled}
-            onValueChange={setEnabled}
-            trackColor={{
-              false: colorss.border,
-              true: colorss.primary,
-            }}
+            onValueChange={handleToggle}
+            trackColor={{ false: colorss.border, true: colorss.primary }}
             thumbColor={colorss.white}
             ios_backgroundColor={colorss.border}
           />
         </View>
+
+        <Text style={styles.desc}>
+          When this is off, you will also not see others' typing indicators.
+        </Text>
       </View>
     </SafeAreaView>
   );
@@ -46,52 +59,17 @@ const TypingIndicatorScreen: React.FC<Props> = ({ navigation }) => {
 export default TypingIndicatorScreen;
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colorss.white,
-  },
-
-  navBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: colorss.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colorss.border,
-  },
-
-  backBtn: {
-    padding: 6,
-  },
-
-  navTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    color: colorss.textPrimary,
-    marginLeft: 6,
-  },
-
-  content: {
-    padding: 20,
-  },
-
+  safeArea: { flex: 1, backgroundColor: colorss.white },
+  content: { padding: 20 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 16,
+    gap: 12,
   },
-
-  label: {
-    color: colorss.textPrimary,
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 3,
-  },
-
-  subLabel: {
-    color: colorss.textSecondary,
-    fontSize: 13,
-  },
+  rowText: { flex: 1 },
+  label: { color: colorss.textPrimary, fontSize: 16, fontWeight: '500', marginBottom: 4 },
+  subLabel: { color: colorss.textSecondary, fontSize: 13 },
+  desc: { color: colorss.textSecondary, fontSize: 13, lineHeight: 20 },
 });

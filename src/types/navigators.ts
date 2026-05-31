@@ -43,7 +43,14 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     userId: string;
   };
   Search: undefined;
-  ConversationAction: undefined;
+  ConversationAction: {
+    conversationId: string;
+    conversationName: string;
+    isGroup?: boolean;
+    isMuted?: boolean;
+    isPinned?: boolean;
+    peerUserId?: string;
+  };
   EditSearchHistory: undefined;
   Archive: undefined;
   NotificationsSounds: undefined;
@@ -59,8 +66,25 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     conversationId?: string;
     peerUserId?: string;
     callDirection?: 'outgoing' | 'incoming';
+    /** True when calling a group conversation — all members are notified. */
+    isGroupCall?: boolean;
   };
   NewGroup: undefined;
+  GroupSetup: {
+    /** User IDs selected in NewGroupScreen */
+    selectedUserIds: string[];
+    /** Display names matching selectedUserIds (for chips preview) */
+    selectedNames: string[];
+  };
+  GroupInfo: {
+    groupId: string;
+    conversationId: string;
+  };
+  AddGroupMembers: {
+    groupId: string;
+    /** Current member IDs — used to filter them out of the picker */
+    existingMemberIds: string[];
+  };
   TypingIndicator: undefined;
   BlockedUser: {
     chatId: string;
@@ -83,6 +107,8 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     conversationId?: string;
     peerUserId?: string;
     callDirection?: 'outgoing' | 'incoming';
+    /** True when calling a group conversation — all members are notified. */
+    isGroupCall?: boolean;
   };
   IncomingCall: {
     callKind: 'audio' | 'video';

@@ -1,150 +1,131 @@
-import { LucideArrowLeft } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
   Image,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LucideArrowLeft, Moon, Sun } from 'lucide-react-native';
 import { colorss } from '../theme';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
-import { useMemo, useState } from 'react';
-import {
-  getChatAppearance,
-  setChatAppearance,
-} from '../services/chatPrefs';
+import { getChatAppearance, setChatAppearance } from '../services/chatPrefs';
+import { useAppTheme } from '../context/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GAP = 6;
 const ITEM_SIZE = (SCREEN_WIDTH - GAP * 4) / 3;
 
-const ThemeScreen = () => {
+const THEME_DATA = [
+  { id: 1, name: 'Light', img: THEME_1 },
+  { id: 2, name: 'Dark', img: THEME_2 },
+  { id: 3, name: 'Blue', img: THEME_3 },
+  { id: 4, name: 'Green', img: THEME_4 },
+  { id: 5, name: 'Pink', img: THEME_5 },
+];
+
+const ThemeScreen = ({ navigation }: { navigation: any }) => {
+  const { isDark, toggleDarkMode, colors } = useAppTheme();
   const appearance = useMemo(() => getChatAppearance(), []);
   const [selectedTheme, setSelectedTheme] = useState(appearance.themePresetId);
-  const [wallpaperUri, setWallpaperUri] = useState(
-    appearance.wallpaperUri ?? '',
-  );
+  const [wallpaperUri, setWallpaperUri] = useState(appearance.wallpaperUri ?? '');
   const [reactionPack, setReactionPack] = useState(
     appearance.reactionEmojiPalette.join(' '),
   );
 
-  const themeData = [
-    {
-      id: 1,
-      name: 'Light',
-      img: THEME_1,
-      onPress: () => {},
-    },
-    {
-      id: 2,
-      name: 'Dark',
-      img: THEME_2,
-      onPress: () => {},
-    },
-    {
-      id: 3,
-      name: 'Blue',
-      img: THEME_3,
-      onPress: () => {},
-    },
-    {
-      id: 4,
-      name: 'Green',
-      img: THEME_4,
-      onPress: () => {},
-    },
-    {
-      id: 5,
-      name: 'Red',
-      img: THEME_5,
-      onPress: () => {},
-    },
-    {
-      id: 6,
-      name: 'Light',
-      img: THEME_1,
-      onPress: () => {},
-    },
-    {
-      id: 7,
-      name: 'Dark',
-      img: THEME_2,
-      onPress: () => {},
-    },
-    {
-      id: 8,
-      name: 'Blue',
-      img: THEME_3,
-      onPress: () => {},
-    },
-    {
-      id: 9,
-      name: 'Green',
-      img: THEME_4,
-      onPress: () => {},
-    },
-  ];
-  return (
-    <View style={styles.sheet}>
+  const handleSelectTheme = (id: number) => {
+    setSelectedTheme(id);
+    setChatAppearance({ themePresetId: id });
+    if (id === 2 && !isDark) toggleDarkMode();
+    else if (id !== 2 && isDark) toggleDarkMode();
+  };
 
-      <View style={styles.header}>
-        <TouchableOpacity>
-          <LucideArrowLeft size={22} />
+  return (
+    <View style={[styles.sheet, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity onPress={() => navigation?.goBack?.()}>
+          <LucideArrowLeft size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Theme</Text>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>Theme</Text>
+        <View style={{ width: 22 }} />
       </View>
 
+      {/* Dark mode quick toggle */}
+      <View style={[styles.darkRow, { borderBottomColor: colors.border }]}>
+        {isDark ? (
+          <Moon size={20} color={colors.accent} />
+        ) : (
+          <Sun size={20} color={colors.textPrimary} />
+        )}
+        <Text style={[styles.darkLabel, { color: colors.textPrimary }]}>
+          {isDark ? 'Dark mode' : 'Light mode'}
+        </Text>
+        <Switch
+          value={isDark}
+          onValueChange={() => {
+            toggleDarkMode();
+            setChatAppearance({ themePresetId: isDark ? 1 : 2 });
+            setSelectedTheme(isDark ? 1 : 2);
+          }}
+          trackColor={{ false: colorss.border, true: colors.accent }}
+          thumbColor={colorss.white}
+          ios_backgroundColor={colorss.border}
+        />
+      </View>
 
       <FlatList
-        data={themeData}
+        data={THEME_DATA}
         numColumns={3}
         keyExtractor={item => item.id.toString()}
         contentContainerStyle={styles.list}
         columnWrapperStyle={styles.column}
         renderItem={({ item }) => {
           const active = selectedTheme === item.id;
-
           return (
             <TouchableOpacity
               style={styles.gridItem}
-              onPress={() => setSelectedTheme(item.id)}
+              onPress={() => handleSelectTheme(item.id)}
             >
-              <View style={styles.imageWrapper}>
+              <View
+                style={[
+                  styles.imageWrapper,
+                  active && { borderColor: colorss.primary, borderWidth: 2 },
+                ]}
+              >
                 <Image
                   source={item.img}
-                  style={[
-                    styles.image,
-                    active && { borderColor: colorss.primary },
-                  ]}
+                  style={styles.image}
                   resizeMode="cover"
                 />
               </View>
-
-              <Text style={styles.themeText}>{item.name}</Text>
+              <Text style={[styles.themeText, { color: colors.textPrimary }]}>
+                {item.name}
+              </Text>
             </TouchableOpacity>
           );
         }}
         ListFooterComponent={
           <View style={styles.footer}>
-            <Text style={styles.footerTitle}>Chat wallpaper (URL)</Text>
+            <Text style={[styles.footerTitle, { color: colors.textPrimary }]}>
+              Chat wallpaper URL
+            </Text>
             <TextInput
               value={wallpaperUri}
               onChangeText={setWallpaperUri}
-              onBlur={() =>
-                setChatAppearance({
-                  wallpaperUri: wallpaperUri.trim() || null,
-                })
-              }
+              onBlur={() => setChatAppearance({ wallpaperUri: wallpaperUri.trim() || null })}
               placeholder="https://…"
               placeholderTextColor={colorss.placeholder}
-              style={styles.input}
+              style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.inputBg }]}
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <Text style={styles.footerTitle}>Quick reactions (space‑separated)</Text>
+            <Text style={[styles.footerTitle, { color: colors.textPrimary }]}>
+              Quick reactions (space-separated)
+            </Text>
             <TextInput
               value={reactionPack}
               onChangeText={setReactionPack}
@@ -157,9 +138,9 @@ const ThemeScreen = () => {
                     .slice(0, 12),
                 })
               }
-              placeholder="❤️ 👍 …"
+              placeholder="❤️ 👍 😂 …"
               placeholderTextColor={colorss.placeholder}
-              style={styles.input}
+              style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.inputBg }]}
             />
           </View>
         }
@@ -172,83 +153,51 @@ export default ThemeScreen;
 
 const styles = StyleSheet.create({
   sheet: {
-    backgroundColor: colorss.background,
+    flex: 1,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingBottom: 20,
     paddingTop: 10,
-    justifyContent: 'flex-end',
   },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colorss.textPrimary,
+  title: { fontSize: 18, fontWeight: '700' },
+  darkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 12,
   },
-
-  themeText: {
-    textAlign: 'center',
-    marginTop: 6,
-    fontSize: 13,
-    color: colorss.textPrimary,
-  },
-
-  list: {
-    paddingHorizontal: GAP,
-    paddingTop: 10,
-    gap: GAP,
-  },
-
-  column: {
-    gap: GAP,
-  },
-
-  gridItem: {
-    width: ITEM_SIZE,
-  },
-
+  darkLabel: { flex: 1, fontSize: 16, fontWeight: '500' },
+  list: { paddingHorizontal: GAP, paddingTop: 16, gap: GAP },
+  column: { gap: GAP },
+  gridItem: { width: ITEM_SIZE, marginBottom: 4 },
   imageWrapper: {
     width: '100%',
-    height: 200,
-    backgroundColor: colorss.surface,
-  },
-
-  image: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-    borderWidth: 2,
-    borderColor: colorss.white,
+    height: 140,
     borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-
-  footer: {
-    paddingHorizontal: GAP,
-    gap: 10,
-    marginTop: 16,
-    paddingBottom: 24,
-  },
-  footerTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colorss.textPrimary,
-  },
+  image: { width: '100%', height: '100%' },
+  themeText: { textAlign: 'center', marginTop: 6, fontSize: 12 },
+  footer: { paddingHorizontal: GAP, gap: 10, marginTop: 20, paddingBottom: 24 },
+  footerTitle: { fontSize: 13, fontWeight: '600' },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colorss.border,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    color: colorss.textPrimary,
     marginBottom: 8,
   },
 });

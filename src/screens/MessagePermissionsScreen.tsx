@@ -1,38 +1,66 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft } from 'lucide-react-native';
 
 import { colorss } from '../theme';
 import BackHeader from '../components/BackHeader';
+import { getMessageOpenTo, setMessageOpenTo, MessageOpenTo } from '../services/chatPrefs';
+import { patchUserSettings } from '../services/userSettingsService';
+import { useAppSelector } from '../hooks/redux';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
 
-const MessagePermissionsScreen = ({ navigation }) => {
-  const [enabled, setEnabled] = useState(true);
+const OPTIONS: { value: MessageOpenTo; label: string; sub: string }[] = [
+  {
+    value: 'everyone',
+    label: 'Everyone',
+    sub: 'Anyone on HopeChat can send you messages.',
+  },
+  {
+    value: 'contacts',
+    label: 'My contacts only',
+    sub: 'Only people whose chats you have accepted can message you.',
+  },
+];
+
+const MessagePermissionsScreen = ({ navigation }: { navigation: any }) => {
+  const token = useAppSelector(selectAuthToken);
+  const [selected, setSelected] = useState<MessageOpenTo>(() => getMessageOpenTo());
+
+  const handleSelect = (value: MessageOpenTo) => {
+    setSelected(value);
+    setMessageOpenTo(value);
+    if (token) {
+      patchUserSettings({ messageOpenTo: value }, token);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <BackHeader title="Message Permissions" navigation={navigation} />
 
       <View style={styles.content}>
-        <View style={styles.row}>
-          <Text style={styles.label}>Allow message sharing</Text>
+        <Text style={styles.sectionTitle}>Who can send you messages?</Text>
 
-          <Switch
-            value={enabled}
-            onValueChange={setEnabled}
-            trackColor={{
-              false: colorss.border,
-              true: colorss.primary,
-            }}
-            thumbColor={colorss.white}
-            ios_backgroundColor={colorss.border}
-          />
-        </View>
+        {OPTIONS.map(opt => (
+          <TouchableOpacity
+            key={opt.value}
+            style={styles.option}
+            onPress={() => handleSelect(opt.value)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.radio, selected === opt.value && styles.radioSelected]}>
+              {selected === opt.value && <View style={styles.radioDot} />}
+            </View>
+            <View style={styles.optionText}>
+              <Text style={styles.optionLabel}>{opt.label}</Text>
+              <Text style={styles.optionSub}>{opt.sub}</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
 
-        <Text style={styles.desc}>
-          Everyone in this chat can share messages with Meta AI or auto-save
-          photos. Messages shared with Meta AI may be used to improve AI at
-          Meta. <Text style={styles.link}>Learn more</Text>
+        <Text style={styles.hint}>
+          Changing this setting affects who can start a new conversation with you.
+          Existing accepted chats are not affected.
         </Text>
       </View>
     </SafeAreaView>
@@ -42,37 +70,53 @@ const MessagePermissionsScreen = ({ navigation }) => {
 export default MessagePermissionsScreen;
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colorss.white,
+  safeArea: { flex: 1, backgroundColor: colorss.white },
+  content: { padding: 20 },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colorss.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 16,
   },
-
-  content: {
-    padding: 20,
-    backgroundColor: colorss.white,
-  },
-
-  row: {
+  option: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
+    alignItems: 'flex-start',
+    gap: 14,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colorss.border,
   },
-
-  label: {
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colorss.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 1,
+  },
+  radioSelected: { borderColor: colorss.accent },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colorss.accent,
+  },
+  optionText: { flex: 1 },
+  optionLabel: {
     color: colorss.textPrimary,
     fontSize: 16,
     fontWeight: '500',
+    marginBottom: 3,
   },
-
-  desc: {
+  optionSub: { color: colorss.textSecondary, fontSize: 13, lineHeight: 18 },
+  hint: {
     color: colorss.textSecondary,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-
-  link: {
-    color: colorss.accent,
-    fontWeight: '500',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 20,
   },
 });

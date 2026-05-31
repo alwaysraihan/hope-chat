@@ -50,6 +50,7 @@ import { ONGOING_NOTIFICATION_ID } from '../services/livekit/liveKitCallForegrou
 import { StackActions, CommonActions } from '@react-navigation/native';
 import { emitCallOutcome } from '../services/callOutcomeBus';
 import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
+import { callSocket } from '../services/callSocket';
 
 /**
  * If the IncomingCallScreen is currently showing for this room, dismiss it.
@@ -182,6 +183,44 @@ function openFromNotificationData(
  */
 const IncomingCallListener = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
+
+  // ── Socket.IO for instant call signaling ──────────────────────────────────
+  // Primary channel: sub-100ms delivery when app is foregrounded.
+  // FCM remains the fallback for backgrounded/offline devices.
+  useEffect(() => {
+    if (!loggedIn) return;
+    const token = store.getState().auth.token;
+    if (!token) return;
+
+    callSocket.connect(token);
+
+    const unsubIncoming = callSocket.onIncomingCall(data => {
+      const parsed = parseIncomingCallPayload(data);
+      if (!parsed) return;
+      // Socket path: same handling as FCM foreground
+      const active = getActiveCall();
+      if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+        void endActiveCallForReplacement(parsed.liveKitRoom);
+      }
+      navigateIncomingCall(parsed);
+    });
+
+    const unsubCancelled = callSocket.onCallCancelled(data => {
+      const cancelledRoom = data.liveKitRoom || data.room;
+      if (cancelledRoom) markCallCancelled(cancelledRoom);
+      stopIncomingCallRingtone();
+      void cancelAndroidIncomingCallNotification();
+      dismissIncomingCallIfShowing(cancelledRoom);
+      endActiveCallIfMatchesRoom(cancelledRoom);
+      clearPendingIncomingCall(cancelledRoom);
+    });
+
+    return () => {
+      unsubIncoming();
+      unsubCancelled();
+      callSocket.disconnect();
+    };
+  }, [loggedIn]);
 
   useEffect(() => {
     if (!loggedIn) return;

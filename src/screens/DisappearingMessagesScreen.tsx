@@ -4,10 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Timer } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { colorss } from '../theme';
@@ -18,41 +18,48 @@ import {
   setDisappearingForConversation,
   setDisappearingGlobal,
 } from '../services/chatPrefs';
+import { patchConversationDisappearing } from '../services/userSettingsService';
+import { useAppSelector } from '../hooks/redux';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
 
-type Props = NativeStackScreenProps<
-  RootStackNavigatorParamList,
-  'DisappearingMessages'
->;
+type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'DisappearingMessages'>;
 
-const OPTIONS: { id: string; label: string; seconds: number }[] = [
-  { id: 'off', label: 'Off', seconds: 0 },
-  { id: '5m', label: '5 minutes', seconds: 300 },
-  { id: '1h', label: '1 hour', seconds: 3600 },
-  { id: '24h', label: '24 hours', seconds: 86400 },
-  { id: '7d', label: '7 days', seconds: 604800 },
+const OPTIONS: { id: string; label: string; sublabel: string; seconds: number }[] = [
+  { id: 'off',  label: 'Off',      sublabel: 'Messages will not disappear',   seconds: 0 },
+  { id: '24h',  label: '24 hours', sublabel: 'Messages disappear after 1 day', seconds: 86400 },
+  { id: '7d',   label: '7 days',   sublabel: 'Messages disappear after 1 week', seconds: 604800 },
+  { id: '90d',  label: '90 days',  sublabel: 'Messages disappear after 3 months', seconds: 7776000 },
 ];
 
 const DisappearingMessagesScreen: React.FC<Props> = ({ navigation, route }) => {
   const conversationId = route.params?.conversationId;
+  const token = useAppSelector(selectAuthToken);
+  const [saving, setSaving] = useState(false);
+
   const [selected, setSelected] = useState(() => {
     const ttl = initialDisappearingTtlSec(conversationId);
     return OPTIONS.find(o => o.seconds === ttl)?.id ?? 'off';
   });
-  const [convIdInput, setConvIdInput] = useState(conversationId ?? '');
 
   const applySelection = useCallback(
-    (id: string) => {
+    async (id: string) => {
       setSelected(id);
       const sec = OPTIONS.find(o => o.id === id)?.seconds ?? 0;
-      const targetConv = route.params?.conversationId ?? convIdInput.trim();
-      if (targetConv.length > 0) {
-        setDisappearingForConversation(targetConv, sec);
+      if (conversationId) {
+        setDisappearingForConversation(conversationId, sec);
+        if (token) {
+          setSaving(true);
+          await patchConversationDisappearing(conversationId, sec, token);
+          setSaving(false);
+        }
       } else {
         setDisappearingGlobal(sec);
       }
     },
-    [route.params?.conversationId, convIdInput],
+    [conversationId, token],
   );
+
+  const selectedOption = OPTIONS.find(o => o.id === selected);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -65,52 +72,54 @@ const DisappearingMessagesScreen: React.FC<Props> = ({ navigation, route }) => {
           <ChevronLeft size={26} color={colorss.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Disappearing messages</Text>
-        <View style={{ width: 26 }} />
+        {saving ? (
+          <ActivityIndicator size="small" color={colorss.accent} />
+        ) : (
+          <View style={{ width: 26 }} />
+        )}
+      </View>
+
+      {/* Info banner */}
+      <View style={styles.banner}>
+        <Timer size={20} color={colorss.accent} />
+        <Text style={styles.bannerText}>
+          {conversationId
+            ? 'Set a timer for messages in this chat.'
+            : 'Set a default timer for all new chats.'}
+        </Text>
       </View>
 
       <View style={styles.content}>
-        {!route.params?.conversationId ? (
-          <View style={styles.hintBox}>
-            <Text style={styles.hintLabel}>
-              Optional: target a single chat by id (defaults to global setting).
-            </Text>
-            <TextInput
-              value={convIdInput}
-              onChangeText={setConvIdInput}
-              placeholder="Conversation id (optional)"
-              placeholderTextColor={colorss.placeholder}
-              style={styles.textIn}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-        ) : null}
-
         {OPTIONS.map(opt => {
           const active = selected === opt.id;
           return (
             <TouchableOpacity
               key={opt.id}
-              style={styles.optionRow}
+              style={[styles.optionRow, active && styles.optionRowActive]}
               onPress={() => applySelection(opt.id)}
               activeOpacity={0.7}
             >
-              <Radio
-                selected={active}
-                onPress={() => applySelection(opt.id)}
-              />
-              <Text style={styles.optionLabel}>{opt.label}</Text>
+              <Radio selected={active} onPress={() => applySelection(opt.id)} />
+              <View style={styles.optionTextCol}>
+                <Text style={[styles.optionLabel, active && styles.optionLabelActive]}>
+                  {opt.label}
+                </Text>
+                <Text style={styles.optionSub}>{opt.sublabel}</Text>
+              </View>
             </TouchableOpacity>
           );
         })}
+      </View>
 
+      {selectedOption && selectedOption.id !== 'off' && (
         <View style={styles.hintBox}>
           <Text style={styles.hintText}>
-            New messages disappear from this device after the timer. Clearing the
-            per-chat field uses the global timer for new threads.
+            New messages in {conversationId ? 'this chat' : 'new chats'} will disappear after{' '}
+            <Text style={styles.hintBold}>{selectedOption.label}</Text>. Messages sent before
+            this change are not affected.
           </Text>
         </View>
-      </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -118,10 +127,7 @@ const DisappearingMessagesScreen: React.FC<Props> = ({ navigation, route }) => {
 export default DisappearingMessagesScreen;
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colorss.white,
-  },
+  safeArea: { flex: 1, backgroundColor: colorss.white },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -131,44 +137,40 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colorss.border,
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colorss.textPrimary,
+  headerTitle: { fontSize: 17, fontWeight: '700', color: colorss.textPrimary },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#EBF5FF',
+    marginHorizontal: 16,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
   },
-  content: {
-    paddingTop: 10,
-    paddingHorizontal: 20,
-    backgroundColor: colorss.white,
-  },
+  bannerText: { flex: 1, color: colorss.accent, fontSize: 13, lineHeight: 18 },
+  content: { paddingHorizontal: 20, paddingTop: 8 },
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
     gap: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colorss.border,
   },
-  optionLabel: { color: colorss.textPrimary, fontSize: 16 },
+  optionRowActive: { backgroundColor: '#FAFEFF' },
+  optionTextCol: { flex: 1 },
+  optionLabel: { color: colorss.textPrimary, fontSize: 16, fontWeight: '500' },
+  optionLabelActive: { color: colorss.accent },
+  optionSub: { color: colorss.textSecondary, fontSize: 13, marginTop: 2 },
   hintBox: {
-    marginTop: 10,
-    marginBottom: 8,
-  },
-  hintText: {
-    color: colorss.textSecondary,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  hintLabel: {
-    fontSize: 12,
-    color: colorss.textSecondary,
-    marginBottom: 8,
-  },
-  textIn: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colorss.border,
+    marginHorizontal: 20,
+    marginTop: 20,
+    padding: 14,
+    backgroundColor: colorss.backgroundDeep,
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: colorss.textPrimary,
   },
+  hintText: { color: colorss.textSecondary, fontSize: 13, lineHeight: 20 },
+  hintBold: { fontWeight: '700', color: colorss.textPrimary },
 });

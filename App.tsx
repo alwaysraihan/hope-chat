@@ -12,6 +12,7 @@ import PublicStackNavigator from './src/navigation/PublicStackNavigator';
 import { useAppSelector } from './src/hooks/redux';
 import { selectHopeChatLoggedIn } from './src/redux/features/auth/authSlice';
 import { ChatsProvider } from './src/context/ChatsContext';
+import { ThemeProvider } from './src/context/ThemeContext';
 import { LanguageProvider } from './src/context/LanguageContext';
 import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
@@ -181,12 +182,14 @@ const App = () => {
       <SafeAreaProvider>
         <Provider store={store}>
           <LanguageProvider>
+            <ThemeProvider>
             <AuthBootstrap />
             <GestureHandlerRootView style={{ flex: 1 }}>
               <KeyboardProvider>
                 <NavigationWithAuthKey />
               </KeyboardProvider>
             </GestureHandlerRootView>
+          </ThemeProvider>
           </LanguageProvider>
         </Provider>
       </SafeAreaProvider>

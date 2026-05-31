@@ -1,8 +1,18 @@
 import React, { useCallback } from 'react';
-import { Dimensions, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Dimensions,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { IMessage, MessageProps } from 'react-native-gifted-chat';
 import FastImage from '@d11/react-native-fast-image';
 import Video from 'react-native-video';
+import RNFS from 'react-native-fs';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 
 import ChatThreadIntroCard from './ChatThreadIntroCard';
 import AudioPlayer from './AudioPlayer';
@@ -11,6 +21,7 @@ import Reaction from './Reaction';
 import { ExtendedMessage } from '../types/chat';
 import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
+import { getAutoSavePhotos } from '../../services/chatPrefs';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -25,32 +36,58 @@ type ChatMessageBoxProps = {
   refreshTrigger?: number;
 } & MessageProps<IMessage>;
 
+// ─── Download helper ──────────────────────────────────────────────────────────
+
+async function downloadMediaToGallery(
+  remoteUrl: string,
+  type: 'image' | 'video',
+): Promise<void> {
+  try {
+    const ext = type === 'video' ? 'mp4' : 'jpg';
+    const destPath = `${RNFS.CachesDirectoryPath}/hopechat_dl_${Date.now()}.${ext}`;
+    await RNFS.downloadFile({ fromUrl: remoteUrl, toFile: destPath }).promise;
+    await CameraRoll.saveAsset(destPath, { type: type === 'video' ? 'video' : 'photo' });
+    Alert.alert('Saved', `${type === 'video' ? 'Video' : 'Photo'} saved to your gallery.`);
+  } catch {
+    Alert.alert('Download failed', 'Could not save the file. Please try again.');
+  }
+}
+
+function showMediaActionSheet(
+  url: string,
+  type: 'image' | 'video',
+): void {
+  Alert.alert(
+    type === 'video' ? 'Video' : 'Photo',
+    undefined,
+    [
+      {
+        text: `Save ${type === 'video' ? 'video' : 'photo'}`,
+        onPress: () => downloadMediaToGallery(url, type),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ],
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
-// onReact / onReply / onDelete / onForward / onPressReplyPreview are all
-// consumed from InboxContext — no prop drilling needed from InboxScreen.
 
 export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const { currentMessage, position, onPressReactions } = props;
-
   const { handlePressReplyPreview } = useInbox();
-
   const msg = currentMessage as ExtendedMessage;
 
   if (msg.threadIntro) {
     const introFirst =
       (msg.threadIntro.peerName ?? '').trim().split(/\s+/)[0] || 'Friend';
     return (
-      <View
-        style={{ width: SCREEN_WIDTH, alignSelf: 'center', marginBottom: 6 }}
-      >
+      <View style={{ width: SCREEN_WIDTH, alignSelf: 'center', marginBottom: 6 }}>
         <ChatThreadIntroCard
           messagesExist={props.nextMessage != null}
           peerName={msg.threadIntro.peerName}
           subtitle={msg.threadIntro.subtitle}
           avatarUrl={msg.threadIntro.avatarUrl}
-          prompt={
-            msg.text || `Say hi to your new Hopenity friend, ${introFirst}.`
-          }
+          prompt={msg.text || `Say hi to your new Hopenity friend, ${introFirst}.`}
         />
       </View>
     );
@@ -87,16 +124,9 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     const audioUri = media.remoteUri ?? media.url ?? media.localUri ?? '';
     return (
       <Reaction {...reactionProps}>
-        <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
-        >
+        <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
           {ReplySnippet && (
-            <View
-              style={[
-                styles.replyWrap,
-                isOwn ? styles.replyOwn : styles.replyOther,
-              ]}
-            >
+            <View style={[styles.replyWrap, isOwn ? styles.replyOwn : styles.replyOther]}>
               {ReplySnippet}
             </View>
           )}
@@ -117,36 +147,40 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 
   if (media?.type === 'image') {
     const imageUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
+    const autoSave = getAutoSavePhotos();
+    if (autoSave && imageUri && !isOwn && !media.uploading) {
+      // Auto-save incoming photo silently
+      downloadMediaToGallery(imageUri, 'image').catch(() => undefined);
+    }
     return (
       <Reaction {...reactionProps}>
-        <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
-        >
+        <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
           {ReplySnippet && (
-            <View
-              style={[
-                styles.replyWrap,
-                isOwn ? styles.replyOwn : styles.replyOther,
-              ]}
-            >
+            <View style={[styles.replyWrap, isOwn ? styles.replyOwn : styles.replyOther]}>
               {ReplySnippet}
             </View>
           )}
-          <FastImage
-            source={{ uri: imageUri }}
-            style={styles.mediaBubble}
-            resizeMode={FastImage.resizeMode.cover}
-          />
-          {media.uploading && (
-            <View style={styles.overlay}>
-              <Text style={styles.overlayText}>Uploading…</Text>
-            </View>
-          )}
-          {media.error && (
-            <View style={[styles.overlay, styles.overlayError]}>
-              <Text style={styles.overlayText}>Upload failed</Text>
-            </View>
-          )}
+          <TouchableOpacity
+            onLongPress={() => !media.uploading && imageUri && showMediaActionSheet(imageUri, 'image')}
+            activeOpacity={0.95}
+            delayLongPress={350}
+          >
+            <FastImage
+              source={{ uri: imageUri }}
+              style={styles.mediaBubble}
+              resizeMode={FastImage.resizeMode.cover}
+            />
+            {media.uploading && (
+              <View style={styles.overlay}>
+                <Text style={styles.overlayText}>Uploading…</Text>
+              </View>
+            )}
+            {media.error && (
+              <View style={[styles.overlay, styles.overlayError]}>
+                <Text style={styles.overlayText}>Upload failed</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
       </Reaction>
     );
@@ -159,11 +193,11 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     const thumbUri = media.thumbnail ?? undefined;
     return (
       <Reaction {...reactionProps}>
-        <View
-          style={[
-            styles.mediaWrapper,
-            isOwn ? styles.alignRight : styles.alignLeft,
-          ]}
+        <TouchableOpacity
+          style={[styles.mediaWrapper, isOwn ? styles.alignRight : styles.alignLeft]}
+          onLongPress={() => !media.uploading && videoUri && showMediaActionSheet(videoUri, 'video')}
+          activeOpacity={0.95}
+          delayLongPress={350}
         >
           {thumbUri ? (
             <FastImage
@@ -189,7 +223,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               <Text style={styles.overlayText}>Uploading…</Text>
             </View>
           )}
-        </View>
+        </TouchableOpacity>
       </Reaction>
     );
   }
@@ -236,8 +270,6 @@ const styles = StyleSheet.create({
   replyOwn: { backgroundColor: 'rgba(0,0,0,0.22)' },
   replyOther: { backgroundColor: 'rgba(0,0,0,0.06)' },
   replyStretch: { alignSelf: 'stretch', marginBottom: 0 },
-
-  // Text bubble
   textBubble: {
     maxWidth: MAX_BUBBLE_WIDTH,
     borderRadius: 18,
@@ -259,45 +291,16 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 4,
   },
   textBubbleWithReply: { minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY },
-  messageText: {
-    fontSize: 14.5,
-    lineHeight: 20,
-    letterSpacing: 0.1,
-    flexShrink: 1,
-  },
-  messageTextOutgoing: {
-    color: colorss.white,
-  },
-  messageTextIncoming: {
-    color: colorss.textPrimary,
-  },
-  callLogText: {
-    fontStyle: 'italic',
-    fontSize: 14,
-  },
-  deliveryFoot: {
-    alignSelf: 'flex-end',
-    fontSize: 10,
-    fontWeight: '600',
-    marginTop: 3,
-    letterSpacing: 0.2,
-  },
-  deliveryFootOut: {
-    color: 'rgba(255,255,255,0.82)',
-  },
-  deliveryFootIn: {
-    color: colorss.textSecondary,
-  },
-
-  // Media
+  messageText: { fontSize: 14.5, lineHeight: 20, letterSpacing: 0.1, flexShrink: 1 },
+  messageTextOutgoing: { color: colorss.white },
+  messageTextIncoming: { color: colorss.textPrimary },
+  callLogText: { fontStyle: 'italic', fontSize: 14 },
   mediaBubble: {
     width: 210,
     height: 210,
     borderRadius: 14,
     backgroundColor: colorss.backgroundDeep,
   },
-
-  // Overlays
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.42)',
@@ -306,14 +309,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   overlayError: { backgroundColor: `${colorss.error}B3` },
-  overlayText: {
-    color: colorss.white,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-
-  // Video play button
+  overlayText: { color: colorss.white, fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
   videoPlayOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',

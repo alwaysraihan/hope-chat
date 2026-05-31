@@ -11,6 +11,55 @@ const K_DIS_GLOBAL = 'disappear_global_sec_v1';
 const K_APPEARANCE = 'chat_appearance_v1';
 const K_LANG = 'ui_language_v1';
 const K_AUTO_LOGIN_ACKED = 'auto_login_acked_v1';
+const K_READ_RECEIPTS = 'read_receipts_v1';
+const K_TYPING_INDICATOR = 'typing_indicator_v1';
+const K_AUTO_SAVE_PHOTOS = 'auto_save_photos_v1';
+const K_MSG_OPEN_TO = 'message_open_to_v1';
+const K_DARK_MODE = 'dark_mode_v1';
+
+// ─── Read Receipts ─────────────────────────────────────────────────────────────
+export function getReadReceipts(): boolean {
+  if (!prefs().contains(K_READ_RECEIPTS)) return true;
+  return prefs().getBoolean(K_READ_RECEIPTS) !== false;
+}
+export function setReadReceipts(v: boolean): void {
+  prefs().set(K_READ_RECEIPTS, v);
+}
+
+// ─── Typing Indicator ──────────────────────────────────────────────────────────
+export function getTypingIndicator(): boolean {
+  if (!prefs().contains(K_TYPING_INDICATOR)) return true;
+  return prefs().getBoolean(K_TYPING_INDICATOR) !== false;
+}
+export function setTypingIndicator(v: boolean): void {
+  prefs().set(K_TYPING_INDICATOR, v);
+}
+
+// ─── Auto Save Photos ──────────────────────────────────────────────────────────
+export function getAutoSavePhotos(): boolean {
+  return prefs().getBoolean(K_AUTO_SAVE_PHOTOS) === true;
+}
+export function setAutoSavePhotos(v: boolean): void {
+  prefs().set(K_AUTO_SAVE_PHOTOS, v);
+}
+
+// ─── Message Permissions ───────────────────────────────────────────────────────
+export type MessageOpenTo = 'everyone' | 'contacts';
+export function getMessageOpenTo(): MessageOpenTo {
+  const v = prefs().getString(K_MSG_OPEN_TO);
+  return v === 'contacts' ? 'contacts' : 'everyone';
+}
+export function setMessageOpenTo(v: MessageOpenTo): void {
+  prefs().set(K_MSG_OPEN_TO, v);
+}
+
+// ─── Dark Mode ─────────────────────────────────────────────────────────────────
+export function getDarkMode(): boolean {
+  return prefs().getBoolean(K_DARK_MODE) === true;
+}
+export function setDarkMode(v: boolean): void {
+  prefs().set(K_DARK_MODE, v);
+}
 
 /**
  * Set when the user taps "Continue as {name}" for the first time.

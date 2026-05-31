@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
-import { LucideVideo, Phone, ChevronLeft } from 'lucide-react-native';
+import { LucideVideo, Phone, ChevronLeft, MoreVertical } from 'lucide-react-native';
 import { colorss } from '../../theme';
 import FastImage from '@d11/react-native-fast-image';
 
@@ -9,6 +9,8 @@ interface MessageHeaderProps {
   onBackPress: () => void;
   onAudioCall: () => void;
   onVideoCall?: () => void;
+  /** Fires when the ⋮ button is pressed — show ConversationAction sheet */
+  onMorePress?: () => void;
   name: string;
   /** e.g. "Online" or "last seen …" — omit or empty to hide subtitle */
   status?: string;
@@ -32,25 +34,14 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   onBackPress,
   onAudioCall,
   onVideoCall,
+  onMorePress,
   name,
   status,
   avatarUri,
 }) => {
-  const actions = [
-    {
-      Icon: Phone,
-      label: 'Audio Call',
-      onPress: onAudioCall,
-    },
-    ...(onVideoCall
-      ? [
-          {
-            Icon: LucideVideo,
-            label: 'Video Call',
-            onPress: onVideoCall,
-          },
-        ]
-      : []),
+  const callActions = [
+    { Icon: Phone, label: 'Audio Call', onPress: onAudioCall },
+    ...(onVideoCall ? [{ Icon: LucideVideo, label: 'Video Call', onPress: onVideoCall }] : []),
   ];
   return (
     <View style={styles.container}>
@@ -82,15 +73,16 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
       </TouchableOpacity>
 
       <View style={styles.actions}>
-        {actions.map(({ Icon, onPress }, index) => (
-          <TouchableOpacity
-            key={index}
-            onPress={onPress}
-            style={styles.actionBtn}
-          >
+        {callActions.map(({ Icon, onPress }, index) => (
+          <TouchableOpacity key={index} onPress={onPress} style={styles.actionBtn}>
             <Icon size={18} color={colorss.white} />
           </TouchableOpacity>
         ))}
+        {onMorePress && (
+          <TouchableOpacity onPress={onMorePress} style={styles.actionBtn}>
+            <MoreVertical size={18} color={colorss.white} />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );

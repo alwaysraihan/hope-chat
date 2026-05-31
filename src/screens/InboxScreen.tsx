@@ -37,6 +37,7 @@ import { useAppSelector } from '../hooks/redux';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
+import { notifyGroupCall } from '../services/groupService';
 import { getChatAppearance } from '../services/chatPrefs';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
 
@@ -263,19 +264,37 @@ const InboxScreenInner: React.FC<
         name={peerName}
         status={headerStatus}
         avatarUri={route.params.avatarUrl ?? conversation.avatarUrl}
-        onProfilePress={() =>
-          navigation.navigate('Profile', {
-            userId: conversation.id,
-          })
-        }
+        onProfilePress={() => {
+          if (conversation.isGroup) {
+            navigation.navigate('GroupInfo', {
+              groupId: conversation.id,
+              conversationId: conversation.id,
+            });
+          } else {
+            navigation.navigate('Profile', {
+              userId: conversation.id,
+            });
+          }
+        }}
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}
         onAudioCall={() => {
-          notifyPeerIncomingHopeChatCall({
-            token,
-            conversationId: conversation.id,
-            liveKitRoom: audioRoom,
-            callKind: 'audio',
-          });
+          if (conversation.isGroup) {
+            if (token) {
+              notifyGroupCall({
+                groupId: conversation.id,
+                liveKitRoom: audioRoom,
+                callKind: 'audio',
+                token,
+              });
+            }
+          } else {
+            notifyPeerIncomingHopeChatCall({
+              token,
+              conversationId: conversation.id,
+              liveKitRoom: audioRoom,
+              callKind: 'audio',
+            });
+          }
           navigation.navigate('AudioCall', {
             displayName: peerName,
             liveKitRoom: audioRoom,
@@ -283,15 +302,27 @@ const InboxScreenInner: React.FC<
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
             callDirection: 'outgoing',
+            isGroupCall: conversation.isGroup,
           });
         }}
         onVideoCall={() => {
-          notifyPeerIncomingHopeChatCall({
-            token,
-            conversationId: conversation.id,
-            liveKitRoom: audioRoom,
-            callKind: 'video',
-          });
+          if (conversation.isGroup) {
+            if (token) {
+              notifyGroupCall({
+                groupId: conversation.id,
+                liveKitRoom: audioRoom,
+                callKind: 'video',
+                token,
+              });
+            }
+          } else {
+            notifyPeerIncomingHopeChatCall({
+              token,
+              conversationId: conversation.id,
+              liveKitRoom: audioRoom,
+              callKind: 'video',
+            });
+          }
           navigation.navigate('VideoCall', {
             displayName: peerName,
             liveKitRoom: audioRoom,
@@ -299,8 +330,17 @@ const InboxScreenInner: React.FC<
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
             callDirection: 'outgoing',
+            isGroupCall: conversation.isGroup,
           });
         }}
+        onMorePress={() =>
+          navigation.navigate('ConversationAction', {
+            conversationId: conversation.id,
+            conversationName: peerName,
+            isGroup: conversation.isGroup,
+            peerUserId: conversation.peerUserId ?? undefined,
+          })
+        }
       />
 
       {(() => {

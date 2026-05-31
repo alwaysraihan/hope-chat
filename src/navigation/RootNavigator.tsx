@@ -15,6 +15,9 @@ import WordEffectsScreen from '../screens/WordEffectsScreen';
 import NicknamesScreen from '../screens/NicknamesScreen';
 import MediaTabNavigator from './MediaTabNavigator';
 import { NewGroupScreen } from '../screens/NewGroupScreen';
+import GroupSetupScreen from '../screens/GroupSetupScreen';
+import GroupInfoScreen from '../screens/GroupInfoScreen';
+import AddGroupMembersScreen from '../screens/AddGroupMembersScreen';
 import ReadReceiptsScreen from '../screens/ReadReceiptsScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScren';
 import LoginScreen from '../screens/LoginScreen';
@@ -77,6 +80,9 @@ const StackNavigator = () => {
       <RootStack.Screen name="WordEffects" component={WordEffectsScreen} />
       <RootStack.Screen name="Nicknames" component={NicknamesScreen} />
       <RootStack.Screen name="NewGroup" component={NewGroupScreen} />
+      <RootStack.Screen name="GroupSetup" component={GroupSetupScreen} />
+      <RootStack.Screen name="GroupInfo" component={GroupInfoScreen} />
+      <RootStack.Screen name="AddGroupMembers" component={AddGroupMembersScreen} />
       <RootStack.Screen name="ReadReceipts" component={ReadReceiptsScreen} />
       <RootStack.Screen
         name="TypingIndicator"
