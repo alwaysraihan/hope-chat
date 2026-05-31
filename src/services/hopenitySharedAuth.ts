@@ -19,7 +19,7 @@
  */
 
 import { createMMKV, type MMKV } from 'react-native-mmkv';
-import { NativeModules } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 import {
   SHARED_HOPENITY_AUTH_MMKV_ENCRYPTION_KEY,
   SHARED_HOPENITY_AUTH_MMKV_STORAGE_ID,
@@ -110,16 +110,50 @@ export type HopenityPersistedUserBlob = {
 
 const USER_KEY = 'user';
 
+// ── Android ContentProvider read ───────────────────────────────────────────────
+
+/**
+ * On Android, read the session directly from Hopenity's ContentProvider.
+ *
+ * The ContentProvider (HopenityAuthProvider) is protected by the
+ * `com.hopenity.permission.READ_AUTH` signature-level permission, so only
+ * apps signed with the same keystore (i.e. HopeChat) can query it.
+ *
+ * This is the Play-Store-compliant replacement for the deprecated
+ * `android:sharedUserId` + `createPackageContext` approach. It works even on
+ * a cold start without requiring a prior deep-link handshake from Hopenity.
+ *
+ * Returns null if Hopenity is not installed, not yet signed in, or if the
+ * permission check fails (different signing key — can only happen in dev).
+ */
+function readFromAndroidContentProvider(): HopenityPersistedUserBlob | null {
+  if (Platform.OS !== 'android') return null;
+  try {
+    const json = NativeModules.CrossAppAuthStorage?.readHopenityAuthSync?.();
+    if (typeof json !== 'string' || json.trim() === '') return null;
+    return JSON.parse(json) as HopenityPersistedUserBlob;
+  } catch {
+    return null;
+  }
+}
+
 // ── Read / Write ──────────────────────────────────────────────────────────────
 
 /**
- * Read the Hopenity session from the shared MMKV.
+ * Read the Hopenity session.
  *
- * iOS:     reads from the App Group container — same file Hopenity wrote.
- * Android: reads from HopeChat's private MMKV that was seeded by the
- *          deep-link handshake (hopechat://auth?token=...) or a prior login.
+ * Android: ContentProvider query → HopenityAuthProvider reads Hopenity's live
+ *          MMKV and returns the session JSON over binder IPC. Falls back to
+ *          HopeChat's private MMKV (seeded by deep-link) if unavailable.
+ * iOS:     App Group shared MMKV — same encrypted file Hopenity wrote directly.
  */
 export function readPersistedHopenityUser(): HopenityPersistedUserBlob | null {
+  // On Android prefer the ContentProvider — it reads Hopenity's live session
+  // without needing a prior deep-link handshake.
+  const cpBlob = readFromAndroidContentProvider();
+  if (cpBlob) return cpBlob;
+
+  // iOS (App Groups) or Android fallback (private MMKV seeded by deep-link).
   try {
     const raw = getHopeChatHopenityMMKV().getString(USER_KEY);
     if (!raw) return null;

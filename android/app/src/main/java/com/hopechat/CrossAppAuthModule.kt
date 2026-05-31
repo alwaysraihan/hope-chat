@@ -1,78 +1,88 @@
 package com.hopechat
 
+import android.net.Uri
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.module.annotations.ReactModule
-import java.io.File
 
 /**
- * CrossAppAuthModule — Android companion for cross-app MMKV auth sharing.
+ * CrossAppAuthModule — Android companion for cross-app auth between HopeChat and Hopenity.
  *
- * ── Strategy ─────────────────────────────────────────────────────────────────
+ * ── Android strategy (v2) — ContentProvider ───────────────────────────────────
  *
- * iOS: the App Group container (group.com.hopenity.shared) is returned by the
- *   Objective-C counterpart so MMKV reads the shared file Hopenity wrote.
+ * `android:sharedUserId` was deprecated in API 29 and is blocked by Play Store
+ * for new apps. `createPackageContext` across package boundaries fails with
+ * SecurityException on Android 10+ unless both apps share the same UID — which
+ * requires sharedUserId, so this is a circular dependency that no longer works.
  *
- * Android: both apps declare `android:sharedUserId="com.hopenity.shared"` and
- *   are signed with the **same keystore**.  Under this configuration both
- *   processes run with the same Linux UID, which means:
+ * The Play-Store-compliant replacement is a signature-protected ContentProvider:
+ *   • Hopenity declares `com.hopenity.permission.READ_AUTH` with
+ *     `protectionLevel="signature"` and registers HopenityAuthProvider.
+ *   • HopeChat declares `uses-permission` for that permission.
+ *   • Android verifies at install time that both APKs are signed with the same
+ *     key; only then is the permission granted.
+ *   • `readHopenityAuthSync()` queries the ContentProvider via IPC and returns
+ *     the Hopenity session JSON string.  The JS layer parses it with the
+ *     existing normalizeHopenityPersistedBlob() logic.
  *
- *   1. `createPackageContext("com.hopenity", 0)` succeeds without SecurityException.
- *   2. `hopenityContext.filesDir` resolves to /data/data/com.hopenity/files —
- *      readable and writable by HopeChat because they share the same UID.
- *   3. MMKV created at <hopenityFilesDir>/mmkv/ with mode=MULTI_PROCESS will
- *      read the same encrypted file that Hopenity wrote.
+ * ── iOS ────────────────────────────────────────────────────────────────────────
+ * The iOS counterpart (CrossAppAuthStorage.m) returns the App Group container
+ * path so MMKV reads the shared file Hopenity wrote — no changes needed there.
  *
- * This mirrors the Facebook ↔ Messenger pattern on Android:
- *   - Hopenity writes its session to its own MMKV (the source of truth).
- *   - HopeChat reads from the same file via this shared path.
- *   - MMKV's MULTI_PROCESS mode handles concurrent read/write safely via
- *     file locking, so no data races occur when both apps are in the foreground.
+ * ── Fallback ───────────────────────────────────────────────────────────────────
+ * If Hopenity is not installed, the ContentProvider query throws/returns null.
+ * `readHopenityAuthSync()` returns "" in that case so hopenitySharedAuth.ts
+ * falls back to HopeChat's own private MMKV, which is seeded by the deep-link
+ * handshake (hopechat://auth?token=...) the first time the user opens from Hopenity.
  *
- * ── Fallback ─────────────────────────────────────────────────────────────────
- *
- * If Hopenity is not installed, `createPackageContext` throws NameNotFoundException.
- * We catch it and return "" so hopenitySharedAuth.ts falls back to HopeChat's
- * own private MMKV — the deep-link handshake (hopechat://auth?token=...) will
- * seed it on first launch from Hopenity as before.
- *
- * ── Requirements ─────────────────────────────────────────────────────────────
- *
- * 1. Both apps must declare the same android:sharedUserId in AndroidManifest.xml.
- * 2. Both APKs must be signed with the identical keystore / signing key.
- *    (Play Store: sharedUserId is deprecated for NEW apps but works for existing
- *    pairs that already use it.  For new installs, the deep-link fallback is used
- *    until the user opens HopeChat from Hopenity at least once.)
+ * `getSharedMMKVDirectorySync()` is kept as a no-op for backwards compatibility
+ * with the JS call site; it always returns "" on Android now.
  */
 @ReactModule(name = CrossAppAuthModule.NAME)
 class CrossAppAuthModule(reactContext: ReactApplicationContext) :
-  ReactContextBaseJavaModule(reactContext) {
+    ReactContextBaseJavaModule(reactContext) {
 
-  override fun getName(): String = NAME
+    override fun getName(): String = NAME
 
-  @ReactMethod(isBlockingSynchronousMethod = true)
-  fun getSharedMMKVDirectorySync(): String {
-    return try {
-      // createPackageContext succeeds when both apps share the same UID
-      // (android:sharedUserId + identical signing key).
-      val hopenityContext = reactApplicationContext.createPackageContext(
-        "com.hopenity",
-        0, // no flags — we only need the file paths, not code execution
-      )
-      val mmkvDir = File(hopenityContext.filesDir, "mmkv")
-      // Ensure the directory exists so MMKV can open the file immediately.
-      mmkvDir.mkdirs()
-      mmkvDir.absolutePath
-    } catch (_: Exception) {
-      // Hopenity not installed, or sharedUserId / keystore mismatch.
-      // Return "" → hopenitySharedAuth.ts falls back to per-app private MMKV
-      // and the deep-link handshake seeds the session on first open.
-      ""
+    /**
+     * Returns "" on Android — shared MMKV path is no longer used.
+     * iOS counterpart returns the App Group container path (unchanged).
+     * Kept so the JS call site in hopenitySharedAuth.ts does not need to change.
+     */
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun getSharedMMKVDirectorySync(): String = ""
+
+    /**
+     * Reads the Hopenity session JSON string via the signature-protected
+     * ContentProvider exposed by Hopenity (com.hopenity.authprovider).
+     *
+     * Returns the raw `user` JSON string on success, or "" when:
+     *   • Hopenity is not installed
+     *   • The signature permission check fails (different signing key)
+     *   • Any other error
+     *
+     * The returned string is passed directly to normalizeHopenityPersistedBlob()
+     * in hopenitySharedAuth.ts — the same parsing path used by the MMKV read.
+     */
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun readHopenityAuthSync(): String {
+        return try {
+            val uri = Uri.parse("content://com.hopenity.authprovider/user")
+            val cursor = reactApplicationContext.contentResolver
+                .query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val idx = it.getColumnIndex("user_json")
+                    if (idx >= 0) it.getString(idx) ?: "" else ""
+                } else ""
+            } ?: ""
+        } catch (_: Exception) {
+            ""
+        }
     }
-  }
 
-  companion object {
-    const val NAME = "CrossAppAuthStorage"
-  }
+    companion object {
+        const val NAME = "CrossAppAuthStorage"
+    }
 }

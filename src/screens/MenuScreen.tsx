@@ -59,7 +59,14 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
       {
         text: t.logout,
         style: 'destructive',
-        onPress: () => performLogout(dispatch),
+        onPress: () => {
+          // dispatch(clearAuth()) inside performLogout triggers a NavigationContainer
+          // key-change that remounts the entire navigator. Calling it synchronously
+          // while MenuScreen is still active causes React Navigation to crash trying
+          // to clean up a screen whose parent navigator is already being destroyed.
+          // A one-frame delay lets the Alert dismiss before we tear down the nav tree.
+          setTimeout(() => performLogout(dispatch), 50);
+        },
       },
     ]);
   };

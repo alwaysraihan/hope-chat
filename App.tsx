@@ -115,17 +115,17 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
 const AppInner = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
 
-  return (
-    <React.Fragment key={loggedIn ? 'session' : 'guest'}>
-      {!loggedIn ? (
-        <PublicStackNavigator />
-      ) : (
-        <ChatsProvider>
-          <IncomingCallListener />
-          <RootNavigator />
-        </ChatsProvider>
-      )}
-    </React.Fragment>
+  // No Fragment key needed here — NavigationContainer above already carries the
+  // auth key, so the entire subtree (including AppInner) is remounted when loggedIn
+  // flips. Adding a second key here caused a double reconciliation pass that crashed
+  // React Navigation mid-teardown on logout.
+  return loggedIn ? (
+    <ChatsProvider>
+      <IncomingCallListener />
+      <RootNavigator />
+    </ChatsProvider>
+  ) : (
+    <PublicStackNavigator />
   );
 };
 

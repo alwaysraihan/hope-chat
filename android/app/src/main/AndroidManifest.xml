@@ -24,6 +24,13 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
 
+  <!--
+    Signature-protected permission declared by Hopenity.
+    Android grants this automatically at install time because both APKs are
+    signed with the same keystore — no runtime prompt to the user.
+  -->
+  <uses-permission android:name="com.hopenity.permission.READ_AUTH" />
+
   <queries>
     <package android:name="com.hopenity" />
     <intent>
