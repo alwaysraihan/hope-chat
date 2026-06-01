@@ -177,6 +177,52 @@ export async function deleteConversation(
   }
 }
 
+/** Fetch all nicknames for a conversation (returns { [peerUserId]: nick }). */
+export async function fetchNicknames(
+  conversationId: string,
+  token: string,
+): Promise<Record<string, string>> {
+  if (!token) return {};
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/nicknames`,
+      { headers: { Authorization: bearer(token) } },
+    );
+    if (!res.ok) return {};
+    const json = await res.json().catch(() => null);
+    const data = json?.responseObject ?? json?.data ?? json;
+    return typeof data === 'object' && data !== null ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Set or clear a nickname for a peer in a conversation. */
+export async function saveNickname(
+  conversationId: string,
+  targetUserId: string,
+  nickname: string,
+  token: string,
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/nicknames`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: bearer(token),
+        },
+        body: JSON.stringify({ targetUserId, nickname }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Submit a report (bug or user issue). */
 export async function submitReport(params: {
   category: string;

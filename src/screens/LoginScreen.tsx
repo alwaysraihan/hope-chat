@@ -37,6 +37,7 @@ import { validateHopeChatAccessToken } from '../services/chatService';
 import {
   canOpenHopenity,
   openHopenityBestEffort,
+  openHopenityForAuthRequest,
   openPlayStore,
 } from '../services/hopenityLinking';
 import { PLAY_STORE_WEB_URL, HOPENITY_PACKAGE_ID } from '../constants/hopenity';
@@ -251,8 +252,8 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
                 <>
                   <TouchableOpacity
                     onPress={() =>
-                      openHopenityBestEffort().then(() =>
-                        setTimeout(peekSession, 800),
+                      openHopenityForAuthRequest().then(() =>
+                        setTimeout(peekSession, 1200),
                       )
                     }
                     style={styles.primaryBtn}

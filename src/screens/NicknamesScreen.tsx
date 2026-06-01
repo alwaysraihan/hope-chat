@@ -1,4 +1,5 @@
 import {
+  ActivityIndicator,
   FlatList,
   Keyboard,
   Modal,
@@ -10,7 +11,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import FastImage from '@d11/react-native-fast-image';
 import { IC_PROFILE } from '../assets';
@@ -20,25 +21,9 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 import { useColors } from '../hooks/useColors';
 import { useChats } from '../context/ChatsContext';
 import { useAppSelector } from '../hooks/redux';
-import { selectHopenityProfile } from '../redux/features/auth/authSlice';
-import { createMMKV } from 'react-native-mmkv';
-
-type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Nicknames'>;
-
-const nicknameStore = createMMKV({ id: 'hopechat-nicknames-v1' });
-
-function getNickname(conversationId: string, userId: string): string {
-  return nicknameStore.getString(`${conversationId}::${userId}`) ?? '';
-}
-
-function setNickname(conversationId: string, userId: string, nick: string): void {
-  const key = `${conversationId}::${userId}`;
-  if (nick.trim()) {
-    nicknameStore.set(key, nick.trim());
-  } else {
-    nicknameStore.delete(key);
-  }
-}
+import { selectHopenityProfile, selectAuthToken } from '../redux/features/auth/authSlice';
+import { fetchNicknames, saveNickname } from '../services/userSettingsService';
+import { getLocalNickname, setLocalNickname } from '../services/nicknameCache';
 
 type Participant = {
   userId: string;
@@ -71,62 +56,90 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
     actions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 20, gap: 8 },
     actionBtn: { paddingVertical: 8, paddingHorizontal: 12 },
     actionText: { fontSize: 15, fontWeight: '600' },
+    savingIndicator: { marginLeft: 8 },
   }), [colorss]);
 
   const conversationId = route.params?.conversationId ?? '';
   const profile = useAppSelector(selectHopenityProfile);
+  const token = useAppSelector(selectAuthToken);
   const myUserId = profile?.userId ?? '';
-  const { conversations } = useChats();
+  const { conversations, setConversations } = useChats();
 
   const participants = useMemo<Participant[]>(() => {
     const conv = conversations.find(c => c.id === conversationId);
     if (!conv) return [];
-
-    // For group chats: collect all participants except self
-    if (conv.isGroup) {
-      // The participants come from the server; for display we use what's in peerUserId
-      // plus any data exposed via ConversationSummary. For groups we'll show what we have.
-      return [];
-    }
-
-    // For 1:1 chats: show just the peer
+    if (conv.isGroup) return [];
     if (conv.peerUserId && conv.peerUserId !== myUserId) {
-      return [{
-        userId: conv.peerUserId,
-        name: conv.name,
-        image: conv.avatarUrl ?? null,
-      }];
+      return [{ userId: conv.peerUserId, name: conv.name, image: conv.avatarUrl ?? null }];
     }
     return [];
   }, [conversations, conversationId, myUserId]);
 
+  // nicknames state: { [userId]: nickname }
   const [nicknames, setNicknamesState] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {};
     participants.forEach(p => {
-      const n = getNickname(conversationId, p.userId);
+      const n = getLocalNickname(conversationId, p.userId);
       if (n) map[p.userId] = n;
     });
     return map;
   });
 
+  // Fetch from backend on mount and merge with local cache
+  useEffect(() => {
+    if (!conversationId || !token) return;
+    fetchNicknames(conversationId, token).then(serverNicks => {
+      if (!serverNicks || typeof serverNicks !== 'object') return;
+      // Merge: server wins for keys that exist server-side; keep others from local
+      setNicknamesState(prev => {
+        const merged = { ...prev };
+        for (const [uid, nick] of Object.entries(serverNicks)) {
+          if (typeof nick === 'string') {
+            merged[uid] = nick;
+            setLocalNickname(conversationId, uid, nick);
+          }
+        }
+        return merged;
+      });
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, token]);
+
   const [editing, setEditing] = useState<Participant | null>(null);
   const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const openEdit = useCallback((p: Participant) => {
     setEditing(p);
     setDraft(nicknames[p.userId] ?? '');
   }, [nicknames]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (!editing) return;
-    setNickname(conversationId, editing.userId, draft);
-    setNicknamesState(prev => ({
-      ...prev,
-      [editing.userId]: draft.trim(),
+    const nick = draft.trim();
+    setSaving(true);
+
+    // Optimistic local update
+    setLocalNickname(conversationId, editing.userId, nick);
+    setNicknamesState(prev => ({ ...prev, [editing.userId]: nick }));
+
+    // Update the conversation display name in the chat list
+    setConversations(prev => prev.map(c => {
+      if (c.id === conversationId && !c.isGroup) {
+        return { ...c, name: nick || editing.name };
+      }
+      return c;
     }));
+
     Keyboard.dismiss();
     setEditing(null);
-  }, [editing, draft, conversationId]);
+
+    // Persist to backend
+    if (token) {
+      await saveNickname(conversationId, editing.userId, nick, token).catch(() => {});
+    }
+    setSaving(false);
+  }, [editing, draft, conversationId, token, setConversations]);
 
   const handleCancel = useCallback(() => {
     Keyboard.dismiss();
@@ -191,7 +204,7 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
                 {editing?.name ? `Nickname for ${editing.name}` : 'Set nickname'}
               </Text>
               <Text style={styles.modalSubtitle}>
-                Only you can see this nickname.
+                Only you can see this nickname. Leave blank to remove.
               </Text>
               <TextInput
                 value={draft}
@@ -205,11 +218,15 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
                 onSubmitEditing={handleSave}
               />
               <View style={styles.actions}>
-                <Pressable onPress={handleCancel} style={styles.actionBtn}>
+                <Pressable onPress={handleCancel} style={styles.actionBtn} disabled={saving}>
                   <Text style={[styles.actionText, { color: colorss.textSecondary }]}>Cancel</Text>
                 </Pressable>
-                <Pressable onPress={handleSave} style={styles.actionBtn}>
-                  <Text style={[styles.actionText, { color: colorss.accent }]}>Save</Text>
+                <Pressable onPress={handleSave} style={styles.actionBtn} disabled={saving}>
+                  {saving ? (
+                    <ActivityIndicator size="small" color={colorss.accent} style={styles.savingIndicator} />
+                  ) : (
+                    <Text style={[styles.actionText, { color: colorss.accent }]}>Save</Text>
+                  )}
                 </Pressable>
               </View>
             </View>
@@ -221,4 +238,3 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
 };
 
 export default NicknamesScreen;
-

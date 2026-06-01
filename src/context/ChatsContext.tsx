@@ -39,6 +39,7 @@ import {
 } from '../services/callOutcomeBus';
 import { persistCallOutcomeChatMessage } from '../services/callLogPersist';
 import { normalizeChatUserId } from '../utils/chatUserId';
+import { getLocalNickname } from '../services/nicknameCache';
 
 export type ConversationSummary = {
   id: string;
@@ -534,9 +535,18 @@ export function mapChatItemToSummary(
   const presence = extractPeerPresence(chat, localUser._id);
   const storyHints = readStoryHintsFromChat(chat, peerUserNorm);
 
+  const chatIdStr = String(chat.id ?? `${chat.userAId ?? ''}-${chat.userBId ?? ''}`);
+
+  // Apply local nickname override: if the user set a nickname for the peer in
+  // this conversation, show it instead of the real name in the chat list.
+  const displayName =
+    !isGroup && peerUserNorm
+      ? (getLocalNickname(chatIdStr, peerUserNorm) || name)
+      : name;
+
   return {
-    id: String(chat.id ?? `${chat.userAId ?? ''}-${chat.userBId ?? ''}`),
-    name,
+    id: chatIdStr,
+    name: displayName,
     preview,
     time,
     unreadCount: chat.unreadCount ?? 0,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,11 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colorss } from '../theme';
 import { useColors } from '../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 import { Camera } from 'lucide-react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-
 
 import BackHeader from '../components/BackHeader';
 import { IC_PROFILE } from '../assets';
@@ -23,18 +21,38 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import { createGroup, uploadGroupPhoto } from '../services/groupService';
+import { useChats } from '../context/ChatsContext';
+import type { ConversationSummary } from '../context/ChatsContext';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'GroupSetup'>;
 
 const GroupSetupScreen: React.FC<Props> = ({ navigation, route }) => {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const colorss = useColors(); // dynamic dark/light — shadows the static import above
+  const colorss = useColors();
   const { selectedUserIds, selectedNames } = route.params;
   const token = useAppSelector(selectAuthToken);
+  const { setConversations, reloadConversations } = useChats();
 
   const [groupName, setGroupName] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const styles = useMemo(() => StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colorss.white },
+    content: { flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 32 },
+    photoPicker: { width: 96, height: 96, borderRadius: 48, marginBottom: 28 },
+    photoImg: { width: 96, height: 96, borderRadius: 48, backgroundColor: colorss.backgroundDeep },
+    cameraOverlay: {
+      position: 'absolute', right: 0, bottom: 0,
+      width: 30, height: 30, borderRadius: 15,
+      backgroundColor: colorss.accent, justifyContent: 'center', alignItems: 'center',
+    },
+    nameRow: { width: '100%', borderBottomWidth: 1, borderBottomColor: colorss.border, marginBottom: 16 },
+    nameInput: { fontSize: 18, color: colorss.textPrimary, paddingVertical: 10, fontWeight: '500' },
+    memberPreview: { color: colorss.textSecondary, fontSize: 13, textAlign: 'center', marginBottom: 40 },
+    createBtn: { width: '100%', backgroundColor: colorss.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+    createBtnBusy: { opacity: 0.6 },
+    createText: { color: colorss.white, fontWeight: '700', fontSize: 16 },
+  }), [colorss]);
 
   const handlePickPhoto = async () => {
     const res = await launchImageLibrary({
@@ -68,7 +86,30 @@ const GroupSetupScreen: React.FC<Props> = ({ navigation, route }) => {
         Alert.alert('Error', 'Could not create the group. Please try again.');
         return;
       }
-      // Navigate into the new group chat
+
+      // Build a seed so InboxGate can render immediately without waiting
+      // for the conversation to appear in the API reload.
+      const seed: ConversationSummary = {
+        id: result.conversationId,
+        name,
+        preview: '',
+        time: '',
+        unreadCount: 0,
+        isGroup: true,
+        groupName: name,
+        groupPhotoUrl: resolvedPhotoUrl ?? null,
+        avatarUrl: resolvedPhotoUrl ?? null,
+        messages: [],
+      };
+
+      // Optimistically prepend so the chat list is correct when user presses back.
+      setConversations(prev =>
+        prev.some(c => c.id === seed.id) ? prev : [seed, ...prev],
+      );
+
+      // Sync the real list from the server in the background.
+      reloadConversations().catch(() => {});
+
       navigation.reset({
         index: 1,
         routes: [
@@ -79,6 +120,7 @@ const GroupSetupScreen: React.FC<Props> = ({ navigation, route }) => {
               conversationId: result.conversationId,
               displayName: name,
               avatarUrl: resolvedPhotoUrl ?? null,
+              seedConversation: seed,
             },
           },
         ],
@@ -142,72 +184,3 @@ const GroupSetupScreen: React.FC<Props> = ({ navigation, route }) => {
 };
 
 export default GroupSetupScreen;
-
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: colorss.white,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 32,
-  },
-  photoPicker: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    marginBottom: 28,
-  },
-  photoImg: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colorss.backgroundDeep,
-  },
-  cameraOverlay: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colorss.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  nameRow: {
-    width: '100%',
-    borderBottomWidth: 1,
-    borderBottomColor: colorss.border,
-    marginBottom: 16,
-  },
-  nameInput: {
-    fontSize: 18,
-    color: colorss.textPrimary,
-    paddingVertical: 10,
-    fontWeight: '500',
-  },
-  memberPreview: {
-    color: colorss.textSecondary,
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 40,
-  },
-  createBtn: {
-    width: '100%',
-    backgroundColor: colorss.accent,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  createBtnBusy: {
-    opacity: 0.6,
-  },
-  createText: {
-    color: colorss.white,
-    fontWeight: '700',
-    fontSize: 16,
-  },
-});

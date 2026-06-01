@@ -1,79 +1,70 @@
 /**
  * WebSocket (Socket.IO) channel for real-time call signaling.
  *
- * Primary path: Socket.IO (< 100 ms — used when callee has the app foregrounded).
+ * Primary path: Socket.IO (< 100 ms -- used when callee has the app foregrounded).
  * Fallback path: FCM push (used when callee's app is backgrounded / device offline).
  *
- * Events received:
- *   incoming_call   — same payload as the FCM incoming_call data message
- *   call_cancelled  — same payload as the FCM call_cancelled data message
- *
- * Run `npm install socket.io-client` once after pulling this file.
+ * socket.io-client is loaded lazily inside connect() -- never at module evaluation
+ * time -- so its browser-environment detection code runs only after the React
+ * Native bridge is fully set up.
  */
-// socket.io-client is an optional dependency — import defensively so a missing
-// package never crashes IncomingCallListener or any other call-path component.
-let io: ((...args: any[]) => any) | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  io = require('socket.io-client').io as (...args: any[]) => any;
-} catch {
-  if (__DEV__) {
-    console.warn('[CallSocket] socket.io-client not installed — run npm install. Real-time call signaling disabled; FCM fallback active.');
-  }
-}
-type Socket = any;
 import { API_BASE_URL } from '../config/env';
 
-// Socket URL — same host as the REST API, path /socket.io
 const SOCKET_URL = API_BASE_URL.replace(/\/+$/, '');
 
 type CallSocketListener = (data: Record<string, string>) => void;
 
 class CallSocketService {
-  private socket: Socket | null = null;
+  private socket: any = null;
   private token: string | null = null;
   private incomingCallListeners: Set<CallSocketListener> = new Set();
   private cancelledListeners: Set<CallSocketListener> = new Set();
 
   connect(authToken: string): void {
-    if (!io) return; // socket.io-client not installed
     if (this.socket?.connected && this.token === authToken) return;
     this.disconnect();
     this.token = authToken;
 
+    // Lazy-load socket.io-client ONLY when connect() is called (inside a useEffect).
+    // Loading it at module-evaluation time causes Android crashes because
+    // socket.io-client runs browser-environment detection before RN polyfills are ready.
+    let io: any;
     try {
-    this.socket = io(SOCKET_URL, {
-      auth: { token: authToken },
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-      timeout: 10_000,
-    });
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      io = require('socket.io-client').io;
+    } catch {
+      if (__DEV__) {
+        console.warn('[CallSocket] socket.io-client not available -- FCM fallback active.');
+      }
+      return;
+    }
 
-    this.socket.on('connect', () => {
-      if (__DEV__) console.log('[CallSocket] connected', this.socket?.id);
-    });
-
-    this.socket.on('disconnect', reason => {
-      if (__DEV__) console.log('[CallSocket] disconnected', reason);
-    });
-
-    this.socket.on('incoming_call', (data: unknown) => {
-      const normalized = normalizeSocketData(data);
-      if (!normalized) return;
-      this.incomingCallListeners.forEach(l => {
-        try { l(normalized); } catch { /* */ }
+    try {
+      this.socket = io(SOCKET_URL, {
+        auth: { token: authToken },
+        transports: ['websocket'],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        timeout: 10_000,
       });
-    });
 
-    this.socket.on('call_cancelled', (data: unknown) => {
-      const normalized = normalizeSocketData(data);
-      if (!normalized) return;
-      this.cancelledListeners.forEach(l => {
-        try { l(normalized); } catch { /* */ }
+      this.socket.on('connect', () => {
+        if (__DEV__) console.log('[CallSocket] connected', this.socket?.id);
       });
-    });
+      this.socket.on('disconnect', (reason: string) => {
+        if (__DEV__) console.log('[CallSocket] disconnected', reason);
+      });
+      this.socket.on('incoming_call', (data: unknown) => {
+        const normalized = normalizeSocketData(data);
+        if (!normalized) return;
+        this.incomingCallListeners.forEach(l => { try { l(normalized); } catch { /* */ } });
+      });
+      this.socket.on('call_cancelled', (data: unknown) => {
+        const normalized = normalizeSocketData(data);
+        if (!normalized) return;
+        this.cancelledListeners.forEach(l => { try { l(normalized); } catch { /* */ } });
+      });
     } catch (e) {
       if (__DEV__) console.warn('[CallSocket] connect error', e);
       this.socket = null;
@@ -82,8 +73,8 @@ class CallSocketService {
 
   disconnect(): void {
     if (this.socket) {
-      this.socket.removeAllListeners();
-      this.socket.disconnect();
+      try { this.socket.removeAllListeners(); } catch { /* */ }
+      try { this.socket.disconnect(); } catch { /* */ }
       this.socket = null;
     }
     this.token = null;

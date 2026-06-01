@@ -51,7 +51,7 @@ export async function createGroup(
   token: string,
 ): Promise<CreateGroupResult> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/v1/groups`, {
+    const res = await fetch(`${API_BASE_URL}/api/v2/groups`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -76,7 +76,7 @@ export async function fetchGroupInfo(
 ): Promise<GroupInfo | null> {
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/groups/${encodeURIComponent(groupId)}`,
+      `${API_BASE_URL}/api/v2/groups/${encodeURIComponent(groupId)}`,
       { headers: { Authorization: bearer(token) } },
     );
     const json = await res.json().catch(() => null);
@@ -95,7 +95,7 @@ export async function updateGroupInfo(
 ): Promise<boolean> {
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/groups/${encodeURIComponent(groupId)}`,
+      `${API_BASE_URL}/api/v2/groups/${encodeURIComponent(groupId)}`,
       {
         method: 'PATCH',
         headers: {
@@ -118,7 +118,7 @@ export async function addGroupMember(
 ): Promise<boolean> {
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/groups/${encodeURIComponent(groupId)}/members`,
+      `${API_BASE_URL}/api/v2/groups/${encodeURIComponent(groupId)}/members`,
       {
         method: 'POST',
         headers: {
@@ -141,7 +141,7 @@ export async function removeGroupMember(
 ): Promise<boolean> {
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+      `${API_BASE_URL}/api/v2/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
       {
         method: 'DELETE',
         headers: { Authorization: bearer(token) },
@@ -161,7 +161,7 @@ export async function setGroupMemberAdmin(
 ): Promise<boolean> {
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+      `${API_BASE_URL}/api/v2/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
       {
         method: 'PATCH',
         headers: {
@@ -183,7 +183,7 @@ export async function leaveGroup(
 ): Promise<boolean> {
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/groups/${encodeURIComponent(groupId)}/members/me`,
+      `${API_BASE_URL}/api/v2/groups/${encodeURIComponent(groupId)}/members/me`,
       {
         method: 'DELETE',
         headers: { Authorization: bearer(token) },
@@ -232,7 +232,7 @@ export async function notifyGroupCall(params: {
   try {
     const base = API_BASE_URL.replace(/\/+$/, '');
     await fetch(
-      `${base}/api/v1/groups/${encodeURIComponent(params.groupId)}/hopechat-call-invite`,
+      `${base}/api/v2/groups/${encodeURIComponent(params.groupId)}/hopechat-call-invite`,
       {
         method: 'POST',
         headers: {

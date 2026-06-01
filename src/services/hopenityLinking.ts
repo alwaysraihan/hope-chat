@@ -8,6 +8,11 @@ import {
 
 const ANDROID_LAUNCH_INTENT = `intent://hopenity.com/#Intent;scheme=hopenity;package=${HOPENITY_PACKAGE_ID};end`;
 const ANDROID_HOPENITY_URI = 'hopenity://hopenity.com/';
+// Special path Hopenity handles to send the auth token back to HopeChat.
+// When Hopenity receives this deep link it calls openHopeChat() which fires
+// hopechat://auth?token=... back, completing the login handshake.
+const ANDROID_AUTH_REQUEST_URI = 'hopenity://hopenity.com/hopechat-auth-request';
+const IOS_AUTH_REQUEST_URI = `${HOPENITY_IOS_SCHEME}hopechat-auth-request`;
 
 export async function canOpenHopenity(): Promise<boolean> {
   try {
@@ -38,6 +43,32 @@ export async function openHopenityBestEffort(): Promise<void> {
     }
   }
   await openPlayStore();
+}
+
+/**
+ * Open Hopenity with a special path that signals "please send back the
+ * current auth token so HopeChat can log in".
+ *
+ * Flow (Messenger-like):
+ *  1. HopeChat LoginScreen shows "Sign in with Hopenity" (no session yet).
+ *  2. User taps it → this function opens Hopenity.
+ *  3. Hopenity's deep-link handler detects `hopechat-auth-request` and
+ *     calls openHopeChat() which fires hopechat://auth?token=...&user=...
+ *  4. HopeChat's App.tsx receives the deep link → setPendingAuthLink →
+ *     LoginScreen processes it → user is logged in with "Continue as {name}".
+ *
+ * Falls back to plain app open or Play Store if Hopenity isn't installed.
+ */
+export async function openHopenityForAuthRequest(): Promise<void> {
+  const authUri =
+    Platform.OS === 'ios' ? IOS_AUTH_REQUEST_URI : ANDROID_AUTH_REQUEST_URI;
+  try {
+    await Linking.openURL(authUri);
+    return;
+  } catch {
+    /* fall through to generic open */
+  }
+  await openHopenityBestEffort();
 }
 
 export async function openPlayStore(): Promise<void> {

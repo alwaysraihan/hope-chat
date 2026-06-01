@@ -249,7 +249,16 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       <ConversationItem
         item={item}
         onPress={() => navigateInbox(item)}
-        onLongPress={() => navigation.navigate('ConversationAction')}
+        onLongPress={() =>
+          navigation.navigate('ConversationAction', {
+            conversationId: item.id,
+            conversationName: item.name,
+            isGroup: !!item.isGroup,
+            isMuted: false,
+            isPinned: false,
+            peerUserId: item.peerUserId ?? undefined,
+          })
+        }
       />
     ),
     [navigation, navigateInbox],
@@ -313,7 +322,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.messagesHeaderRow}>
           <View style={styles.messagesHeaderLeft}>
             <Text style={styles.sectionLabel}>{t.messages}</Text>
-            <BellOff size={18} color={colorss.textPrimary} />
+            {/* <BellOff size={18} color={colorss.textPrimary} />  */}
           </View>
           <TouchableOpacity
             accessibilityRole="button"

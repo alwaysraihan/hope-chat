@@ -1,6 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { HopenityPersistedUserBlob } from '../../../services/hopenitySharedAuth';
-import { readPersistedHopenityUser } from '../../../services/hopenitySharedAuth';
 import { normalizeHopenityPersistedBlob } from '../../../services/hopenitySessionNormalize';
 
 export type HopenityProfile = {
@@ -18,53 +17,17 @@ type AuthState = {
 
 const fallbackUser = { _id: 'me', name: 'You' } as const;
 
-/**
- * Read MMKV synchronously before the first render so Redux starts with
- * `loggedIn = true` when a valid Hopenity session already exists.
- * This eliminates the LoginScreen flash entirely — the app opens directly
- * into the chat list without any intermediate auth screen.
- */
-function buildInitialState(): AuthState {
-  const empty: AuthState = {
-    token: null,
-    hopenityBlob: null,
-    profile: null,
-    giftedChatUser: fallbackUser,
-  };
-  try {
-    const raw = readPersistedHopenityUser();
-    const blob = normalizeHopenityPersistedBlob(raw);
-    if (!blob?.token || blob.token.trim().length < 36) return empty;
-    // Reuse the same derivation logic that setHopenitySession uses below.
-    const hasToken = typeof blob.token === 'string' && blob.token.length > 0;
-    const hasUser = !!blob.user && typeof blob.user === 'object';
-    if (!hasToken && !hasUser) return empty;
-
-    const u = blob.user as Record<string, unknown> | undefined;
-    let displayName = 'Signed in with Hopenity';
-    let avatarUrl: string | null = null;
-    let userId = 'me';
-    if (u) {
-      displayName =
-        (typeof u.name === 'string' && u.name.length > 0 ? u.name : null) ??
-        (typeof u.username === 'string' && u.username.length > 0 ? u.username : null) ??
-        'Hopenity friend';
-      avatarUrl = (u.profile_image ?? u.profile_photo ?? u.avatar ?? u.photo ?? u.image ?? null) as string | null;
-      const idRaw = u.user_id ?? u.userId ?? u.id ?? u._id;
-      userId = idRaw != null && String(idRaw).length > 0 ? String(idRaw) : 'me';
-    }
-    return {
-      token: blob.token ?? null,
-      hopenityBlob: blob,
-      profile: { displayName, avatarUrl, userId },
-      giftedChatUser: { _id: userId, name: displayName },
-    };
-  } catch {
-    return empty;
-  }
-}
-
-const initialState: AuthState = buildInitialState();
+// Always start with an empty session. Reading MMKV at module-evaluation time
+// (before the React Native bridge is ready) crashes on Android because the
+// native MMKV module isn't initialized yet.
+// AuthBootstrap handles session loading safely inside useEffect — after the
+// bridge is fully set up — then dispatches setHopenitySession() to hydrate.
+const initialState: AuthState = {
+  token: null,
+  hopenityBlob: null,
+  profile: null,
+  giftedChatUser: fallbackUser,
+};
 
 const authSlice = createSlice({
   name: 'auth',

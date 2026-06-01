@@ -3,12 +3,20 @@
  * Stores the last 20 users the current user has searched/chatted from the
  * search screen. Each entry carries enough info to render the row without
  * an extra API call.
+ *
+ * IMPORTANT: createMMKV is called lazily (on first access) so it never runs
+ * at module-evaluation time — before the React Native bridge is ready.
  */
-import { createMMKV } from 'react-native-mmkv';
+import { createMMKV, type MMKV } from 'react-native-mmkv';
 
-const store = createMMKV({ id: 'hopechat-search-history-v1' });
 const KEY = 'history';
 const MAX = 20;
+
+let _store: MMKV | null = null;
+function store(): MMKV {
+  if (!_store) _store = createMMKV({ id: 'hopechat-search-history-v1' });
+  return _store;
+}
 
 export type SearchHistoryEntry = {
   userId: string;
@@ -20,7 +28,7 @@ export type SearchHistoryEntry = {
 
 function readAll(): SearchHistoryEntry[] {
   try {
-    const raw = store.getString(KEY);
+    const raw = store().getString(KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -30,7 +38,7 @@ function readAll(): SearchHistoryEntry[] {
 }
 
 function writeAll(entries: SearchHistoryEntry[]): void {
-  store.set(KEY, JSON.stringify(entries));
+  store().set(KEY, JSON.stringify(entries));
 }
 
 /** Get all recent search entries, newest first. */
@@ -63,5 +71,5 @@ export function removeFromSearchHistory(userId: string): void {
 
 /** Wipe all history. */
 export function clearSearchHistory(): void {
-  store.delete(KEY);
+  store().delete(KEY);
 }

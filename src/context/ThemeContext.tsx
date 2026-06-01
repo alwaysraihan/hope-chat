@@ -85,7 +85,7 @@ export const darkColors: AppColors = {
   textPrimary: '#F2F2F2',
   textSecondary: '#9A9A9A',
   placeholder: '#555555',
-  accent: '#4A9EF1',
+  accent: '#FF4E8C',
   success: '#22C55E',
   error: '#EF4444',
   cardBg: '#1E1E1E',

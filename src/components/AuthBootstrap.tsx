@@ -11,6 +11,7 @@ import {
   subscribePersistedHopenityUser,
 } from '../services/hopenitySharedAuth';
 import { normalizeHopenityPersistedBlob } from '../services/hopenitySessionNormalize';
+import { isAutoLoginAcked } from '../services/chatPrefs';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -37,12 +38,13 @@ function tryReadBlob() {
 /**
  * AuthBootstrap — Messenger-like session synchronisation.
  *
- * Behaviour (mirrors Facebook ↔ Messenger):
- *   • As long as Hopenity has a valid session, HopeChat is logged in automatically.
- *   • No "Continue as X" confirmation tap required — auth syncs instantly.
- *   • Explicit HopeChat logout shows LoginScreen for the current app session.
- *     The next cold start OR the next time the user foregrounds from Hopenity
- *     automatically restores the session.
+ * Behaviour:
+ *   • FIRST TIME: LoginScreen shows "Continue as {name}" — user must tap once.
+ *     The tap calls markAutoLoginAcked() so every subsequent cold-start skips
+ *     the login screen entirely.
+ *   • AFTER ACK: cold-start auto-logins directly to the chat list.
+ *   • LOGOUT: clearAutoLoginAck() is called → next cold-start shows the
+ *     "Continue as {name}" card again.
  *   • If Hopenity's token is revoked / expired, HopeChat logs out in real time.
  *
  * Sync mechanisms:
@@ -57,10 +59,13 @@ const AuthBootstrap = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
 
   // ── Cold-start auto-login ──────────────────────────────────────────────────
-  // Runs exactly once on mount.  No ack flag needed — if Hopenity has a valid
-  // session, log in immediately without showing LoginScreen.
+  // Runs exactly once on mount.
+  // Only auto-logins if the user has already confirmed "Continue as {name}"
+  // at least once.  First-time users see LoginScreen where they tap the button;
+  // that tap calls markAutoLoginAcked() so every subsequent start is instant.
   useEffect(() => {
     if (loggedIn) return;
+    if (!isAutoLoginAcked()) return; // first time — let LoginScreen show the confirmation
     const blob = tryReadBlob();
     if (blob) dispatch(setHopenitySession({ blob }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,10 +124,11 @@ const AuthBootstrap = () => {
       if (loggedIn && !hasFreshToken) {
         // Hopenity logged out or token expired while HopeChat was backgrounded.
         dispatch(clearAuth());
-      } else if (!loggedIn && hasFreshToken) {
-        // Hopenity is logged in — restore the session immediately.
-        // Covers: user switched from Hopenity after an explicit HopeChat logout,
-        // Hopenity logged in while HopeChat was backgrounded, etc.
+      } else if (!loggedIn && hasFreshToken && isAutoLoginAcked()) {
+        // Hopenity is logged in AND user has already confirmed once — restore
+        // the session immediately when they foreground back to HopeChat.
+        // If the user explicitly logged out (ack cleared), we do NOT auto-login
+        // here — they need to go to LoginScreen and confirm again.
         dispatch(setHopenitySession({ blob: blob! }));
       }
       // "still logged in" — no action needed.  iOS token refreshes propagate
