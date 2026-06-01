@@ -980,7 +980,7 @@ function VideoStage({
               <Text style={styles.timerText}>{videoTimer}</Text>
             ) : null}
           </View>
-          {/* + Add people button — top right, like WhatsApp */}
+          {/* + Add people button (top right, WhatsApp style) */}
           {onAddPeople ? (
             <TouchableOpacity
               onPress={onAddPeople}
@@ -1201,6 +1201,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
   }, []);
 
   return (
+    <>
     <View style={styles.container}>
       {loading ? (
         <View style={styles.centerWrap}>
@@ -1260,7 +1261,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
               'No LiveKit token or signaling URL — check LIVEKIT_* entries in `.env` and restart Metro.'}
           </Text>
           <Text style={styles.missingTiny}>
-            Room hint: {route.params?.liveKitRoom ?? '—'} · Reload after editing
+            Room hint: {route.params?.liveKitRoom ?? '-'} - Reload after editing
             `.env` clears Metro cache.
           </Text>
           <TouchableOpacity style={styles.backGhost} onPress={reload}>
@@ -1276,13 +1277,14 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
       )}
     </View>
 
-    {/* AddPeopleModal outside LiveKitRoom — same pattern as AudioCallScreen */}
+    {/* AddPeopleModal rendered outside LiveKitRoom to avoid error-boundary interference */}
     <AddPeopleModal
       visible={addPeopleVisible}
       onClose={() => setAddPeopleVisible(false)}
       liveKitRoom={route.params?.liveKitRoom ?? ''}
       callKind="video"
     />
+    </>
   );
 };
 

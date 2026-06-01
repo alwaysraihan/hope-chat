@@ -34,7 +34,7 @@ export const colorss = {
   textSecondary: '#4A5568',
   placeholder: '#A0AEC0',
 
-  accent: '#1877f2',
+  accent: '#EC4899',
   success: '#22C55E',
   error: '#EF4444',
 };

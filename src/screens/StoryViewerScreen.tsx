@@ -158,7 +158,7 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
     <View style={styles.shell}>
       <StatusBar translucent backgroundColor="transparent" />
 
-      {/* ── Media layer: Video or Image ───────────────────────── */}
+      {/* -- Media layer: Video or Image ------------------------- */}
       {isVideo ? (
         <Video
           source={{ uri: slide.uri }}
@@ -193,7 +193,7 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
         <FastImage source={{ uri: slide.uri }} style={styles.fullImage} resizeMode={FastImage.resizeMode.cover} />
       )}
 
-      {/* ── Overlay (progress, name, tap zones) ──────────────── */}
+      {/* -- Overlay (progress, name, tap zones) ---------------- */}
       <View style={[styles.fullImage, styles.scrim]}>
           <SafeAreaView style={styles.overlayTop} edges={['top']}>
             <View style={styles.progressRow}>{segments}</View>

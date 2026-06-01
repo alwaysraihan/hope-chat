@@ -62,7 +62,7 @@ type UserResult = {
 const TABS = ['All', 'People', 'Messages', 'Groups'] as const;
 type Tab = (typeof TABS)[number];
 
-// ─── Skeleton ────────────────────────────────────────────────────────────────
+// --- Skeleton ----------------------------------------------------------------
 
 function SkeletonBox({
   width,
@@ -118,7 +118,7 @@ function SkeletonGridItem() {
   );
 }
 
-// ─── API helpers ─────────────────────────────────────────────────────────────
+// --- API helpers -------------------------------------------------------------
 
 async function fetchUsers(
   searchTerm: string,
@@ -140,7 +140,7 @@ async function fetchUsers(
   return Array.isArray(results) ? results : [];
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
+// --- Screen -------------------------------------------------------------------
 
 const SearchScreen: React.FC<Props> = ({ navigation }) => {
   const colorss = useColors();
@@ -294,7 +294,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
     [openChat],
   );
 
-  // ── Search results view ──
+  // -- Search results view --
   if (query.trim()) {
     return (
       <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
@@ -343,7 +343,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
-  // ── Default / home view ──
+  // -- Default / home view --
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
       <Header query={query} onChangeQuery={setQuery} onBack={() => navigation.goBack()} />
@@ -356,7 +356,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
         ListEmptyComponent={null}
         ListHeaderComponent={
           <>
-            {/* ── Recent Searches ── */}
+            {/* -- Recent Searches -- */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>{t.recent_searches}</Text>
@@ -404,7 +404,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
               )}
             </View>
 
-            {/* ── Suggested (friends / accepted chats) ── */}
+            {/* -- Suggested (friends / accepted chats) -- */}
             <Text style={styles.sectionTitle}>{t.suggested}</Text>
             <Text style={styles.sectionSub}>People you chat with</Text>
 
@@ -439,7 +439,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   );
 };
 
-// ─── Header sub-component ─────────────────────────────────────────────────────
+// --- Header sub-component -----------------------------------------------------
 
 function Header({
   query,
@@ -480,7 +480,7 @@ function Header({
 
 export default SearchScreen;
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// --- Styles -------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colorss.surface, paddingTop: 10 },

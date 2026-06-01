@@ -38,7 +38,7 @@ import { API_BASE_URL } from '../config/env';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'CreateStory'>;
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// --- Constants ----------------------------------------------------------------
 
 const BG_OPTIONS: Array<{ bgColor: string; textColor: string }> = [
   { bgColor: '#0084FF', textColor: 'white' },
@@ -90,7 +90,7 @@ type MusicTrack = {
   timeFrame?: string;
 };
 
-// ─── API helpers ──────────────────────────────────────────────────────────────
+// --- API helpers --------------------------------------------------------------
 
 async function fetchMusicTracks(
   token: string,
@@ -185,7 +185,7 @@ async function uploadStory(
   }
 }
 
-// ─── Music Sheet Modal ────────────────────────────────────────────────────────
+// --- Music Sheet Modal --------------------------------------------------------
 
 function MusicSheet({
   visible,
@@ -354,7 +354,7 @@ function MusicSheet({
   );
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
+// --- Screen -------------------------------------------------------------------
 
 const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
@@ -377,7 +377,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
     hasMedia ||
     (bgMode && caption.trim().length > 0);
 
-  // ── Pickers ──
+  // -- Pickers --
 
   const handleGallery = useCallback(async () => {
     const res = await launchImageLibrary({ mediaType: 'mixed', selectionLimit: 1, includeExtra: true });
@@ -416,7 +416,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
     setActiveTab('gallery');
   }, []);
 
-  // ── Share ──
+  // -- Share --
 
   const handleShare = useCallback(async () => {
     if (!token) { Alert.alert('Sign in required'); return; }
@@ -453,7 +453,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      {/* ── Header ─────────────────────────────────────────── */}
+      {/* -- Header ------------------------------------------- */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <X size={26} color={colorss.textPrimary} />
@@ -492,7 +492,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </View>
 
-      {/* ── Main preview area ───────────────────────────────── */}
+      {/* -- Main preview area --------------------------------- */}
       <View style={styles.preview}>
         {hasMedia && media ? (
           // Media preview (image or video)
@@ -599,7 +599,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
             </ScrollView>
           </View>
         ) : (
-          // Empty state — profile + prompt
+          // Empty state - profile + prompt
           <View style={styles.emptyPreview}>
             {profile?.avatarUrl ? (
               <FastImage source={{ uri: profile.avatarUrl }} style={styles.profileAvatar} />
@@ -616,7 +616,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
         )}
       </View>
 
-      {/* ── Bottom tab bar ──────────────────────────────────── */}
+      {/* -- Bottom tab bar ------------------------------------ */}
       <View style={styles.bottomTabs}>
         <TouchableOpacity
           style={[styles.tabItem, bgMode && styles.tabItemActive]}
@@ -657,7 +657,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* ── Music sheet ─────────────────────────────────────── */}
+      {/* -- Music sheet --------------------------------------- */}
       {token && (
         <MusicSheet
           visible={musicSheetOpen}
@@ -674,7 +674,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
 
 export default CreateStoryScreen;
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// --- Styles -------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colorss.white },
@@ -715,7 +715,7 @@ const styles = StyleSheet.create({
   },
   postBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
-  // ── Preview ────────────────────────────────────────────────────────────────
+  // -- Preview ----------------------------------------------------------------
   preview: {
     flex: 1,
     backgroundColor: '#111',
@@ -765,7 +765,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  // ── Text story ─────────────────────────────────────────────────────────────
+  // -- Text story -------------------------------------------------------------
   textInputWrap: {
     flex: 1,
     justifyContent: 'center',
@@ -790,7 +790,7 @@ const styles = StyleSheet.create({
   colorDot: { width: 34, height: 34, borderRadius: 17 },
   colorDotActive: { borderWidth: 3, borderColor: '#fff' },
 
-  // ── Empty state ────────────────────────────────────────────────────────────
+  // -- Empty state ------------------------------------------------------------
   emptyPreview: {
     flex: 1,
     justifyContent: 'center',
@@ -808,7 +808,7 @@ const styles = StyleSheet.create({
   profileName: { fontSize: 17, fontWeight: '700', color: colorss.textPrimary },
   profilePrompt: { fontSize: 13, color: colorss.textSecondary },
 
-  // ── Bottom tabs ────────────────────────────────────────────────────────────
+  // -- Bottom tabs ------------------------------------------------------------
   bottomTabs: {
     flexDirection: 'row',
     backgroundColor: colorss.white,

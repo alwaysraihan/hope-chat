@@ -61,7 +61,7 @@ export const lightColors: AppColors = {
   textPrimary: '#10182B',
   textSecondary: '#4A5568',
   placeholder: '#A0AEC0',
-  accent: '#1877f2',
+  accent: '#FF4E8C',
   success: '#22C55E',
   error: '#EF4444',
   cardBg: '#FFFFFF',
