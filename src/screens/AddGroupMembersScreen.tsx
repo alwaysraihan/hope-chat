@@ -10,11 +10,13 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 import { Search } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { colorss } from '../theme';
+
 import BackHeader from '../components/BackHeader';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
@@ -30,6 +32,7 @@ type Props = NativeStackScreenProps<
 >;
 
 const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
+  const colorss = useColors();
   const { groupId, existingMemberIds } = route.params;
   const token = useAppSelector(selectAuthToken);
   const { conversations } = useChats();

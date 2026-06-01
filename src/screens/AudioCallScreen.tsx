@@ -15,8 +15,6 @@ import {
   BackHandler,
   Platform,
   ToastAndroid,
-  Modal,
-  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -84,172 +82,11 @@ import {
   beginCallTransition,
   isCallTransitioning,
 } from '../services/callTransitionGuard';
-import { useChats } from '../context/ChatsContext';
-import { inviteContactToExistingCall } from '../services/invitePeerToHopeChatCall';
-import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { AddPeopleModal } from '../components/AddPeopleModal';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'AudioCall'>;
 
-/** Bottom-sheet modal to invite contacts into the active call room. */
-function AddPeopleModal({
-  visible,
-  onClose,
-  liveKitRoom,
-  callKind,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  liveKitRoom: string;
-  callKind: 'audio' | 'video';
-}) {
-  const { conversations } = useChats();
-  const token = useAppSelector(selectAuthToken);
-  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
-
-  const contacts = useMemo(
-    () => conversations.filter(c => !c.isGroup && !c.needsAcceptance && c.peerUserId),
-    [conversations],
-  );
-
-  const handleInvite = async (conversationId: string, name: string) => {
-    if (!token) return;
-    setBusyIds(prev => new Set(prev).add(conversationId));
-    await inviteContactToExistingCall({
-      token,
-      conversationId,
-      liveKitRoom,
-      callKind,
-    });
-    setBusyIds(prev => {
-      const next = new Set(prev);
-      next.delete(conversationId);
-      return next;
-    });
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(`Invited ${name}`, ToastAndroid.SHORT);
-    }
-  };
-
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <TouchableOpacity
-        style={addPeopleStyles.backdrop}
-        activeOpacity={1}
-        onPress={onClose}
-      />
-      <View style={addPeopleStyles.sheet}>
-        <View style={addPeopleStyles.handle} />
-        <Text style={addPeopleStyles.title}>Add People</Text>
-        <ScrollView>
-          {contacts.length === 0 ? (
-            <Text style={addPeopleStyles.empty}>
-              No contacts available to add.
-            </Text>
-          ) : (
-            contacts.map(c => (
-              <View key={c.id} style={addPeopleStyles.row}>
-                <FastImage
-                  source={c.avatarUrl ? { uri: c.avatarUrl } : IC_PROFILE}
-                  style={addPeopleStyles.avatar}
-                  resizeMode={FastImage.resizeMode.cover}
-                />
-                <Text style={addPeopleStyles.name} numberOfLines={1}>
-                  {c.name}
-                </Text>
-                <TouchableOpacity
-                  style={addPeopleStyles.inviteBtn}
-                  onPress={() => handleInvite(c.id, c.name)}
-                  disabled={busyIds.has(c.id)}
-                >
-                  {busyIds.has(c.id) ? (
-                    <ActivityIndicator size="small" color={colorss.white} />
-                  ) : (
-                    <Text style={addPeopleStyles.inviteText}>Invite</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            ))
-          )}
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-const addPeopleStyles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  sheet: {
-    backgroundColor: colorss.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: 40,
-    maxHeight: '60%',
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colorss.border,
-    alignSelf: 'center',
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colorss.textPrimary,
-    textAlign: 'center',
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colorss.border,
-    marginBottom: 8,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    gap: 12,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colorss.backgroundDeep,
-  },
-  name: {
-    flex: 1,
-    color: colorss.textPrimary,
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  inviteBtn: {
-    backgroundColor: colorss.accent,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    minWidth: 70,
-    alignItems: 'center',
-  },
-  inviteText: {
-    color: colorss.white,
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  empty: {
-    color: colorss.textSecondary,
-    textAlign: 'center',
-    padding: 24,
-  },
-});
+// AddPeopleModal is now in src/components/AddPeopleModal.tsx
 
 function AudioCallGate({
   navigation,
@@ -258,6 +95,7 @@ function AudioCallGate({
   peerAvatarUrl,
   outcomeOpts,
   routeParams,
+  onAddPeople,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
@@ -270,6 +108,7 @@ function AudioCallGate({
     liveKitRoom?: string;
   };
   routeParams: Props['route']['params'];
+  onAddPeople?: () => void;
 })
  {
   const room = useRoomContext();
@@ -487,27 +326,17 @@ function AudioCallGate({
     );
   }
 
-  const [addPeopleVisible, setAddPeopleVisible] = useState(false);
-
   return (
-    <>
-      <AudioStage
-        safePop={safePop}
-        displayName={displayName}
-        peerAvatarUrl={peerAvatarUrl}
-        tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
-        onSwitchToVideo={handleSwitchToVideo}
-        onMinimize={onMinimize}
-        onAddPeople={() => setAddPeopleVisible(true)}
-        liveKitRoom={routeParams?.liveKitRoom ?? ''}
-      />
-      <AddPeopleModal
-        visible={addPeopleVisible}
-        onClose={() => setAddPeopleVisible(false)}
-        liveKitRoom={routeParams?.liveKitRoom ?? ''}
-        callKind="audio"
-      />
-    </>
+    <AudioStage
+      safePop={safePop}
+      displayName={displayName}
+      peerAvatarUrl={peerAvatarUrl}
+      tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
+      onSwitchToVideo={handleSwitchToVideo}
+      onMinimize={onMinimize}
+      onAddPeople={onAddPeople}
+      liveKitRoom={routeParams?.liveKitRoom ?? ''}
+    />
   );
 }
 
@@ -760,6 +589,11 @@ function AudioStage({
 }
 
 const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
+  // AddPeopleModal lives HERE (outside LiveKitRoom / CallRoomErrorBoundary) so
+  // any render error inside it cannot propagate into the LiveKit error boundary
+  // and falsely show "Voice call error" to the user.
+  const [addPeopleVisible, setAddPeopleVisible] = useState(false);
+
   const rawSafePop = useSafeSingleNavigationPop(navigation as never);
   // Suppress safePop when we're intentionally swapping call screens (mode switch / call handover).
   const safePop = useCallback(() => {
@@ -886,6 +720,7 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
                   callDirection: route.params?.callDirection,
                   liveKitRoom: route.params?.liveKitRoom,
                 }}
+                onAddPeople={() => setAddPeopleVisible(true)}
               />
             </CallRoomErrorBoundary>
           </LiveKitRoom>
@@ -908,6 +743,15 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
           </SafeAreaView>
         )}
       </View>
+
+      {/* AddPeopleModal renders OUTSIDE LiveKitRoom so its render errors never
+          propagate into CallRoomErrorBoundary and falsely kill the voice call. */}
+      <AddPeopleModal
+        visible={addPeopleVisible}
+        onClose={() => setAddPeopleVisible(false)}
+        liveKitRoom={route.params?.liveKitRoom ?? ''}
+        callKind="audio"
+      />
     </SafeAreaView>
   );
 };

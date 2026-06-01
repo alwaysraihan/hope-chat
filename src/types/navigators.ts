@@ -57,7 +57,7 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   PinnedMessages: undefined;
   WordEffects: undefined;
   AutoSavePhotos: undefined;
-  Nicknames: undefined;
+  Nicknames: { conversationId: string } | undefined;
   MediaTab: NavigatorScreenParams<MediaTabNavigatorParamList>;
   AudioCall: {
     displayName?: string;

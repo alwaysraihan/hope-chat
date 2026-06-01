@@ -28,6 +28,7 @@ import {
   Phone,
   PhoneOff,
   SwitchCamera,
+  UserPlus,
   Video,
   VideoOff,
   Volume2,
@@ -78,6 +79,7 @@ import { useSafeSingleNavigationPop } from '../hooks/useSafeSingleNavigationPop'
 import { useGracefulRoomLeave } from '../hooks/useGracefulRoomLeave';
 import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
+import { AddPeopleModal } from '../components/AddPeopleModal';
 import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
 // useOverlayPermissionPrompt removed — SYSTEM_ALERT_WINDOW dropped from manifest.
 // Re-add when the floating in-call bubble feature is shipped.
@@ -120,6 +122,7 @@ function VideoCallGate({
   outcomeOpts,
   forceEndCallWithAlert,
   routeParams,
+  onAddPeople,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
@@ -133,6 +136,7 @@ function VideoCallGate({
   };
   forceEndCallWithAlert: (title: string, body: string) => void;
   routeParams: Props['route']['params'];
+  onAddPeople?: () => void;
 }) {
   const room = useRoomContext();
   const cs = useConnectionState(room);
@@ -370,6 +374,7 @@ function VideoCallGate({
       tryEmitOutgoingWithoutConnect={tryEmitOutgoingWithoutConnect}
       onSwitchToAudio={handleSwitchToAudio}
       onMinimize={onMinimize}
+      onAddPeople={onAddPeople}
     />
   ) : (
     <VideoStage
@@ -380,6 +385,7 @@ function VideoCallGate({
       forceEndCallWithAlert={forceEndCallWithAlert}
       onSwitchToAudio={handleSwitchToAudio}
       onMinimize={onMinimize}
+      onAddPeople={onAddPeople}
     />
   );
 }
@@ -391,6 +397,7 @@ function AndroidConnectedCallStage({
   tryEmitOutgoingWithoutConnect,
   onSwitchToAudio,
   onMinimize,
+  onAddPeople,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
@@ -399,6 +406,7 @@ function AndroidConnectedCallStage({
   tryEmitOutgoingWithoutConnect: () => void;
   onSwitchToAudio: () => void;
   onMinimize: () => void;
+  onAddPeople?: () => void;
 }) {
   const room = useRoomContext();
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
@@ -590,6 +598,16 @@ function AndroidConnectedCallStage({
       </View>
 
       <View style={styles.bottomBar}>
+        {onAddPeople && (
+          <TouchableOpacity
+            style={styles.addPeopleBtn}
+            onPress={onAddPeople}
+            accessibilityRole="button"
+            accessibilityLabel="Add people to call"
+          >
+            <UserPlus size={22} color={colorss.white} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
           <PhoneOff size={26} color={colorss.white} />
         </TouchableOpacity>
@@ -613,6 +631,7 @@ function VideoStage({
   forceEndCallWithAlert,
   onSwitchToAudio,
   onMinimize,
+  onAddPeople,
 }: {
   safePop: () => void;
   displayName: string;
@@ -621,6 +640,7 @@ function VideoStage({
   forceEndCallWithAlert: (title: string, body: string) => void;
   onSwitchToAudio: () => void;
   onMinimize: () => void;
+  onAddPeople?: () => void;
 }) {
   const room = useRoomContext();
   const {
@@ -960,7 +980,19 @@ function VideoStage({
               <Text style={styles.timerText}>{videoTimer}</Text>
             ) : null}
           </View>
-          <View style={{ width: 28 }} />
+          {/* + Add people button — top right, like WhatsApp */}
+          {onAddPeople ? (
+            <TouchableOpacity
+              onPress={onAddPeople}
+              style={styles.addPeopleTopBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Add people to call"
+            >
+              <UserPlus size={22} color={colorss.white} />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 28 }} />
+          )}
         </View>
 
         {showPip ? (
@@ -1076,6 +1108,10 @@ function VideoStage({
 }
 
 const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
+  // AddPeopleModal state lives outside LiveKitRoom so render errors in the modal
+  // cannot propagate into the LiveKit error boundary and kill the video call.
+  const [addPeopleVisible, setAddPeopleVisible] = useState(false);
+
   const rawSafePop = useSafeSingleNavigationPop(navigation as never);
   // Suppress safePop when we're intentionally swapping call screens (mode switch / call handover).
   const safePop = useCallback(() => {
@@ -1212,6 +1248,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
                 callDirection: route.params?.callDirection,
                 liveKitRoom: route.params?.liveKitRoom,
               }}
+              onAddPeople={() => setAddPeopleVisible(true)}
             />
           </CallRoomErrorBoundary>
         </LiveKitRoom>
@@ -1238,6 +1275,14 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
         </SafeAreaView>
       )}
     </View>
+
+    {/* AddPeopleModal outside LiveKitRoom — same pattern as AudioCallScreen */}
+    <AddPeopleModal
+      visible={addPeopleVisible}
+      onClose={() => setAddPeopleVisible(false)}
+      liveKitRoom={route.params?.liveKitRoom ?? ''}
+      callKind="video"
+    />
   );
 };
 
@@ -1429,8 +1474,27 @@ const styles = StyleSheet.create({
   ctrlHighlight: {
     backgroundColor: 'rgba(59,130,246,0.75)',
   },
+  addPeopleTopBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   bottomBar: {
     paddingVertical: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 20,
+  },
+  addPeopleBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   endBtn: {

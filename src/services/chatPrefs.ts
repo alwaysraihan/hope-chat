@@ -57,6 +57,10 @@ export function setMessageOpenTo(v: MessageOpenTo): void {
 export function getDarkMode(): boolean {
   return prefs().getBoolean(K_DARK_MODE) === true;
 }
+/** True if the user has explicitly chosen a dark-mode preference (vs following system). */
+export function isDarkModeExplicitlySet(): boolean {
+  return prefs().contains(K_DARK_MODE);
+}
 export function setDarkMode(v: boolean): void {
   prefs().set(K_DARK_MODE, v);
 }

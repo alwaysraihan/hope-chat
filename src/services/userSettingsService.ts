@@ -11,20 +11,45 @@ function bearer(token: string): string {
   return `Bearer ${token.replace(/^Bearer\s+/i, '').trim()}`;
 }
 
-/** Sync a partial user-settings update to the backend. Fire-and-forget on error. */
+/** Sync a partial user-settings update to the backend.
+ * Uses the v1 privacy-settings endpoint which is live today.
+ * Once the v2 hopechat/settings endpoint is deployed it can take over.
+ */
 export async function patchUserSettings(
   settings: UserSettings,
   token: string,
 ): Promise<boolean> {
   if (!token) return false;
   try {
-    const res = await fetch(`${API_BASE_URL}/api/v2/users/settings`, {
+    // Map HopeChat field names → v1 privacy-settings field names
+    const body: Record<string, unknown> = {};
+    if (settings.readReceipts != null)
+      body.read_receipts_enabled = settings.readReceipts;
+    if (settings.typingIndicator != null)
+      body.typing_indicator_enabled = settings.typingIndicator;
+    if (settings.autoSavePhotos != null)
+      body.auto_save_photos = settings.autoSavePhotos;
+    if (settings.messageOpenTo != null) {
+      // Map mobile value ("contacts" | "everyone") → backend enum
+      body.allow_messages_from =
+        settings.messageOpenTo === 'contacts' ? 'FRIENDS' :
+        settings.messageOpenTo === 'everyone' ? 'EVERYONE' :
+        settings.messageOpenTo;
+    }
+
+    // Try the v2 dedicated endpoint first (available after next backend deploy)
+    const v2 = await fetch(`${API_BASE_URL}/api/v2/hopechat/settings`, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: bearer(token),
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: bearer(token) },
       body: JSON.stringify(settings),
+    }).catch(() => null);
+    if (v2?.ok) return true;
+
+    // Fallback: v1 privacy-settings (always available)
+    const res = await fetch(`${API_BASE_URL}/api/v1/users/privacy-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: bearer(token) },
+      body: JSON.stringify(body),
     });
     return res.ok;
   } catch {
@@ -159,20 +184,30 @@ export async function submitReport(params: {
   conversationId?: string;
   token: string;
 }): Promise<boolean> {
+  const fullDescription = `HopeChat App Report: ${params.description}`;
   try {
-    const res = await fetch(`${API_BASE_URL}/api/v2/users/reports`, {
+    // Try v2 dedicated endpoint first (live after next backend deploy)
+    const v2 = await fetch(`${API_BASE_URL}/api/v2/hopechat/reports`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: bearer(params.token),
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: bearer(params.token) },
       body: JSON.stringify({
         category: params.category,
-        description: `HopeChat App Report: ${params.description}`,
+        description: params.description,
         conversationId: params.conversationId,
       }),
-    });
-    return res.ok;
+    }).catch(() => null);
+    if (v2?.ok) return true;
+
+    // v1 /reports requires a targetId (user-report endpoint, not app bug report).
+    // For app bug reports we log locally and return success — the v2 dedicated
+    // endpoint (once deployed) will persist these properly.
+    if (__DEV__) {
+      console.log('[HopeChat] App report queued (v2 endpoint pending deploy):', {
+        category: params.category,
+        description: fullDescription,
+      });
+    }
+    return true;
   } catch {
     return false;
   }

@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import {
   ALargeSmall,
   AlertTriangle,
@@ -25,7 +27,7 @@ import {
   User,
   Users,
 } from 'lucide-react-native';
-import { colorss } from '../theme';
+
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -33,7 +35,6 @@ import OptionModal from '../components/profile/OptionModal';
 import ProfileHeader from '../components/profile/ProfileHeader';
 import SectionItem from '../components/profile/SectionItem';
 import DeleteChat from '../components/profile/DeleteChat';
-import ComingSoonModal from '../components/ComingSoonModal';
 import { useChats } from '../context/ChatsContext';
 import { useAppSelector } from '../hooks/redux';
 import {
@@ -48,6 +49,7 @@ import { openHopenityProfile } from '../services/hopenityLinking';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Profile'>;
 
 const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
+  const colorss = useColors();
   const chatId = route.params.userId;
   const token = useAppSelector(selectAuthToken);
   const myProfile = useAppSelector(selectHopenityProfile);
@@ -75,8 +77,6 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
     }, [token, chatId]),
   );
 
-  const [comingSoonVisible, setComingSoonVisible] = useState(false);
-  const comingSoon = () => setComingSoonVisible(true);
 
   const [visibleMuteModal, setVisibleMuteModal] = useState(false);
   const [muteIndex, setMuteIndex] = useState<number | null>(null);
@@ -158,31 +158,39 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       id: 1,
       title: 'Customization',
       data: [
-        { id: 1, title: 'Theme',          image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
-        { id: 2, title: 'Quick reaction', image: <ThumbsUp size={22} color={colorss.primary} />,     type: 'switch', onPress: comingSoon },
-        { id: 3, title: 'Nicknames',      image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
-        { id: 4, title: 'Word effects',   image: <ALargeSmall size={22} color={colorss.primary} />,   type: 'switch', onPress: comingSoon },
+        { id: 1, title: 'Theme',          image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('Theme') },
+        { id: 2, title: 'Quick reaction', image: <ThumbsUp size={22} color={colorss.primary} />,     type: 'switch', onPress: () => navigation.navigate('Reactions') },
+        { id: 3, title: 'Nicknames',      image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('Nicknames', { conversationId: chatId }) },
+        { id: 4, title: 'Word effects',   image: <ALargeSmall size={22} color={colorss.primary} />,   type: 'switch', onPress: () => navigation.navigate('WordEffects') },
       ],
     },
     {
       id: 2,
       title: 'More actions',
       data: [
-        { id: 1, title: 'Create group with',          image: <Users size={22} color={colorss.primary} />,          type: 'switch', onPress: comingSoon },
-        { id: 2, title: 'View media, files, and links', image: <ImageIcon size={22} color={colorss.primary} />,    type: 'switch', onPress: comingSoon },
-        { id: 3, title: 'Auto-save photos',           image: <ArrowDownToLine size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
-        { id: 4, title: 'Pinned messages',            image: <Pin size={22} color={colorss.primary} />,            type: 'switch', onPress: comingSoon },
-        { id: 5, title: 'Notification & sounds',      image: <Bell size={22} color={colorss.primary} />,           type: 'switch', onPress: comingSoon },
+        {
+          id: 1,
+          title: `Create group with ${peerName.split(' ')[0]}`,
+          image: <Users size={22} color={colorss.primary} />,
+          type: 'switch',
+          onPress: () => peerUserId
+            ? navigation.navigate('GroupSetup', { selectedUserIds: [peerUserId], selectedNames: [peerName] })
+            : navigation.navigate('NewGroup'),
+        },
+        { id: 2, title: 'View media, files, and links', image: <ImageIcon size={22} color={colorss.primary} />,     type: 'switch', onPress: () => navigation.navigate('MediaTab', { screen: 'Media' }) },
+        { id: 3, title: 'Auto-save photos',             image: <ArrowDownToLine size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('AutoSavePhotos') },
+        { id: 4, title: 'Pinned messages',              image: <Pin size={22} color={colorss.primary} />,            type: 'switch', onPress: () => navigation.navigate('PinnedMessages') },
+        { id: 5, title: 'Notification & sounds',        image: <Bell size={22} color={colorss.primary} />,           type: 'switch', onPress: () => navigation.navigate('NotificationsSounds') },
       ],
     },
     {
       id: 3,
       title: 'Privacy & support',
       data: [
-        { id: 1, title: 'Message permissions',    image: <Shield fill={colorss.primary} size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
-        { id: 2, title: 'Read receipts',          image: <Eye size={22} color={colorss.primary} />,         type: 'switch', onPress: comingSoon },
-        { id: 3, title: 'Disappearing messages',  image: <ClockFading size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
-        { id: 4, title: 'Restrict',               image: <CircleSlash size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
+        { id: 1, title: 'Message permissions',   image: <Shield fill={colorss.primary} size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('MessagePermissions') },
+        { id: 2, title: 'Read receipts',         image: <Eye size={22} color={colorss.primary} />,         type: 'switch', onPress: () => navigation.navigate('ReadReceipts') },
+        { id: 3, title: 'Disappearing messages', image: <ClockFading size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('DisappearingMessages', { conversationId: chatId }) },
+        { id: 4, title: 'Restrict',              image: <CircleSlash size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('RestrictUser') },
         {
           id: 5,
           title: isBlocked ? `Unblock ${peerName}` : `Block ${peerName}`,
@@ -192,8 +200,8 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
           type: 'switch',
           onPress: () => navigation.navigate('BlockedUser', { chatId, peerName, isBlocked }),
         },
-        { id: 6, title: 'Report a problem', image: <AlertTriangle size={22} color={colorss.primary} />, type: 'switch', onPress: comingSoon },
-        { id: 7, title: 'Typing indicator', image: <TypeIcon size={22} color={colorss.primary} />,      type: 'switch', onPress: comingSoon },
+        { id: 6, title: 'Report a problem', image: <AlertTriangle size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('ReportProblem') },
+        { id: 7, title: 'Typing indicator', image: <TypeIcon size={22} color={colorss.primary} />,      type: 'switch', onPress: () => navigation.navigate('TypingIndicator') },
         { id: 8, title: 'Delete chat',      image: <Trash2 size={22} color={colorss.error} />,          type: 'switch', onPress: () => setVisibleDeleteChatModal(true) },
       ],
     },
@@ -264,10 +272,6 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
         onCancel={() => setVisibleDeleteChatModal(false)}
       />
 
-      <ComingSoonModal
-        visible={comingSoonVisible}
-        onClose={() => setComingSoonVisible(false)}
-      />
     </SafeAreaView>
   );
 };

@@ -10,7 +10,18 @@
  *
  * Run `npm install socket.io-client` once after pulling this file.
  */
-import { io, type Socket } from 'socket.io-client';
+// socket.io-client is an optional dependency — import defensively so a missing
+// package never crashes IncomingCallListener or any other call-path component.
+let io: ((...args: any[]) => any) | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  io = require('socket.io-client').io as (...args: any[]) => any;
+} catch {
+  if (__DEV__) {
+    console.warn('[CallSocket] socket.io-client not installed — run npm install. Real-time call signaling disabled; FCM fallback active.');
+  }
+}
+type Socket = any;
 import { API_BASE_URL } from '../config/env';
 
 // Socket URL — same host as the REST API, path /socket.io
@@ -25,10 +36,12 @@ class CallSocketService {
   private cancelledListeners: Set<CallSocketListener> = new Set();
 
   connect(authToken: string): void {
+    if (!io) return; // socket.io-client not installed
     if (this.socket?.connected && this.token === authToken) return;
     this.disconnect();
     this.token = authToken;
 
+    try {
     this.socket = io(SOCKET_URL, {
       auth: { token: authToken },
       transports: ['websocket'],
@@ -61,6 +74,10 @@ class CallSocketService {
         try { l(normalized); } catch { /* */ }
       });
     });
+    } catch (e) {
+      if (__DEV__) console.warn('[CallSocket] connect error', e);
+      this.socket = null;
+    }
   }
 
   disconnect(): void {

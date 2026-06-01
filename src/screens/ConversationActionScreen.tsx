@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -14,13 +14,14 @@ import {
   LogOut,
   LucidePin,
   PinOff,
+  Tag,
   Trash,
   UserPlus,
 } from 'lucide-react-native';
 import Animated from 'react-native-reanimated';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
@@ -36,6 +37,23 @@ import { useChats } from '../context/ChatsContext';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'ConversationAction'>;
 
 const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
+  const colorss = useColors();
+  const styles = useMemo(() => StyleSheet.create({
+    sheet: {
+      backgroundColor: colorss.cardBg, paddingVertical: 20,
+      borderTopLeftRadius: 32, borderTopRightRadius: 32, paddingBottom: 36,
+    },
+    handle: { width: 80, height: 4, backgroundColor: colorss.border, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
+    chatName: { fontSize: 14, fontWeight: '600', color: colorss.textSecondary, textAlign: 'center', marginBottom: 8, paddingHorizontal: 20 },
+    body: { gap: 4, paddingHorizontal: 20 },
+    row: {
+      flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colorss.border,
+    },
+    label: { color: colorss.textPrimary, fontSize: 16, fontWeight: '500' },
+    labelDanger: { color: colorss.error },
+  }), [colorss]);
+
   const {
     conversationId,
     conversationName,
@@ -196,6 +214,13 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
       onPress: handleMute,
     },
     {
+      id: 'nicknames',
+      title: 'Nicknames',
+      icon: <Tag size={22} color={colorss.primary} />,
+      onPress: () => navigation.navigate('Nicknames', { conversationId }),
+      show: !isGroup,
+    },
+    {
       id: 'add-members',
       title: 'Add members',
       icon: <UserPlus size={22} color={colorss.primary} />,
@@ -249,39 +274,3 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
 
 export default ConversationActionScreen;
 
-const styles = StyleSheet.create({
-  sheet: {
-    backgroundColor: colorss.surface,
-    paddingVertical: 20,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingBottom: 36,
-  },
-  handle: {
-    width: 80,
-    height: 4,
-    backgroundColor: '#E2E8F0',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  chatName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colorss.textSecondary,
-    textAlign: 'center',
-    marginBottom: 8,
-    paddingHorizontal: 20,
-  },
-  body: { gap: 4, paddingHorizontal: 20 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colorss.border,
-  },
-  label: { color: colorss.textPrimary, fontSize: 16, fontWeight: '500' },
-  labelDanger: { color: colorss.error },
-});

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useColors } from '../hooks/useColors';
 import {
   View,
   Text,
@@ -49,6 +50,7 @@ import {
 type Props = NativeStackScreenProps<Record<string, undefined>, 'Login'>;
 
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
+  const colorss = useColors();
   const t = useT();
   const dispatch = useAppDispatch();
 

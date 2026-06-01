@@ -12,9 +12,11 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 
-import { colorss } from '../theme';
+
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import { submitReport } from '../services/userSettingsService';
@@ -33,6 +35,7 @@ const CATEGORIES = [
 type Stage = 'category' | 'detail';
 
 const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
+  const colorss = useColors();
   const token = useAppSelector(selectAuthToken);
   const [stage, setStage] = useState<Stage>('category');
   const [selectedCategory, setSelectedCategory] = useState('');

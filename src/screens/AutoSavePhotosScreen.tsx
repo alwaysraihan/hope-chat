@@ -1,23 +1,35 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BackHeader from '../components/BackHeader';
 import { StyleSheet, Switch, Text, View } from 'react-native';
-import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import { getAutoSavePhotos, setAutoSavePhotos } from '../services/chatPrefs';
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import { patchUserSettings } from '../services/userSettingsService';
 
 const AutoSavePhotosScreen = ({ navigation }: { navigation: any }) => {
+  const colorss = useColors();
   const token = useAppSelector(selectAuthToken);
   const [enabled, setEnabled] = useState(() => getAutoSavePhotos());
+
+  const styles = useMemo(() => StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colorss.background },
+    settingsSection: {
+      marginHorizontal: 16, backgroundColor: colorss.cardBg,
+      borderRadius: 12, marginTop: 16, borderWidth: 1, borderColor: colorss.border,
+    },
+    settingsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 },
+    settingsRowContent: { flex: 1, paddingRight: 12 },
+    settingsTitle: { fontSize: 16, fontWeight: '500', color: colorss.textPrimary },
+    settingsSubtitle: { fontSize: 13, color: colorss.textSecondary, marginTop: 4, lineHeight: 18 },
+    hint: { fontSize: 12, color: colorss.placeholder, marginHorizontal: 20, marginTop: 12, lineHeight: 18 },
+  }), [colorss]);
 
   const handleToggle = (value: boolean) => {
     setEnabled(value);
     setAutoSavePhotos(value);
-    if (token) {
-      patchUserSettings({ autoSavePhotos: value }, token);
-    }
+    if (token) patchUserSettings({ autoSavePhotos: value }, token);
   };
 
   return (
@@ -50,36 +62,3 @@ const AutoSavePhotosScreen = ({ navigation }: { navigation: any }) => {
 };
 
 export default AutoSavePhotosScreen;
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colorss.background },
-  settingsSection: {
-    marginHorizontal: 16,
-    backgroundColor: colorss.white,
-    borderRadius: 12,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: colorss.border,
-  },
-  settingsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  settingsRowContent: { flex: 1, paddingRight: 12 },
-  settingsTitle: { fontSize: 16, fontWeight: '500', color: colorss.textPrimary },
-  settingsSubtitle: {
-    fontSize: 13,
-    color: colorss.textSecondary,
-    marginTop: 4,
-    lineHeight: 18,
-  },
-  hint: {
-    fontSize: 12,
-    color: colorss.textSecondary,
-    marginHorizontal: 20,
-    marginTop: 12,
-    lineHeight: 18,
-  },
-});

@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '../config/env';
 
 const CHAT_LIST_ENDPOINT = '/api/v1/chats';
+const V1_CHAT_LIST_ENDPOINT = '/api/v1/chats';
 
 export type HopenityChatItem = {
   id?: string | number;
@@ -52,6 +53,12 @@ export type HopenityChatItem = {
     unviewed_story_count?: number;
   };
   userBPage?: { name?: string; image?: string | null } | null;
+  /** True when this is a group chat (≥ 2 participants other than self). */
+  isGroup?: boolean;
+  groupName?: string | null;
+  groupPhotoUrl?: string | null;
+  groupAdminUserIds?: string[];
+  createdByUserId?: string | null;
   participants?: Array<{
     user_id?: string;
     name?: string;
@@ -61,6 +68,7 @@ export type HopenityChatItem = {
     lastSeen?: string | number | null;
     last_seen?: string | number | null;
     lastActiveAt?: string | number | null;
+    isAdmin?: boolean;
     peerHasActiveStory?: boolean;
     peer_has_active_story?: boolean;
     hasActiveStory?: boolean;
@@ -157,7 +165,56 @@ function unwrapChatListPayload(raw: unknown): HopenityChatListEnvelope | Hopenit
 }
 
 /**
+ * Fetch v1 chat list — returns raw chats array (includes all ACTIVE/REQUESTED v1 chats).
+ * Used internally to supplement the v2 chat directory with contacts from older threads.
+ *
+ * The v1 endpoint returns `responseObject` as either an Array or a plain object
+ * with numeric keys (e.g. {0: chat, 1: chat, ...}). Both forms are handled.
+ */
+async function fetchV1ChatList(token: string): Promise<HopenityChatItem[]> {
+  try {
+    const url = `${API_BASE_URL}${V1_CHAT_LIST_ENDPOINT}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) return [];
+    const json = await res.json().catch(() => null);
+    const raw = json?.responseObject ?? json?.data ?? json;
+
+    // The v1 endpoint returns either an array or a numeric-keyed object.
+    // Normalise both forms to a plain array.
+    let list: HopenityChatItem[] = [];
+    if (Array.isArray(raw)) {
+      list = raw;
+    } else if (raw && typeof raw === 'object') {
+      // Could be { chats: [...] } or { 0: chat, 1: chat, ... }
+      if (Array.isArray(raw.chats)) {
+        list = raw.chats;
+      } else {
+        // numeric-keyed object — Object.values() produces the array
+        const vals = Object.values(raw) as HopenityChatItem[];
+        if (vals.length > 0 && typeof vals[0] === 'object' && vals[0] !== null) {
+          list = vals;
+        }
+      }
+    }
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Full chat directory response (includes folder counts when using offset/limit/status).
+ *
+ * Merges v1 legacy chats into the v2 response for the inbox view so the mobile
+ * client sees all accepted contacts — especially for the group-creation contacts
+ * picker (NewGroupScreen). v1 chats that already appear in v2 (same peer) are
+ * de-duplicated by peerUserId.
  */
 export async function fetchHopenityChatDirectory(
   token?: string | null,
@@ -185,10 +242,59 @@ export async function fetchHopenityChatDirectory(
   const json = await response.json().catch(() => null);
   const raw = json?.responseObject ?? json?.data ?? json;
   const unwrapped = unwrapChatListPayload(raw);
+
+  let base: HopenityChatListEnvelope;
   if (Array.isArray(unwrapped)) {
-    return { chats: unwrapped, httpStatus };
+    base = { chats: unwrapped, httpStatus };
+  } else {
+    base = { ...unwrapped, httpStatus };
   }
-  return { ...unwrapped, httpStatus };
+
+  // Merge v1 chats when fetching inbox (first page only).
+  // This fills the contacts list for NewGroupScreen and ensures all accepted
+  // conversations appear in the chat directory even before v2 migration.
+  if (
+    token &&
+    (!params?.status || params.status === 'inbox') &&
+    (params?.offset ?? 0) === 0
+  ) {
+    try {
+      const v1Chats = await fetchV1ChatList(token);
+
+      // Build a set of peer user_ids already in v2 result to avoid duplicates.
+      // A v1 chat is "already in v2" if the peer appears in any v2 thread.
+      const v2PeerIds = new Set<string>(
+        base.chats.flatMap(c => {
+          if (c.participants?.length) {
+            // group — no single peer
+            return [];
+          }
+          const ids: string[] = [];
+          if (c.userAId) ids.push(c.userAId);
+          if (c.userBId) ids.push(c.userBId);
+          return ids;
+        }),
+      );
+
+      const v1Only = v1Chats.filter(c => {
+        if (c.status !== 'ACTIVE') return false;
+        // Only USER↔USER 1:1 chats (no page chats)
+        const peerA = c.userAId;
+        const peerB = c.userBId;
+        if (!peerA || !peerB) return false;
+        // Deduplicate: skip if either participant already appears in v2
+        return !v2PeerIds.has(peerA) && !v2PeerIds.has(peerB);
+      });
+
+      if (v1Only.length > 0) {
+        base = { ...base, chats: [...base.chats, ...v1Only] };
+      }
+    } catch {
+      // v1 merge is best-effort — never block the main response
+    }
+  }
+
+  return base;
 }
 
 /**

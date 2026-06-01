@@ -54,6 +54,9 @@ export type ConversationSummary = {
   lastSeenAt?: string | number | null;
   isUnread?: boolean;
   isGroup?: boolean;
+  groupName?: string | null;
+  groupPhotoUrl?: string | null;
+  groupAdminUserIds?: string[];
   isTyping?: boolean;
   avatarUrl?: string | null;
   /** Recipient must accept this REQUESTED chat before replying (server-enforced). */
@@ -233,8 +236,14 @@ export function resolveChatTitleForPeer(
   chat: HopenityChatItem,
   localUserId: string | number,
 ): { name: string; avatarUrl: string | null; isGroup: boolean } {
-  const groupName = chat.participants?.map(p => p.name).filter(Boolean).join(', ');
-  const isGroup = (chat.participants?.length ?? 0) > 2;
+  // Use the explicit isGroup flag when present (returned by the v2/groups endpoint).
+  // Fall back to participants array detection: ≥ 2 participants means a group
+  // (a 1:1 thread uses userA/userB and never has a participants array).
+  const isGroup =
+    Boolean(chat.isGroup) || (chat.participants?.length ?? 0) >= 2;
+  const groupName =
+    (chat as any).groupName ||
+    chat.participants?.map(p => p.name).filter(Boolean).join(', ');
 
   if (isGroup) {
     const peerSideLetter = peerSide(chat, localUserId);
@@ -532,8 +541,11 @@ export function mapChatItemToSummary(
     time,
     unreadCount: chat.unreadCount ?? 0,
     isGroup,
+    groupName: isGroup ? ((chat.groupName ?? null) as string | null) : undefined,
+    groupPhotoUrl: isGroup ? ((chat.groupPhotoUrl ?? null) as string | null) : undefined,
+    groupAdminUserIds: isGroup ? (chat.groupAdminUserIds ?? []) : undefined,
     isUnread: (chat.unreadCount ?? 0) > 0,
-    avatarUrl,
+    avatarUrl: isGroup ? (chat.groupPhotoUrl ?? avatarUrl) : avatarUrl,
     isOnline: presence.isOnline,
     lastSeenAt: presence.lastSeenAt ?? null,
     needsAcceptance,

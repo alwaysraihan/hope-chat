@@ -9,7 +9,7 @@ import {
 import { Ban, BellOff, Shield, Unlock } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackNavigatorParamList } from '../types/navigators';
-import { colorss } from '../theme';
+
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import {
@@ -20,6 +20,7 @@ import {
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'BlockedUser'>;
 
 const BlockUserScreen = ({ navigation, route }: Props) => {
+  const colorss = useColors();
   const { chatId, peerName, isBlocked } = route.params;
   const token = useAppSelector(selectAuthToken);
   const [busy, setBusy] = useState(false);

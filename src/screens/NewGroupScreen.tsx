@@ -9,11 +9,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import { Search } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { colorss } from '../theme';
+
 import BackHeader from '../components/BackHeader';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
@@ -22,6 +24,7 @@ import { useChats } from '../context/ChatsContext';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'NewGroup'>;
 
 export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
+  const colorss = useColors();
   const { conversations, listLoading } = useChats();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');

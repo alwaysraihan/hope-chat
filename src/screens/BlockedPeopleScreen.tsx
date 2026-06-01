@@ -9,11 +9,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import { ArrowLeft, Unlock, UserX } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { colorss } from '../theme';
+
 import { IC_PROFILE } from '../assets';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
@@ -32,6 +34,7 @@ import { useT } from '../hooks/useT';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'BlockedPeople'>;
 
 const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
+  const colorss = useColors();
   const t = useT();
   const token = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);

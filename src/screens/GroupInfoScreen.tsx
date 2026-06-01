@@ -11,6 +11,8 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 import {
   Camera,
@@ -23,7 +25,7 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { colorss } from '../theme';
+
 import BackHeader from '../components/BackHeader';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
@@ -47,6 +49,7 @@ import { normalizeChatUserId } from '../utils/chatUserId';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'GroupInfo'>;
 
 const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
+  const colorss = useColors();
   const { groupId, conversationId } = route.params;
   const token = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);

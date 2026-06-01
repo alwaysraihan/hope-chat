@@ -9,12 +9,14 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 import { Camera } from 'lucide-react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { colorss } from '../theme';
+
 import BackHeader from '../components/BackHeader';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
@@ -25,6 +27,8 @@ import { createGroup, uploadGroupPhoto } from '../services/groupService';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'GroupSetup'>;
 
 const GroupSetupScreen: React.FC<Props> = ({ navigation, route }) => {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const colorss = useColors(); // dynamic dark/light — shadows the static import above
   const { selectedUserIds, selectedNames } = route.params;
   const token = useAppSelector(selectAuthToken);
 
