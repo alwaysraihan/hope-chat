@@ -53,7 +53,7 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   };
   EditSearchHistory: undefined;
   Archive: undefined;
-  NotificationsSounds: undefined;
+  NotificationsSounds: { conversationId?: string } | undefined;
   PinnedMessages: undefined;
   WordEffects: undefined;
   AutoSavePhotos: undefined;
@@ -82,6 +82,7 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   };
   AddGroupMembers: {
     groupId: string;
+    conversationId: string;
     /** Current member IDs — used to filter them out of the picker */
     existingMemberIds: string[];
   };
@@ -92,14 +93,14 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     isBlocked: boolean;
   };
   ReadReceipts: undefined;
-  Theme: undefined;
-  RestrictUser: undefined;
+  Theme: { conversationId?: string } | undefined;
+  RestrictUser: { conversationId: string; peerName: string; peerUserId?: string };
   ReportProblem: undefined;
   MessagePermissions: undefined;
   DisappearingMessages: { conversationId?: string } | undefined;
   Settings: undefined;
   MessageRequests: undefined;
-  Reactions: undefined;
+  Reactions: { conversationId?: string } | undefined;
   VideoCall: {
     displayName?: string;
     liveKitRoom?: string;

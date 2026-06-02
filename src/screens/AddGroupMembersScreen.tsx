@@ -24,6 +24,7 @@ import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import { addGroupMember } from '../services/groupService';
 import { useChats } from '../context/ChatsContext';
+import { appendGroupSystemMessage } from '../services/offlineCache';
 import { normalizeChatUserId } from '../utils/chatUserId';
 
 type Props = NativeStackScreenProps<
@@ -33,9 +34,9 @@ type Props = NativeStackScreenProps<
 
 const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
   const colorss = useColors();
-  const { groupId, existingMemberIds } = route.params;
-  const token = useAppSelector(selectAuthToken);
+  const { groupId, conversationId, existingMemberIds } = route.params;
   const { conversations } = useChats();
+  const token = useAppSelector(selectAuthToken);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -81,6 +82,19 @@ const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
     );
     setBusy(false);
     const failed = results.filter(ok => !ok).length;
+    const succeeded = selectedIds.length - failed;
+    if (succeeded > 0) {
+      const addedNames = selectedIds
+        .filter((_, i) => results[i])
+        .map(uid => {
+          const match = conversations.find(c => c.peerUserId === uid);
+          return match?.name ?? uid;
+        });
+      const label = addedNames.length <= 2
+        ? addedNames.join(' and ')
+        : `${addedNames.slice(0, 2).join(', ')} and ${addedNames.length - 2} more`;
+      appendGroupSystemMessage(conversationId, `${label} joined the group.`);
+    }
     if (failed > 0) {
       Alert.alert(
         'Partial failure',

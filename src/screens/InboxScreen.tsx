@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import {
 } from 'react-native-gifted-chat';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { InboxProvider, useInbox } from '../context/InboxContext';
 import ChatMessageBox from '../components/message/ChatMessageBox';
@@ -38,8 +39,14 @@ import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
 import { notifyGroupCall } from '../services/groupService';
-import { getChatAppearance } from '../services/chatPrefs';
+import { getEffectiveAppearance, getConvAppearance } from '../services/chatPrefs';
+import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
+import { selectActivePage } from '../redux/features/auth/authSlice';
+
+const PRESET_IMAGES: Record<number, number> = {
+  1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
+};
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 
@@ -48,6 +55,7 @@ const InboxScreenInner: React.FC<
 > = ({ navigation, route, conversation }) => {
   const token = useAppSelector(selectAuthToken);
   const hopenityProfile = useAppSelector(selectHopenityProfile);
+  const activePage = useAppSelector(selectActivePage);
   const { setConversations, reloadConversations } = useChats();
   const [acceptBusy, setAcceptBusy] = useState(false);
   const [needsAcceptance, setNeedsAcceptance] = useState(
@@ -122,6 +130,13 @@ const InboxScreenInner: React.FC<
   const peerName = route.params.displayName ?? conversation.name;
 
   const headerStatus = useMemo(() => {
+    if (conversation.isGroup) {
+      const total = conversation.groupMemberCount;
+      const online = conversation.groupOnlineCount ?? 0;
+      if (!total) return '';
+      if (online > 0) return `${total} members, ${online} online`;
+      return `${total} members`;
+    }
     if (conversation.isOnline === true) {
       return 'Online';
     }
@@ -132,10 +147,49 @@ const InboxScreenInner: React.FC<
       return formatLastSeenLine(conversation.lastSeenAt);
     }
     return '';
-  }, [conversation.isOnline, conversation.lastSeenAt]);
+  }, [
+    conversation.isGroup,
+    conversation.groupMemberCount,
+    conversation.groupOnlineCount,
+    conversation.isOnline,
+    conversation.lastSeenAt,
+  ]);
 
-  const chatWallpaperUri =
-    conversation.remoteWallpaperUrl ?? getChatAppearance().wallpaperUri ?? null;
+  // Re-read local appearance whenever the screen comes into focus (e.g. after
+  // the user changes their theme or reactions in ThemeScreen / ReactionsScreen).
+  const [localAppearance, setLocalAppearance] = useState(
+    () => getEffectiveAppearance(conversation.id),
+  );
+  const convIdRef = useRef(conversation.id);
+  convIdRef.current = conversation.id;
+  useFocusEffect(
+    useCallback(() => {
+      setLocalAppearance(getEffectiveAppearance(convIdRef.current));
+    }, []),
+  );
+
+  // Chat background priority:
+  //   1. Server-provided wallpaper (remoteWallpaperUrl)
+  //   2. Per-conversation custom wallpaper URI (explicitly set for THIS chat)
+  //   3. Per-conversation theme preset image (explicitly set for THIS chat)
+  //
+  // Global theme/wallpaper is intentionally NOT used here — it would bleed into
+  // every chat. Global appearance affects the app chrome (dark mode, accent), not
+  // individual chat backgrounds.
+  const chatWallpaperSource: { uri: string } | number | null = (() => {
+    if (conversation.remoteWallpaperUrl) {
+      return { uri: conversation.remoteWallpaperUrl };
+    }
+    const convPrefs = getConvAppearance(conversation.id);
+    if (convPrefs.wallpaperUri) {
+      return { uri: convPrefs.wallpaperUri };
+    }
+    const preset = convPrefs.themePresetId;
+    if (preset && preset > 1 && PRESET_IMAGES[preset]) {
+      return PRESET_IMAGES[preset];
+    }
+    return null;
+  })();
 
   const renderInputToolbar = useCallback(
     (p: unknown) => <CustomInputToolbar {...(p as object)} />,
@@ -285,6 +339,7 @@ const InboxScreenInner: React.FC<
                 liveKitRoom: audioRoom,
                 callKind: 'audio',
                 token,
+                displayName: peerName,
               });
             }
           } else {
@@ -313,6 +368,7 @@ const InboxScreenInner: React.FC<
                 liveKitRoom: audioRoom,
                 callKind: 'video',
                 token,
+                displayName: peerName,
               });
             }
           } else {
@@ -342,6 +398,14 @@ const InboxScreenInner: React.FC<
           })
         }
       />
+
+      {activePage && (
+        <View style={acceptStyles.pageBanner}>
+          <Text style={acceptStyles.pageBannerText}>
+            Sending as <Text style={{ fontWeight: '700' }}>{activePage.name}</Text>
+          </Text>
+        </View>
+      )}
 
       {(() => {
         const requestBanner = needsAcceptance ? (
@@ -409,9 +473,9 @@ const InboxScreenInner: React.FC<
           />
         );
 
-        return chatWallpaperUri ? (
+        return chatWallpaperSource ? (
           <ImageBackground
-            source={{ uri: chatWallpaperUri }}
+            source={chatWallpaperSource}
             style={{ flex: 1, backgroundColor: colorss.background }}
             imageStyle={{ opacity: 0.4 }}
           >
@@ -455,6 +519,18 @@ const acceptStyles = StyleSheet.create({
     borderRadius: 8,
   },
   acceptLabel: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  pageBanner: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: `${colorss.primary}15`,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: `${colorss.primary}40`,
+    alignItems: 'center',
+  },
+  pageBannerText: {
+    fontSize: 12,
+    color: colorss.primary,
+  },
 });
 
 const InboxGate: React.FC<Props> = props => {
@@ -500,6 +576,7 @@ const InboxGate: React.FC<Props> = props => {
       threadIntroPeer={threadIntroPeer}
       peerUserId={conv.peerUserId ?? null}
       isGroup={!!conv.isGroup}
+      isV1Chat={!!conv.isV1Chat}
       remoteReactionPalette={conv.remoteReactionPalette ?? null}
     >
       <InboxScreenInner {...props} conversation={conv} />

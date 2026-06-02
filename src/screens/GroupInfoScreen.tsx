@@ -45,6 +45,8 @@ import {
   uploadGroupPhoto,
 } from '../services/groupService';
 import { normalizeChatUserId } from '../utils/chatUserId';
+import { openHopenityProfile } from '../services/hopenityLinking';
+import { appendGroupSystemMessage } from '../services/offlineCache';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'GroupInfo'>;
 
@@ -120,6 +122,7 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
           onPress: async () => {
             const ok = await removeGroupMember(groupId, member.userId, token);
             if (ok) {
+              appendGroupSystemMessage(conversationId, `${member.name ?? member.userId} was removed from the group.`);
               setGroupInfo(prev =>
                 prev
                   ? { ...prev, members: prev.members.filter(m => m.userId !== member.userId) }
@@ -179,6 +182,8 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
           onPress: async () => {
             const ok = await leaveGroup(groupId, token);
             if (ok) {
+              const myName = profile?.displayName ?? 'You';
+              appendGroupSystemMessage(conversationId, `${myName} left the group.`);
               navigation.reset({
                 index: 0,
                 routes: [{ name: 'BottomTab' }],
@@ -300,6 +305,7 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
             onPress={() =>
               navigation.navigate('AddGroupMembers', {
                 groupId,
+                conversationId,
                 existingMemberIds: groupInfo.members.map(m => m.userId),
               })
             }
@@ -319,12 +325,23 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
             const isSelf = normalizeChatUserId(member.userId) === myUserId;
             return (
               <View key={member.userId} style={styles.memberRow}>
-                <FastImage
-                  source={member.image ? { uri: member.image } : IC_PROFILE}
-                  style={styles.memberAvatar}
-                  resizeMode={FastImage.resizeMode.cover}
-                />
-                <View style={styles.memberInfo}>
+                <TouchableOpacity
+                  onPress={() => !isSelf && openHopenityProfile(member.userId).catch(() => {})}
+                  activeOpacity={isSelf ? 1 : 0.7}
+                  disabled={isSelf}
+                >
+                  <FastImage
+                    source={member.image ? { uri: member.image } : IC_PROFILE}
+                    style={styles.memberAvatar}
+                    resizeMode={FastImage.resizeMode.cover}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.memberInfo}
+                  onPress={() => !isSelf && openHopenityProfile(member.userId).catch(() => {})}
+                  activeOpacity={isSelf ? 1 : 0.7}
+                  disabled={isSelf}
+                >
                   <View style={styles.memberNameRow}>
                     <Text style={styles.memberName} numberOfLines={1}>
                       {member.name ?? member.userId}
@@ -337,7 +354,7 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
                       </View>
                     )}
                   </View>
-                </View>
+                </TouchableOpacity>
                 {isAdmin && !isSelf && (
                   <View style={styles.memberActions}>
                     <TouchableOpacity

@@ -90,6 +90,41 @@ export function writeThreadMessagesCache(
   }
 }
 
+// ─── Locally hidden conversations (deleted / archived) ───────────────────────
+// Persists across reloads so that reloadConversations() can't restore a chat
+// the user explicitly removed — even when the server still returns it (e.g.
+// while the backend delete/archive endpoint hasn't been deployed yet).
+
+const HIDDEN_CONVS_KEY = 'hidden_conversations_v1';
+
+export function addHiddenConversation(id: string): void {
+  if (!id) return;
+  try {
+    const existing = getHiddenConversationIds();
+    const next = Array.from(new Set([...existing, id]));
+    storage().set(HIDDEN_CONVS_KEY, JSON.stringify(next));
+  } catch { /* best-effort */ }
+}
+
+export function removeHiddenConversation(id: string): void {
+  if (!id) return;
+  try {
+    const existing = getHiddenConversationIds();
+    storage().set(HIDDEN_CONVS_KEY, JSON.stringify(existing.filter(x => x !== id)));
+  } catch { /* best-effort */ }
+}
+
+export function getHiddenConversationIds(): string[] {
+  try {
+    const raw = storage().getString(HIDDEN_CONVS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 // ─── Story feed cache ─────────────────────────────────────────────────────────
 
 function storyFeedKey(userId: string): string {
@@ -145,6 +180,23 @@ export function writeNotificationsCache(userId: string, items: unknown[]): void 
 }
 
 // ─── Thread messages cache ────────────────────────────────────────────────────
+
+/** Append a local-only group system event (member joined/left) to the thread cache. */
+export function appendGroupSystemMessage(
+  conversationId: string,
+  text: string,
+): void {
+  if (!conversationId) return;
+  const msg: ExtendedMessage = {
+    _id: `group_evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    text,
+    createdAt: new Date(),
+    user: { _id: 'system', name: 'System' },
+    system: true,
+  };
+  const existing = readThreadMessagesCache(conversationId) ?? [];
+  writeThreadMessagesCache(conversationId, [...existing, msg]);
+}
 
 /** Append a local-only call row (asc order: newest at end, matching server page cache). */
 export function appendCallLogToThreadCache(

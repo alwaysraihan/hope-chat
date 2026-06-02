@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
@@ -7,6 +7,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -17,6 +18,7 @@ import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
+  ChevronDown,
   LucideArchive,
   LucideGlobe,
   LucideLogOut,
@@ -24,13 +26,20 @@ import {
   LucideSettings,
   LucideUsers,
 } from 'lucide-react-native';
+import FastImage from '@d11/react-native-fast-image';
 import { IC_PROFILE } from '../assets';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { selectHopenityProfile } from '../redux/features/auth/authSlice';
+import {
+  selectHopenityProfile,
+  selectActivePage,
+  setActivePage,
+} from '../redux/features/auth/authSlice';
 import { useLanguage } from '../context/LanguageContext';
 import { openHopenityBestEffort } from '../services/hopenityLinking';
 import { useT } from '../hooks/useT';
 import { performLogout } from '../services/logout';
+import { fetchMyPages, type OwnedPage } from '../services/pageService';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Menu'>,
@@ -51,7 +60,30 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
   const dispatch = useAppDispatch();
   const profile = useAppSelector(selectHopenityProfile);
+  const token = useAppSelector(selectAuthToken);
+  const activePage = useAppSelector(selectActivePage);
   const { lang, setLang } = useLanguage();
+
+  const [pages, setPages] = useState<OwnedPage[]>([]);
+  const [pagesLoading, setPagesLoading] = useState(false);
+  const [showSwitcher, setShowSwitcher] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    setPagesLoading(true);
+    fetchMyPages(token).then(p => {
+      setPages(p);
+      setPagesLoading(false);
+    });
+  }, [token]);
+
+  const switchTo = (page: OwnedPage | null) => {
+    dispatch(setActivePage(page));
+    setShowSwitcher(false);
+  };
+
+  const currentName  = activePage?.name  ?? profile?.displayName ?? 'HopeChat User';
+  const currentImage = activePage?.image ?? profile?.avatarUrl   ?? null;
 
   const handleLogout = () => {
     Alert.alert(t.logout_confirm_title, t.logout_confirm_message, [
@@ -59,14 +91,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
       {
         text: t.logout,
         style: 'destructive',
-        onPress: () => {
-          // dispatch(clearAuth()) inside performLogout triggers a NavigationContainer
-          // key-change that remounts the entire navigator. Calling it synchronously
-          // while MenuScreen is still active causes React Navigation to crash trying
-          // to clean up a screen whose parent navigator is already being destroyed.
-          // A one-frame delay lets the Alert dismiss before we tear down the nav tree.
-          setTimeout(() => performLogout(dispatch), 50);
-        },
+        onPress: () => performLogout(dispatch),
       },
     ]);
   };
@@ -75,25 +100,81 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
     { id: 'settings',         title: t.settings,              icon: <LucideSettings size={20} color={colors.textPrimary} />,           onPress: () => navigation.navigate('Settings') },
     { id: 'message-requests', title: t.message_requests_label, icon: <LucideMessageCircleMore size={20} color={colors.textPrimary} />,  onPress: () => navigation.navigate('MessageRequests') },
     { id: 'archive',          title: t.archive_label,          icon: <LucideArchive size={20} color={colors.textPrimary} />,            onPress: () => navigation.navigate('Archive') },
-    { id: 'friend-requests',  title: t.friend_requests,        icon: <LucideUsers size={20} color={colors.textPrimary} />,              onPress: () => void openHopenityBestEffort().catch(() => undefined) },
+    { id: 'friend-requests',  title: activePage ? 'Followers' : t.friend_requests, icon: <LucideUsers size={20} color={colors.textPrimary} />, onPress: () => void openHopenityBestEffort().catch(() => undefined) },
   ];
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Text style={styles.heading}>{t.menu}</Text>
 
-      <View style={styles.profileRow}>
-        <Image
-          source={profile?.avatarUrl ? { uri: profile.avatarUrl } : IC_PROFILE}
+      <TouchableOpacity
+        style={styles.profileRow}
+        onPress={() => setShowSwitcher(v => !v)}
+        activeOpacity={0.75}
+      >
+        <FastImage
+          source={currentImage ? { uri: currentImage } : IC_PROFILE}
           style={styles.avatar}
         />
         <View style={styles.profileText}>
-          <Text style={styles.displayName} numberOfLines={1}>
-            {profile?.displayName ?? 'HopeChat User'}
+          <Text style={styles.displayName} numberOfLines={1}>{currentName}</Text>
+          <Text style={styles.profileSub} numberOfLines={1}>
+            {activePage ? 'Page · tap to switch' : 'Personal · tap to switch'}
           </Text>
-          <Text style={styles.profileSub} numberOfLines={1}>{t.view_profile}</Text>
         </View>
-      </View>
+        <ChevronDown
+          size={18}
+          color={colors.textSecondary}
+          style={{ transform: [{ rotate: showSwitcher ? '180deg' : '0deg' }] }}
+        />
+      </TouchableOpacity>
+
+      {/* Account switcher panel */}
+      {showSwitcher && (
+        <View style={styles.switcherPanel}>
+          {/* Personal row */}
+          <TouchableOpacity
+            style={[styles.switcherRow, !activePage && styles.switcherRowActive]}
+            onPress={() => switchTo(null)}
+            activeOpacity={0.7}
+          >
+            <FastImage
+              source={profile?.avatarUrl ? { uri: profile.avatarUrl } : IC_PROFILE}
+              style={styles.switcherAvatar}
+            />
+            <View style={styles.switcherInfo}>
+              <Text style={styles.switcherName}>{profile?.displayName ?? 'Personal'}</Text>
+              <Text style={styles.switcherSub}>Personal account</Text>
+            </View>
+            {!activePage && <View style={styles.switcherDot} />}
+          </TouchableOpacity>
+
+          {pagesLoading && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 8 }} />}
+
+          {pages.map(page => (
+            <TouchableOpacity
+              key={page.id}
+              style={[styles.switcherRow, activePage?.id === page.id && styles.switcherRowActive]}
+              onPress={() => switchTo(page)}
+              activeOpacity={0.7}
+            >
+              <FastImage
+                source={page.image ? { uri: page.image } : IC_PROFILE}
+                style={styles.switcherAvatar}
+              />
+              <View style={styles.switcherInfo}>
+                <Text style={styles.switcherName}>{page.name}</Text>
+                <Text style={styles.switcherSub}>Page</Text>
+              </View>
+              {activePage?.id === page.id && <View style={styles.switcherDot} />}
+            </TouchableOpacity>
+          ))}
+
+          {!pagesLoading && pages.length === 0 && (
+            <Text style={styles.switcherEmpty}>You don't have any pages yet.</Text>
+          )}
+        </View>
+      )}
 
       <View style={styles.divider} />
 
@@ -251,5 +332,54 @@ const styles = StyleSheet.create({
   },
   langBtnTextActive: {
     color: '#FFFFFF',
+  },
+
+  // ── Account switcher ───────────────────────────────────────────────
+  switcherPanel: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  switcherRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 12,
+  },
+  switcherRowActive: {
+    backgroundColor: `${colors.primary}12`,
+  },
+  switcherAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E5E7EB',
+  },
+  switcherInfo: { flex: 1 },
+  switcherName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  switcherSub: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  switcherDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  switcherEmpty: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    paddingVertical: 12,
   },
 });

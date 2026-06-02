@@ -146,23 +146,6 @@ function sectionLabel(iso: string): string {
   return 'Earlier';
 }
 
-// ─── Filter ───────────────────────────────────────────────────────────────────
-
-/** Types handled elsewhere (push notification tray / call UI) — hide from this screen. */
-const HIDDEN_TYPES = new Set([
-  'MESSAGE',
-  'FRIEND_REQUEST',
-  'FRIEND_REQUEST_ACCEPTED',
-  'CALL',
-  'MISSED_CALL',
-  'INCOMING_CALL',
-  'CALL_CANCELLED',
-]);
-
-function filterNotifications(list: NotifItem[]): NotifItem[] {
-  return list.filter(n => !HIDDEN_TYPES.has((n.type ?? '').toUpperCase()));
-}
-
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function apiFetch(url: string, token: string | null, init?: RequestInit) {
@@ -217,7 +200,7 @@ const NotificationsScreen: React.FC<Props> = () => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const data = filterNotifications(await loadNotifications(token));
+      const data = await loadNotifications(token);
       setItems(data);
       writeNotificationsCache(userId, data);
     } catch {
@@ -235,7 +218,7 @@ const NotificationsScreen: React.FC<Props> = () => {
     cacheLoaded.current = true;
     const cached = readNotificationsCache(userId);
     if (cached && cached.length > 0) {
-      setItems(filterNotifications(cached as NotifItem[]));
+      setItems(cached as NotifItem[]);
       setLoading(false);
     }
   }, [userId]);

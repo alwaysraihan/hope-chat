@@ -21,6 +21,16 @@ export interface ReactionItem {
   userName: string;
 }
 
+export type DonationRequestType = 'blood' | 'food' | 'essential' | 'product' | 'general';
+
+export interface DonationRequestPayload {
+  donationId: number;
+  postId: string;
+  status?: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  /** Discriminates blood / food / essential (product) requests for display. */
+  requestType?: DonationRequestType;
+}
+
 export interface ExtendedMessage extends IMessage {
   /** Synthetic full-width welcome card at top of thread (Hopenity UX). */
   threadIntro?: {
@@ -28,8 +38,9 @@ export interface ExtendedMessage extends IMessage {
     subtitle?: string;
     avatarUrl?: string | null;
   };
-  /** Server-originated category — drives timeline styling for calls / voice. */
-  messageKind?: 'call_log' | 'voice_note' | 'text';
+  /** Server-originated category — drives timeline styling for calls / voice / donation. */
+  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request';
+  donationRequest?: DonationRequestPayload;
   /** When the API returns receipts (outgoing messages). */
   delivery?: {
     state: 'sent' | 'delivered' | 'read';

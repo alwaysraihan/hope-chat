@@ -89,18 +89,20 @@ export async function openHopenityProfile(userId: string | number): Promise<void
   const id = String(userId ?? '').trim();
   if (!id) { await openHopenityBestEffort(); return; }
 
+  // Hopenity's deep-link parser maps /user/{userId} → ProfileScreen.
+  // /profile (no id) maps to myProfile (own profile), so we must use /user/.
   const deepLink =
     Platform.OS === 'ios'
-      ? `${HOPENITY_IOS_SCHEME}profile/${id}`
-      : `hopenity://hopenity.com/profile/${id}`;
+      ? `${HOPENITY_IOS_SCHEME}user/${id}`
+      : `hopenity://hopenity.com/user/${id}`;
 
   try {
     const ok = await Linking.canOpenURL(deepLink);
     if (ok) { await Linking.openURL(deepLink); return; }
   } catch { /* fall through */ }
 
-  // Fallback: open the web profile so the user always lands somewhere useful.
+  // Fallback: open the web profile.
   try {
-    await Linking.openURL(`https://hopenity.com/profile/${id}`);
+    await Linking.openURL(`https://hopenity.com/user/${id}`);
   } catch { /* nothing else to try */ }
 }

@@ -34,6 +34,7 @@ const MESSAGE_CHANNEL_ID = 'hopechat_messages_v1';
  */
 const ALLOWED_PUSH_TYPES = new Set([
   'MESSAGE',
+  'DONATION_REQUEST',
 ]);
 
 async function ensureMessagesChannel(): Promise<void> {
@@ -52,16 +53,16 @@ async function displayMessagingNotification(
   const type = (data.type ?? '').toUpperCase();
   if (!ALLOWED_PUSH_TYPES.has(type)) return;
 
-  // Only MESSAGE reaches here — friend-request types are Hopenity-only.
   const senderName =
     data.sender_name ?? data.name ?? data.displayName ?? data.callerName ?? '';
-  const title = senderName || 'New message';
-  const body =
-    data.body ??
-    data.message ??
-    data.content ??
-    data.message_preview ??
-    'You have a new message';
+
+  const isDonationRequest = type === 'DONATION_REQUEST';
+  const title = isDonationRequest
+    ? senderName || 'Donation Request'
+    : senderName || 'New message';
+  const body = isDonationRequest
+    ? data.text ?? data.body ?? data.message ?? data.content ?? 'Someone is interested in your request.'
+    : data.body ?? data.message ?? data.content ?? data.message_preview ?? 'You have a new message';
 
   await ensureMessagesChannel();
   await notifee.displayNotification({

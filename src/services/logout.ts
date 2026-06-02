@@ -18,7 +18,7 @@
  */
 
 import type { AppDispatch } from '../redux/store';
-import { clearAuth } from '../redux/features/auth/authSlice';
+import { logOut } from '../redux/features/auth/authSlice';
 import { clearAutoLoginAck } from './chatPrefs';
 import { getActiveCall } from './livekit/activeCallRegistry';
 
@@ -34,5 +34,5 @@ export function performLogout(dispatch: AppDispatch): void {
 
   // 3. Dispatch clearAuth — App.tsx's key-change handles the full navigation
   //    transition to PublicStackNavigator / LoginScreen.
-  dispatch(clearAuth());
+  dispatch(logOut());
 }

@@ -197,12 +197,16 @@ const IncomingCallListener = () => {
     const unsubIncoming = callSocket.onIncomingCall(data => {
       const parsed = parseIncomingCallPayload(data);
       if (!parsed) return;
-      // Socket path: same handling as FCM foreground
-      const active = getActiveCall();
-      if (active && active.liveKitRoom !== parsed.liveKitRoom) {
-        void endActiveCallForReplacement(parsed.liveKitRoom);
-      }
-      navigateIncomingCall(parsed);
+      // Socket path: tear down any existing call BEFORE navigating so the user
+      // never sees two call screens simultaneously. await ensures the old room
+      // is disconnected and its audio session released before the ringing UI appears.
+      void (async () => {
+        const active = getActiveCall();
+        if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+          await endActiveCallForReplacement(parsed.liveKitRoom);
+        }
+        navigateIncomingCall(parsed);
+      })();
     });
 
     const unsubCancelled = callSocket.onCallCancelled(data => {
@@ -339,14 +343,15 @@ const IncomingCallListener = () => {
 
         const parsed = parseIncomingCallPayload(data);
         if (parsed) {
-          // Bug 2: if there's an active call in a different room, tear it down
-          // immediately so the user isn't stuck in two simultaneous calls while
-          // deciding whether to accept the new one.
-          const active = getActiveCall();
-          if (active && active.liveKitRoom !== parsed.liveKitRoom) {
-            void endActiveCallForReplacement(parsed.liveKitRoom);
-          }
-          navigateIncomingCall(parsed);
+          // Tear down any existing call before navigating so the user never sees
+          // two call screens at once (mirrors the socket path above).
+          void (async () => {
+            const active = getActiveCall();
+            if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+              await endActiveCallForReplacement(parsed.liveKitRoom);
+            }
+            navigateIncomingCall(parsed);
+          })();
         } else if (__DEV__ && Object.keys(data).length > 0) {
           console.warn(
             '[HopeChat] FCM foreground message ignored (not incoming-call payload)',

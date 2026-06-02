@@ -1,186 +1,153 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   FlatList,
-  Image,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { colorss } from '../theme';
-import { X } from 'lucide-react-native';
-import { IC_PROFILE } from '../assets';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-const DATA = [
-  { id: '1', name: 'Emon Hossain', reaction: '❤️' },
-  { id: '2', name: 'John Doe', reaction: '😂' },
-  { id: '3', name: 'Alex', reaction: '👍' },
-  { id: '4', name: 'Sam', reaction: '❤️' },
-  { id: '5', name: 'David', reaction: '👍' },
-  { id: '6', name: 'Emon Hossain', reaction: '❤️' },
-  { id: '7', name: 'John Doe', reaction: '😂' },
-  { id: '8', name: 'Alex', reaction: '👍' },
-  { id: '9', name: 'Sam', reaction: '❤️' },
+import BackHeader from '../components/BackHeader';
+import { useColors } from '../hooks/useColors';
+import { RootStackNavigatorParamList } from '../types/navigators';
+import {
+  getEffectiveAppearance,
+  setChatAppearance,
+  setConvAppearance,
+  DEFAULT_REACTION_PALETTE,
+} from '../services/chatPrefs';
+
+type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Reactions'>;
+
+const EMOJI_GRID = [
+  '❤️','😂','😮','😢','😡','👍','👎','🔥','🎉','💯',
+  '😍','🥰','😘','😊','😁','😆','🤣','😅','🤩','🥳',
+  '😎','🤔','🤯','😳','🤭','🫡','🫠','😴','🤗','🫶',
+  '👏','🙏','✌️','🤞','👌','🤌','💪','🫂','💋','❤️‍🔥',
+  '💔','💘','💝','💖','💗','💓','✨','⭐','🌟','💫',
+  '🎊','🎈','🎁','🏆','👑','💎','🦋','🌈','🌸','🌺',
+  '🍕','🍔','🎂','🍰','🧁','🍭','☕','🍻','🥂','🎶',
+  '😈','👻','💀','🤡','👾','🤖','🐶','🐱','🐻','🐼',
 ];
 
-export default function ReactionsScreen() {
-  const [activeFilter, setActiveFilter] = useState('ALL');
+const SLOT_COUNT = 6;
 
-  const reactionsSummary = [
-    { key: 'ALL', label: 'All' },
-    { key: '❤️', label: '❤️ 2' },
-    { key: '😂', label: '😂 1' },
-    { key: '👍', label: '👍 2' },
-  ];
+export default function ReactionsScreen({ navigation, route }: Props) {
+  const colorss = useColors();
+  const conversationId: string | undefined = (route?.params as { conversationId?: string } | undefined)?.conversationId;
 
-  const filteredData =
-    activeFilter === 'ALL'
-      ? DATA
-      : DATA.filter(item => item.reaction === activeFilter);
+  const [palette, setPalette] = useState<string[]>(() => {
+    const p = getEffectiveAppearance(conversationId).reactionEmojiPalette;
+    return p.length >= SLOT_COUNT
+      ? p.slice(0, SLOT_COUNT)
+      : [...p, ...DEFAULT_REACTION_PALETTE.slice(p.length, SLOT_COUNT)];
+  });
+
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
+  const styles = useMemo(() => StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colorss.background },
+    desc: { color: colorss.textSecondary, fontSize: 13, lineHeight: 19, margin: 16 },
+    slotsRow: {
+      flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
+      backgroundColor: colorss.cardBg, marginHorizontal: 16, borderRadius: 16,
+      paddingVertical: 20, paddingHorizontal: 12,
+      borderWidth: 1, borderColor: colorss.border,
+    },
+    slot: {
+      width: 52, height: 52, borderRadius: 26,
+      backgroundColor: colorss.surface,
+      alignItems: 'center', justifyContent: 'center',
+      borderWidth: 2, borderColor: 'transparent',
+    },
+    slotActive: { borderColor: colorss.accent, backgroundColor: colorss.backgroundDeep },
+    slotEmoji: { fontSize: 26 },
+    resetBtn: { marginHorizontal: 16, marginTop: 12, paddingVertical: 10, alignItems: 'center' },
+    resetText: { color: colorss.accent, fontSize: 14, fontWeight: '600' },
+    hintRow: { margin: 16 },
+    hintSub: { fontSize: 13, color: colorss.textSecondary, lineHeight: 19 },
+    pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    pickerSheet: {
+      backgroundColor: colorss.cardBg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+      paddingBottom: 32, maxHeight: '60%',
+    },
+    pickerHandle: {
+      width: 40, height: 4, backgroundColor: colorss.border,
+      borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 8,
+    },
+    pickerTitle: { fontSize: 15, fontWeight: '700', color: colorss.textPrimary, textAlign: 'center', marginBottom: 12 },
+    emojiItem: { width: '14.28%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
+    emojiText: { fontSize: 26 },
+  }), [colorss]);
+
+  const saveAndSync = (next: string[]) => {
+    setPalette(next);
+    if (conversationId) {
+      setConvAppearance(conversationId, { reactionEmojiPalette: next });
+    } else {
+      setChatAppearance({ reactionEmojiPalette: next });
+    }
+  };
 
   return (
-    <View >
-      <View style={styles.sheet}>
-        {/* HEADER */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Reactions</Text>
-          <Pressable>
-            <X size={20} color={colorss.textPrimary} />
+    <SafeAreaView style={styles.screen}>
+      <BackHeader title="Quick reactions" navigation={navigation} />
+
+      <Text style={styles.desc}>
+        Choose 6 emojis that appear when you long-press a message. Tap a slot to change it.
+      </Text>
+
+      <View style={styles.slotsRow}>
+        {palette.map((emoji, i) => (
+          <Pressable
+            key={i}
+            style={[styles.slot, editingIndex === i && styles.slotActive]}
+            onPress={() => setEditingIndex(editingIndex === i ? null : i)}
+          >
+            <Text style={styles.slotEmoji}>{emoji}</Text>
           </Pressable>
-        </View>
-
-        {/* LIST */}
-        <FlatList
-          data={filteredData}
-          keyExtractor={item => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <View style={styles.userInfo}>
-                <Image source={IC_PROFILE} style={styles.avatar} />
-                <Text style={styles.name}>{item.name}</Text>
-              </View>
-              <Text style={styles.emoji}>{item.reaction}</Text>
-            </View>
-          )}
-        />
-
-        {/* FOOTER (FIXED) */}
-        <View style={styles.footer}>
-          {reactionsSummary.map(item => {
-            const isActive = activeFilter === item.key;
-
-            return (
-              <Pressable
-                key={item.key}
-                onPress={() => setActiveFilter(item.key)}
-                style={[styles.chip, isActive && styles.activeChip]}
-              >
-                <Text
-                  style={[styles.chipText, isActive && styles.activeChipText]}
-                >
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        ))}
       </View>
-    </View>
+
+      <TouchableOpacity style={styles.resetBtn} onPress={() => saveAndSync([...DEFAULT_REACTION_PALETTE.slice(0, SLOT_COUNT)])}>
+        <Text style={styles.resetText}>Reset to defaults</Text>
+      </TouchableOpacity>
+
+      <View style={styles.hintRow}>
+        <Text style={styles.hintSub}>{palette.join('  ')} — tap any slot above to change it.</Text>
+      </View>
+
+      <Modal visible={editingIndex !== null} transparent animationType="slide" onRequestClose={() => setEditingIndex(null)}>
+        <Pressable style={styles.pickerOverlay} onPress={() => setEditingIndex(null)}>
+          <View style={styles.pickerSheet}>
+            <View style={styles.pickerHandle} />
+            <Text style={styles.pickerTitle}>Pick emoji for slot {editingIndex !== null ? editingIndex + 1 : ''}</Text>
+            <FlatList
+              data={EMOJI_GRID}
+              numColumns={7}
+              keyExtractor={(_, i) => String(i)}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.emojiItem}
+                  onPress={() => {
+                    if (editingIndex === null) return;
+                    const next = [...palette];
+                    next[editingIndex] = item;
+                    saveAndSync(next);
+                    setEditingIndex(null);
+                  }}
+                >
+                  <Text style={styles.emojiText}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </Pressable>
+      </Modal>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  sheet: {
-    backgroundColor: colorss.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
-    flex: 1,
-  },
-
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: 10,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#ddd',
-  },
-
-  title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colorss.textPrimary,
-  },
-
-  list: {
-    paddingTop: 12,
-    paddingBottom: 10,
-    gap: 12,
-  },
-
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-
-  name: {
-    fontSize: 14,
-    color: colorss.textPrimary,
-  },
-
-  emoji: {
-    fontSize: 20,
-  },
-
-  /* FOOTER */
-  footer: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingTop: 10,
-    borderTopWidth: 0.5,
-    borderTopColor: '#ddd',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-
-  chip: {
-    paddingHorizontal: 14,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: '#f2f2f2',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  chipText: {
-    fontSize: 13,
-    color: '#555',
-  },
-
-  activeChip: {
-    backgroundColor: colorss.primary,
-  },
-
-  activeChipText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-});

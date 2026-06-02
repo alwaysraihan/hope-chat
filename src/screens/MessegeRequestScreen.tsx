@@ -34,11 +34,11 @@ import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'MessageRequests'>;
 
-/** Hide empty REQUESTED rows (no text yet) — “just created” chats with no first message. */
-function requestedChatHasMessage(chat: HopenityChatItem): boolean {
-  const last = chat.messages?.[0] ?? chat.lastMessage;
-  const content = String(last?.content ?? '').trim();
-  return content.length > 0;
+function isIncoming(chat: HopenityChatItem, localUserId: string): boolean {
+  if (!chat.requestedById) return true;
+  const rid = normalizeChatUserId(String(chat.requestedById).trim()) || String(chat.requestedById).trim();
+  const lid = normalizeChatUserId(localUserId) || localUserId;
+  return rid !== lid;
 }
 
 const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
@@ -84,7 +84,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
         setRequested([]);
         return;
       }
-      setRequested(chats.filter(requestedChatHasMessage));
+      setRequested(chats); // show all requested chats; direction resolved per-row below
     } catch (e) {
       console.error('[MessageRequestsScreen] load requested:', e);
       setRequested([]);
@@ -145,7 +145,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
             ]);
           }}
         >
-          <MoreVertical size={22} color={C.textPrimary} />
+          {/* <MoreVertical size={22} color={C.textPrimary} /> */}
         </TouchableOpacity>
       </View>
 
@@ -188,10 +188,14 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
 
           {rows.map((row, index) => {
             const busy = acceptingId === row.summary.id;
+            const incoming = isIncoming(row.raw, localUser._id);
             const lastTs =
               row.raw.messages?.[0]?.createdAt ??
               row.raw.messages?.[0]?.created_at;
             const secondaryTime = formatChatTime(lastTs);
+            const previewText = row.summary.preview ||
+              row.raw.messages?.[0]?.content ||
+              (incoming ? 'Sent you a message request' : 'Your request is pending');
             return (
               <React.Fragment key={row.summary.id}>
                 <View style={styles.item}>
@@ -203,8 +207,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                   ) : (
                     <View style={[styles.avatar, styles.avatarInitialWrap]}>
                       <Text style={styles.avatarInitial}>
-                        {(row.summary.name ?? '?').trim().charAt(0).toUpperCase() ||
-                          '?'}
+                        {(row.summary.name ?? '?').trim().charAt(0).toUpperCase() || '?'}
                       </Text>
                     </View>
                   )}
@@ -213,9 +216,9 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                     style={styles.itemContent}
                     onLongPress={() => {
                       Alert.alert(row.summary.name, '', [
-                        { text: t.accept, onPress: () => onAccept(row.summary.id) },
-                        { text: t.delete_request, style: 'destructive', onPress: () => setRequested(prev => prev.filter(c => String(c.id) !== row.summary.id)) },
-                        { text: t.cancel, style: 'cancel' },
+                        ...(incoming ? [{ text: t.accept, onPress: () => onAccept(row.summary.id) }] : []),
+                        { text: t.delete_request, style: 'destructive' as const, onPress: () => setRequested(prev => prev.filter(c => String(c.id) !== row.summary.id)) },
+                        { text: t.cancel, style: 'cancel' as const },
                       ]);
                     }}
                     onPress={() =>
@@ -235,26 +238,28 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                   >
                     <Text style={styles.itemName}>{row.summary.name}</Text>
                     <Text style={styles.itemMsg}>
-                      {row.summary.preview ||
-                        row.raw.messages?.[0]?.content ||
-                        'Message request'}{' '}
-                      {secondaryTime ? (
-                        <Text style={styles.itemTime}>· {secondaryTime}</Text>
-                      ) : null}
+                      {previewText}{' '}
+                      {secondaryTime ? <Text style={styles.itemTime}>· {secondaryTime}</Text> : null}
                     </Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[styles.acceptPill, busy && styles.acceptPillDisabled]}
-                    onPress={() => onAccept(row.summary.id)}
-                    disabled={busy}
-                  >
-                    {busy ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.acceptPillLabel}>{t.accept}</Text>
-                    )}
-                  </TouchableOpacity>
+                  {incoming ? (
+                    <TouchableOpacity
+                      style={[styles.acceptPill, busy && styles.acceptPillDisabled]}
+                      onPress={() => onAccept(row.summary.id)}
+                      disabled={busy}
+                    >
+                      {busy ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.acceptPillLabel}>{t.accept}</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.pendingPill}>
+                      <Text style={styles.pendingPillLabel}>Pending</Text>
+                    </View>
+                  )}
                 </View>
 
                 {index < rows.length - 1 ? <View style={styles.divider} /> : null}
@@ -375,6 +380,15 @@ const styles = StyleSheet.create({
   },
   acceptPillDisabled: { opacity: 0.65 },
   acceptPillLabel: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  pendingPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  pendingPillLabel: { color: '#64748B', fontWeight: '600', fontSize: 13 },
   avatarInitialWrap: {
     alignItems: 'center',
     justifyContent: 'center',

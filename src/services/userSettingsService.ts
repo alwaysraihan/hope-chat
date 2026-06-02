@@ -177,6 +177,51 @@ export async function deleteConversation(
   }
 }
 
+/** Get whether a conversation is restricted by the current user. */
+export async function getConversationRestrict(
+  conversationId: string,
+  token: string,
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/restrict`,
+      { headers: { Authorization: bearer(token) } },
+    );
+    if (!res.ok) return false;
+    const json = await res.json().catch(() => null);
+    const data = json?.responseObject ?? json?.data ?? json;
+    return Boolean(data?.restricted);
+  } catch {
+    return false;
+  }
+}
+
+/** Restrict or unrestrict a conversation. */
+export async function patchConversationRestrict(
+  conversationId: string,
+  restricted: boolean,
+  token: string,
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/restrict`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: bearer(token),
+        },
+        body: JSON.stringify({ restricted }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Fetch all nicknames for a conversation (returns { [peerUserId]: nick }). */
 export async function fetchNicknames(
   conversationId: string,

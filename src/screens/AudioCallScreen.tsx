@@ -169,11 +169,17 @@ function AudioCallGate({
     return unregister;
   }, [room]);
 
-  /** Peer sent a hangup signal — end the call immediately without the 30s fallback timer. */
+  /** Peer sent a hangup signal — end the call immediately without the 30s fallback timer.
+   *  In a 1:1 call (countRef.current === 1) the only remote hanging up means the call is over.
+   *  In a group call (countRef.current > 1) one departure does NOT end the call for everyone else
+   *  — the departing participant disconnects from the LiveKit room on their own side and their
+   *  track is removed naturally; remaining participants keep talking. */
   useEffect(() => {
     if (!room) return;
     return subscribeCallHangup(room, () => {
-      void leaveRef.current();
+      if (countRef.current <= 1) {
+        void leaveRef.current();
+      }
     });
   }, [room]);
 
@@ -464,20 +470,35 @@ function AudioStage({
 
       <View style={styles.userInfo}>
         {isGroupCall ? (
-          // Multi-participant: show a row of small avatars
+          // Multi-participant: show avatar bubbles with names below each
           <View style={styles.groupParticipants}>
+            {/* Local participant ("You") always first */}
+            <View style={styles.participantItem}>
+              <View style={[styles.participantBubble, styles.localBubble]}>
+                <Text style={styles.participantInitial}>Y</Text>
+              </View>
+              <Text style={styles.participantName} numberOfLines={1}>You</Text>
+            </View>
             {remotes.slice(0, 4).map(p => (
-              <View key={p.identity} style={styles.participantBubble}>
-                <Text style={styles.participantInitial}>
-                  {(p.name ?? p.identity ?? '?').charAt(0).toUpperCase()}
+              <View key={p.identity} style={styles.participantItem}>
+                <View style={styles.participantBubble}>
+                  <Text style={styles.participantInitial}>
+                    {(p.name ?? p.identity ?? '?').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={styles.participantName} numberOfLines={1}>
+                  {p.name ?? p.identity ?? '?'}
                 </Text>
               </View>
             ))}
             {remotes.length > 4 && (
-              <View style={styles.participantBubble}>
-                <Text style={styles.participantInitial}>
-                  +{remotes.length - 4}
-                </Text>
+              <View style={styles.participantItem}>
+                <View style={styles.participantBubble}>
+                  <Text style={styles.participantInitial}>
+                    +{remotes.length - 4}
+                  </Text>
+                </View>
+                <Text style={styles.participantName}>more</Text>
               </View>
             )}
           </View>
@@ -751,6 +772,8 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
         onClose={() => setAddPeopleVisible(false)}
         liveKitRoom={route.params?.liveKitRoom ?? ''}
         callKind="audio"
+        isGroupCall={route.params?.isGroupCall}
+        groupId={route.params?.isGroupCall ? route.params?.conversationId : undefined}
       />
     </SafeAreaView>
   );
@@ -906,8 +929,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 8,
+    gap: 12,
     marginBottom: 4,
+    paddingHorizontal: 8,
+  },
+  participantItem: {
+    alignItems: 'center',
+    width: 64,
+    gap: 4,
   },
   participantBubble: {
     width: 56,
@@ -917,9 +946,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  localBubble: {
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
   participantInitial: {
     color: colorss.white,
     fontSize: 20,
     fontWeight: '700',
+  },
+  participantName: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 11,
+    textAlign: 'center',
   },
 });

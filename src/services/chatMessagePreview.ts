@@ -1,4 +1,4 @@
-import type { MediaPayload } from '../components/types/chat';
+import type { DonationRequestPayload, DonationRequestType, MediaPayload } from '../components/types/chat';
 import { normalizeChatUserId } from '../utils/chatUserId';
 
 /** Last message row from chat list API — extend as backend adds fields. */
@@ -102,6 +102,26 @@ export function formatChatListPreview(
     return senderIsLocal ? `You: ${base}` : base;
   }
 
+  if (combined.includes('donation_request') || rawType === 'donation_request') {
+    const base = '💝 Donation request';
+    return senderIsLocal ? `You: ${base}` : base;
+  }
+  // Web-generated structured messages: content starts with "JSON:{...}"
+  const contentStr = String(last.content ?? '').trimStart();
+  if (contentStr.startsWith('JSON:')) {
+    try {
+      const parsed = JSON.parse(contentStr.slice(5)) as Record<string, unknown>;
+      const type = String(parsed.type ?? '').toLowerCase();
+      if (type === 'donation_request') {
+        const sub = String(parsed.requestType ?? parsed.subType ?? parsed.category ?? '').toLowerCase();
+        const emoji = sub.includes('blood') ? '🩸' : sub.includes('food') ? '🍽️' : sub.includes('essential') || sub.includes('product') ? '📦' : '💝';
+        const label = sub.includes('blood') ? 'Blood donation request' : sub.includes('food') ? 'Food donation request' : sub.includes('essential') || sub.includes('product') ? 'Essential request' : 'Donation request';
+        const base = `${emoji} ${label}`;
+        return senderIsLocal ? `You: ${base}` : base;
+      }
+    } catch { /* not valid JSON — fall through */ }
+  }
+
   if (
     combined.includes('call') ||
     combined.includes('rtc') ||
@@ -141,12 +161,13 @@ export function formatChatListPreview(
 
 export type ParsedApiMessage = {
   text: string;
-  messageKind?: 'call_log' | 'voice_note' | 'text';
+  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request';
+  donationRequest?: DonationRequestPayload;
   delivery?: {
     state: 'sent' | 'delivered' | 'read';
     readAt?: string;
   };
-  media?: import('../components/types/chat').MediaPayload;
+  media?: MediaPayload;
 };
 
 /** Build inbox bubble text + flags from a raw API message row. */
@@ -213,6 +234,64 @@ export function mapApiMessageToTimeline(
     delivery = { state: 'delivered' };
   } else if (raw.deliveryStatus === 'sent' || raw.status === 'sent') {
     delivery = { state: 'sent' };
+  }
+
+  function parseDonationRequestType(raw: string | undefined): DonationRequestType {
+    const s = String(raw ?? '').toLowerCase();
+    if (s.includes('blood')) return 'blood';
+    if (s.includes('food')) return 'food';
+    if (s.includes('essential')) return 'essential';
+    if (s.includes('product')) return 'product';
+    return 'general';
+  }
+
+  // Web-generated structured messages use content "JSON:{...}" with a plain text type.
+  // Detect and parse them so the DonationRequestBubble renders instead of raw JSON.
+  if (messageText.startsWith('JSON:')) {
+    try {
+      const parsed = JSON.parse(messageText.slice(5)) as Record<string, unknown>;
+      const embType = String(parsed.type ?? '').toLowerCase();
+      if (embType === 'donation_request') {
+        const donationId = numFromUnknown(parsed.donationId) ?? 0;
+        const postId = String(parsed.postId ?? '');
+        const text = String(parsed.text ?? 'I am interested in this.');
+        const requestType = parseDonationRequestType(
+          String(parsed.requestType ?? parsed.subType ?? parsed.category ?? ''),
+        );
+        return {
+          text,
+          messageKind: 'donation_request',
+          donationRequest: { donationId, postId, status: 'PENDING', requestType },
+          delivery,
+        };
+      }
+    } catch { /* not valid JSON — fall through */ }
+  }
+
+  if (rawType === 'donation_request') {
+    const donationId =
+      numFromUnknown(raw.donationId) ??
+      numFromUnknown((meta as Record<string, unknown>).donationId) ??
+      0;
+    const postId = String(
+      raw.postId ?? (meta as Record<string, unknown>).postId ?? '',
+    );
+    const rawStatus = String(
+      raw.status ?? (meta as Record<string, unknown>).status ?? 'PENDING',
+    ).toUpperCase();
+    const status: DonationRequestPayload['status'] =
+      rawStatus === 'ACCEPTED' || rawStatus === 'REJECTED'
+        ? rawStatus
+        : 'PENDING';
+    const requestType = parseDonationRequestType(
+      String(raw.requestType ?? raw.subType ?? raw.category ?? meta.requestType ?? ''),
+    );
+    return {
+      text: messageText || 'I am interested in this.',
+      messageKind: 'donation_request',
+      donationRequest: { donationId, postId, status, requestType },
+      delivery,
+    };
   }
 
   if (isCall) {

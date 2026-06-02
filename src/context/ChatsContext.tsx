@@ -5,9 +5,10 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
-import { DeviceEventEmitter } from 'react-native';
+import { AppState, DeviceEventEmitter } from 'react-native';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
   clearAuth,
@@ -28,6 +29,7 @@ import {
 import type { ExtendedMessage } from '../components/types/chat';
 import {
   appendCallLogToThreadCache,
+  getHiddenConversationIds,
   readChatDirectoryCache,
   writeChatDirectoryCache,
 } from '../services/offlineCache';
@@ -72,6 +74,12 @@ export type ConversationSummary = {
   peerHasActiveStory?: boolean;
   peerStoryCount?: number;
   unviewedStoryCount?: number;
+  /** Group-only: total member count (including self). */
+  groupMemberCount?: number;
+  /** Group-only: how many members are currently online. */
+  groupOnlineCount?: number;
+  /** True when this chat came from the v1 API (has conversationKey). v2-native chats need v2 endpoints. */
+  isV1Chat?: boolean;
   messages: ExtendedMessage[];
 };
 
@@ -544,20 +552,32 @@ export function mapChatItemToSummary(
       ? (getLocalNickname(chatIdStr, peerUserNorm) || name)
       : name;
 
+  const participants = chat.participants ?? [];
+  const groupMemberCount = isGroup && participants.length > 0 ? participants.length : undefined;
+  const groupOnlineCount = isGroup && participants.length > 0
+    ? participants.filter(p => {
+        const r = p as Record<string, unknown>;
+        return r.isOnline === true || r.online === true || r.is_active === true;
+      }).length
+    : undefined;
+
   return {
     id: chatIdStr,
     name: displayName,
     preview,
     time,
+    isV1Chat: !!chat.conversationKey,
     unreadCount: chat.unreadCount ?? 0,
     isGroup,
     groupName: isGroup ? ((chat.groupName ?? null) as string | null) : undefined,
     groupPhotoUrl: isGroup ? ((chat.groupPhotoUrl ?? null) as string | null) : undefined,
     groupAdminUserIds: isGroup ? (chat.groupAdminUserIds ?? []) : undefined,
+    groupMemberCount,
+    groupOnlineCount,
     isUnread: (chat.unreadCount ?? 0) > 0,
     avatarUrl: isGroup ? (chat.groupPhotoUrl ?? avatarUrl) : avatarUrl,
-    isOnline: presence.isOnline,
-    lastSeenAt: presence.lastSeenAt ?? null,
+    isOnline: isGroup ? undefined : presence.isOnline,
+    lastSeenAt: isGroup ? null : (presence.lastSeenAt ?? null),
     needsAcceptance,
     peerUserId: peerUserNorm,
     peerHasActiveStory: storyHints.peerHasActiveStory,
@@ -575,6 +595,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   const dispatch = useAppDispatch();
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const hopenityProfile = useAppSelector(selectHopenityProfile);
+  const activePage = useAppSelector(s => s.auth.activePage);
   const localUser = useMemo(() => {
     const id =
       normalizeChatUserId(giftedChatUser?._id) ||
@@ -601,9 +622,24 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     if (!token || uid === 'me') return;
     const cached = readChatDirectoryCache(uid);
     if (cached && cached.length > 0) {
-      setConversations(cached);
+      const hidden = new Set(getHiddenConversationIds());
+      setConversations(cached.filter(c => !hidden.has(c.id)));
     }
   }, [token, localUser._id]);
+
+  const activePageIdRef = useRef<string | null>(activePage?.id ?? null);
+
+  // When the active page changes, wipe the current list immediately so the
+  // screen doesn't flash the previous account's conversations while the new
+  // fetch is in flight.
+  useEffect(() => {
+    const prev = activePageIdRef.current;
+    const next = activePage?.id ?? null;
+    if (prev !== next) {
+      activePageIdRef.current = next;
+      setConversations([]);
+    }
+  }, [activePage]);
 
   const reloadConversations = useCallback(async () => {
     if (!token) {
@@ -619,6 +655,8 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         status: 'inbox',
         limit: 50,
         offset: 0,
+        // When a page is active, fetch that page's conversations
+        ...(activePage ? { pageId: Number(activePage.id) } : {}),
       });
 
       if (httpStatus === 401) {
@@ -629,7 +667,10 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       }
 
       setPendingRequestCount(counts?.requested ?? 0);
-      const next = chats.map(chat => mapChatItemToSummary(chat, localUser));
+      const hidden = new Set(getHiddenConversationIds());
+      const next = chats
+        .map(chat => mapChatItemToSummary(chat, localUser))
+        .filter(c => !hidden.has(c.id));
       setConversations(next);
       writeChatDirectoryCache(String(localUser._id ?? ''), next);
     } catch (err) {
@@ -637,7 +678,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setListLoading(false);
     }
-  }, [dispatch, localUser, token]);
+  }, [dispatch, localUser, token, activePage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -651,6 +692,21 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [reloadConversations]);
+
+  // Re-sort the conversation list every time the app returns to the foreground.
+  // This picks up messages sent by others while the app was backgrounded so
+  // group and personal chats reflect the correct latest-message order.
+  useEffect(() => {
+    if (!token) return undefined;
+    let lastState = AppState.currentState;
+    const sub = AppState.addEventListener('change', nextState => {
+      if (lastState !== 'active' && nextState === 'active') {
+        void reloadConversations();
+      }
+      lastState = nextState;
+    });
+    return () => sub.remove();
+  }, [token, reloadConversations]);
 
   useEffect(() => {
     if (!token) return undefined;

@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '../config/env';
 
-const CHAT_LIST_ENDPOINT = '/api/v1/chats';
+// v2/chats returns both DMs and group chats; v1/chats returns DMs only.
+const CHAT_LIST_ENDPOINT = '/api/v2/chats';
 const V1_CHAT_LIST_ENDPOINT = '/api/v1/chats';
 
 export type HopenityChatItem = {
@@ -117,6 +118,8 @@ export type HopenityChatItem = {
   unreadCount?: number;
   status?: string;
   requestedById?: string | null;
+  /** Present on v1 1-to-1 chats only — use this to distinguish v1 vs v2 native chats. */
+  conversationKey?: string | null;
   /** When true, peer has at least one active story (home strip + Story viewer). */
   peerHasActiveStory?: boolean;
   peer_has_active_story?: boolean;
@@ -218,12 +221,13 @@ async function fetchV1ChatList(token: string): Promise<HopenityChatItem[]> {
  */
 export async function fetchHopenityChatDirectory(
   token?: string | null,
-  params?: { offset?: number; limit?: number; status?: 'inbox' | 'requested' | 'blocked' },
+  params?: { offset?: number; limit?: number; status?: 'inbox' | 'requested' | 'blocked'; pageId?: number },
 ): Promise<HopenityChatListEnvelope> {
   const searchParams = new URLSearchParams();
   if (params?.offset != null) searchParams.set('offset', String(params.offset));
   if (params?.limit != null) searchParams.set('limit', String(params.limit));
   if (params?.status) searchParams.set('status', params.status);
+  if (params?.pageId != null) searchParams.set('pageId', String(params.pageId));
   const url = `${API_BASE_URL}${CHAT_LIST_ENDPOINT}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
 
   const headers: Record<string, string> = {
@@ -253,22 +257,17 @@ export async function fetchHopenityChatDirectory(
   // Merge v1 chats when fetching inbox (first page only).
   // This fills the contacts list for NewGroupScreen and ensures all accepted
   // conversations appear in the chat directory even before v2 migration.
-  if (
-    token &&
-    (!params?.status || params.status === 'inbox') &&
-    (params?.offset ?? 0) === 0
-  ) {
+  const wantInbox = !params?.status || params.status === 'inbox';
+  const wantRequested = params?.status === 'requested';
+  if (token && (wantInbox || wantRequested) && (params?.offset ?? 0) === 0) {
     try {
       const v1Chats = await fetchV1ChatList(token);
 
-      // Build a set of peer user_ids already in v2 result to avoid duplicates.
-      // A v1 chat is "already in v2" if the peer appears in any v2 thread.
+      // Build a set of IDs already in v2 result (deduplicate by chat id + peer ids).
+      const v2ChatIds = new Set<string>(base.chats.map(c => String(c.id ?? '')));
       const v2PeerIds = new Set<string>(
         base.chats.flatMap(c => {
-          if (c.participants?.length) {
-            // group — no single peer
-            return [];
-          }
+          if (c.participants?.length) return [];
           const ids: string[] = [];
           if (c.userAId) ids.push(c.userAId);
           if (c.userBId) ids.push(c.userBId);
@@ -277,17 +276,34 @@ export async function fetchHopenityChatDirectory(
       );
 
       const v1Only = v1Chats.filter(c => {
-        if (c.status !== 'ACTIVE') return false;
-        // Only USER↔USER 1:1 chats (no page chats)
+        const matchesStatus = wantRequested ? c.status === 'REQUESTED' : c.status === 'ACTIVE';
+        if (!matchesStatus) return false;
+        // Always deduplicate by chat ID
+        if (v2ChatIds.has(String(c.id ?? ''))) return false;
         const peerA = c.userAId;
         const peerB = c.userBId;
         if (!peerA || !peerB) return false;
-        // Deduplicate: skip if either participant already appears in v2
+        // For REQUESTED mode: skip peer-ID dedup — v2PeerIds includes the local
+        // user's ID (they appear in every v2 chat), which would incorrectly filter
+        // out all v1 chats. ID-based dedup above is sufficient since v1/v2 use
+        // different ID spaces.
+        if (wantRequested) return true;
         return !v2PeerIds.has(peerA) && !v2PeerIds.has(peerB);
       });
 
       if (v1Only.length > 0) {
-        base = { ...base, chats: [...base.chats, ...v1Only] };
+        const merged = [...base.chats, ...v1Only];
+        // Sort merged list newest-first so v2 groups and v1 DMs interleave correctly.
+        merged.sort((a, b) => {
+          const ta = new Date(
+            (a as any).updatedAt ?? (a as any).updated_at ?? (a.lastMessage as any)?.createdAt ?? 0,
+          ).getTime();
+          const tb = new Date(
+            (b as any).updatedAt ?? (b as any).updated_at ?? (b.lastMessage as any)?.createdAt ?? 0,
+          ).getTime();
+          return tb - ta;
+        });
+        base = { ...base, chats: merged };
       }
     } catch {
       // v1 merge is best-effort — never block the main response
@@ -427,13 +443,15 @@ export async function getOrCreatePeerChat(
 export async function fetchHopenityChatMessages(
   chatId: string | number,
   token?: string | null,
-  params?: { limit?: number; before?: number | string },
+  params?: { limit?: number; before?: number | string; isGroup?: boolean },
 ): Promise<HopenityChatMessagesPage> {
   const searchParams = new URLSearchParams();
   if (params?.limit != null) searchParams.set('limit', String(params.limit));
   if (params?.before != null) searchParams.set('before', String(params.before));
   const query = searchParams.toString();
-  const url = `${API_BASE_URL}/api/v1/chats/${chatId}/messages${query ? `?${query}` : ''}`;
+  // Group chats are created via v2/groups and have v2 IDs — v1 returns 403 for them.
+  const apiVersion = params?.isGroup ? 'v2' : 'v1';
+  const url = `${API_BASE_URL}/api/${apiVersion}/chats/${chatId}/messages${query ? `?${query}` : ''}`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -489,21 +507,28 @@ export async function sendHopenityChatMessage(
   chatId: string | number,
   content: string,
   token?: string | null,
+  senderPageId?: string | null,
+  isGroup?: boolean,
 ): Promise<HopenityChatMessage | null> {
   if (!content || !token) return null;
 
-  const url = `${API_BASE_URL}/api/v1/chats/${chatId}/messages`;
+  // Group chats are v2 entities — v1 returns 403 for them.
+  const apiVersion = isGroup ? 'v2' : 'v1';
+  const url = `${API_BASE_URL}/api/${apiVersion}/chats/${chatId}/messages`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
   };
+  const body: Record<string, unknown> = { content };
+  if (senderPageId) body.senderPageId = senderPageId;
 
   const response = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
   });
 
+  if (!response.ok) return null;
   const json = await response.json().catch(() => null);
   const raw = json?.responseObject ?? json?.data ?? json;
   return typeof raw === 'object' && !Array.isArray(raw) ? raw : null;

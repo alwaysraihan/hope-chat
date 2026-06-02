@@ -1,6 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { HopenityPersistedUserBlob } from '../../../services/hopenitySharedAuth';
 import { normalizeHopenityPersistedBlob } from '../../../services/hopenitySessionNormalize';
+import type { OwnedPage } from '../../../services/pageService';
 
 export type HopenityProfile = {
   displayName: string;
@@ -13,6 +14,8 @@ type AuthState = {
   hopenityBlob: HopenityPersistedUserBlob | null;
   profile: HopenityProfile | null;
   giftedChatUser: { _id: string | number; name: string };
+  /** Non-null when the user is chatting as one of their pages. */
+  activePage: OwnedPage | null;
 };
 
 const fallbackUser = { _id: 'me', name: 'You' } as const;
@@ -27,6 +30,7 @@ const initialState: AuthState = {
   hopenityBlob: null,
   profile: null,
   giftedChatUser: fallbackUser,
+  activePage: null,
 };
 
 const authSlice = createSlice({
@@ -105,6 +109,20 @@ const authSlice = createSlice({
         name: displayName,
       };
     },
+    setActivePage(state, action: PayloadAction<OwnedPage | null>) {
+      state.activePage = action.payload;
+    },
+    /**
+     * Explicit user-initiated logout.
+     * Clears the token + activePage but keeps hopenityBlob + profile so the
+     * LoginScreen's "Continue as {name}" card appears immediately on the same
+     * session without waiting for AuthBootstrap to re-read MMKV.
+     */
+    logOut(state) {
+      state.token = null;
+      state.activePage = null;
+      // hopenityBlob and profile are intentionally preserved
+    },
     clearAuth() {
       return initialState;
     },
@@ -112,12 +130,13 @@ const authSlice = createSlice({
 });
 
 export const selectAuthToken = (state: { auth: AuthState }) => state.auth.token;
+export const selectActivePage = (state: { auth: AuthState }) => state.auth.activePage;
 /** Require a bearer token so chats and API calls are consistent with a real session. */
 export const selectHopeChatLoggedIn = (state: { auth: AuthState }) =>
   !!(state.auth.token && String(state.auth.token).length > 0);
 export const selectHopenityProfile = (state: { auth: AuthState }) =>
   state.auth.profile;
 
-export const { setHopenitySession, clearAuth } = authSlice.actions;
+export const { setHopenitySession, clearAuth, logOut, setActivePage } = authSlice.actions;
 
 export default authSlice.reducer;

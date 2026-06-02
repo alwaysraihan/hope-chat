@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -16,6 +16,8 @@ import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 
 import ChatThreadIntroCard from './ChatThreadIntroCard';
 import AudioPlayer from './AudioPlayer';
+import DonationRequestBubble from './DonationRequestBubble';
+import MediaPreviewModal from './ImagePreviewModal';
 import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
 import { ExtendedMessage } from '../types/chat';
@@ -76,6 +78,12 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const { currentMessage, position, onPressReactions } = props;
   const { handlePressReplyPreview } = useInbox();
   const msg = currentMessage as ExtendedMessage;
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
+  const openPreview = useCallback((url: string, type: 'image' | 'video') => {
+    setPreviewType(type);
+    setPreviewUrl(url);
+  }, []);
 
   if (msg.threadIntro) {
     const introFirst =
@@ -118,6 +126,16 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     />
   ) : null;
 
+  // ── Donation request ───────────────────────────────────────────────────────
+
+  if (msg.messageKind === 'donation_request') {
+    return (
+      <Reaction {...reactionProps}>
+        <DonationRequestBubble message={msg} isOwn={isOwn} />
+      </Reaction>
+    );
+  }
+
   // ── Voice ──────────────────────────────────────────────────────────────────
 
   if (media?.type === 'voice') {
@@ -149,7 +167,6 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     const imageUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
     const autoSave = getAutoSavePhotos();
     if (autoSave && imageUri && !isOwn && !media.uploading) {
-      // Auto-save incoming photo silently
       downloadMediaToGallery(imageUri, 'image').catch(() => undefined);
     }
     return (
@@ -161,8 +178,9 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             </View>
           )}
           <TouchableOpacity
+            onPress={() => !media.uploading && imageUri && openPreview(imageUri, 'image')}
             onLongPress={() => !media.uploading && imageUri && showMediaActionSheet(imageUri, 'image')}
-            activeOpacity={0.95}
+            activeOpacity={0.92}
             delayLongPress={350}
           >
             <FastImage
@@ -182,6 +200,12 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             )}
           </TouchableOpacity>
         </View>
+        <MediaPreviewModal
+          visible={previewUrl !== null && previewType === 'image'}
+          mediaUrl={previewUrl}
+          mediaType="image"
+          onClose={() => setPreviewUrl(null)}
+        />
       </Reaction>
     );
   }
@@ -195,8 +219,9 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
       <Reaction {...reactionProps}>
         <TouchableOpacity
           style={[styles.mediaWrapper, isOwn ? styles.alignRight : styles.alignLeft]}
+          onPress={() => !media.uploading && videoUri && openPreview(videoUri, 'video')}
           onLongPress={() => !media.uploading && videoUri && showMediaActionSheet(videoUri, 'video')}
-          activeOpacity={0.95}
+          activeOpacity={0.92}
           delayLongPress={350}
         >
           {thumbUri ? (
@@ -224,6 +249,12 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             </View>
           )}
         </TouchableOpacity>
+        <MediaPreviewModal
+          visible={previewUrl !== null && previewType === 'video'}
+          mediaUrl={previewUrl}
+          mediaType="video"
+          onClose={() => setPreviewUrl(null)}
+        />
       </Reaction>
     );
   }

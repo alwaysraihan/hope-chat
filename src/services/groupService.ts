@@ -228,6 +228,8 @@ export async function notifyGroupCall(params: {
   liveKitRoom: string;
   callKind: 'audio' | 'video';
   token: string;
+  /** Group name shown to callees on their incoming-call screen. */
+  displayName?: string;
 }): Promise<void> {
   try {
     const base = API_BASE_URL.replace(/\/+$/, '');
@@ -242,6 +244,7 @@ export async function notifyGroupCall(params: {
         body: JSON.stringify({
           liveKitRoom: params.liveKitRoom,
           callKind: params.callKind,
+          displayName: params.displayName,
         }),
       },
     );

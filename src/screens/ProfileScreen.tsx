@@ -54,7 +54,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
   const token = useAppSelector(selectAuthToken);
   const myProfile = useAppSelector(selectHopenityProfile);
 
-  const { conversations } = useChats();
+  const { conversations, setConversations } = useChats();
   const conversation = useMemo(
     () => conversations.find(c => c.id === chatId),
     [conversations, chatId],
@@ -158,8 +158,8 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       id: 1,
       title: 'Customization',
       data: [
-        { id: 1, title: 'Theme',          image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('Theme') },
-        { id: 2, title: 'Quick reaction', image: <ThumbsUp size={22} color={colorss.primary} />,     type: 'switch', onPress: () => navigation.navigate('Reactions') },
+        { id: 1, title: 'Theme',          image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('Theme', { conversationId: chatId }) },
+        { id: 2, title: 'Quick reaction', image: <ThumbsUp size={22} color={colorss.primary} />,     type: 'switch', onPress: () => navigation.navigate('Reactions', { conversationId: chatId }) },
         { id: 3, title: 'Nicknames',      image: <LucidePalette size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('Nicknames', { conversationId: chatId }) },
         { id: 4, title: 'Word effects',   image: <ALargeSmall size={22} color={colorss.primary} />,   type: 'switch', onPress: () => navigation.navigate('WordEffects') },
       ],
@@ -190,7 +190,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
         { id: 1, title: 'Message permissions',   image: <Shield fill={colorss.primary} size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('MessagePermissions') },
         { id: 2, title: 'Read receipts',         image: <Eye size={22} color={colorss.primary} />,         type: 'switch', onPress: () => navigation.navigate('ReadReceipts') },
         { id: 3, title: 'Disappearing messages', image: <ClockFading size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('DisappearingMessages', { conversationId: chatId }) },
-        { id: 4, title: 'Restrict',              image: <CircleSlash size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('RestrictUser') },
+        { id: 4, title: 'Restrict',              image: <CircleSlash size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('RestrictUser', { conversationId: chatId, peerName, peerUserId }) },
         {
           id: 5,
           title: isBlocked ? `Unblock ${peerName}` : `Block ${peerName}`,
@@ -269,7 +269,15 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
 
       <DeleteChat
         visible={visibleDeleteChatModal}
+        peerName={peerName}
+        conversationId={chatId}
+        token={token}
         onCancel={() => setVisibleDeleteChatModal(false)}
+        onDeleted={() => {
+          setVisibleDeleteChatModal(false);
+          setConversations(prev => prev.filter(c => c.id !== chatId));
+          navigation.navigate('BottomTab', { screen: 'Home' });
+        }}
       />
 
     </SafeAreaView>

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import RootNavigator from './src/navigation/RootNavigator';
@@ -114,12 +114,19 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
 }
 
 const AppInner = () => {
-  const loggedIn = useAppSelector(selectHopeChatLoggedIn);
+  // Read loggedIn ONCE at mount and never re-subscribe.
+  //
+  // Why: NavigationContainer changes its `key` when loggedIn flips, which
+  // unmounts and remounts the ENTIRE navigator tree — including AppInner.
+  // The new AppInner mount reads the current store value, so it always
+  // starts with the correct state.
+  //
+  // If AppInner subscribed via useAppSelector it would try to swap its children
+  // (RootNavigator → PublicStackNavigator) at the same moment the NavigationContainer
+  // teardown was running. React Navigation can't handle two concurrent navigator
+  // destructions and crashes with an "Couldn't find a navigation object" error.
+  const loggedIn = useRef(selectHopeChatLoggedIn(store.getState() as { auth: { token: string | null } })).current;
 
-  // No Fragment key needed here — NavigationContainer above already carries the
-  // auth key, so the entire subtree (including AppInner) is remounted when loggedIn
-  // flips. Adding a second key here caused a double reconciliation pass that crashed
-  // React Navigation mid-teardown on logout.
   return loggedIn ? (
     <ChatsProvider>
       <IncomingCallListener />

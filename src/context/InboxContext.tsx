@@ -40,11 +40,13 @@ import {
 import {
   selectAuthToken,
   selectHopenityProfile,
+  selectActivePage,
 } from '../redux/features/auth/authSlice';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import {
   mergeLocalCallLogsFromCache,
   readThreadMessagesCache,
+  writeChatDirectoryCache,
   writeThreadMessagesCache,
 } from '../services/offlineCache';
 import {
@@ -70,7 +72,7 @@ import {
 } from '../services/e2ee/conversationCrypto';
 import {
   getEffectiveDisappearingTtlSec,
-  getReactionPalette,
+  getEffectiveReactionPalette,
   isE2eeEnabled,
 } from '../services/chatPrefs';
 
@@ -172,6 +174,8 @@ interface InboxProviderProps {
   peerUserId?: string | null;
   /** Group / multi-participant chats skip symmetric DM crypto. */
   isGroup?: boolean;
+  /** True for chats that originated from the v1 API (have conversationKey). v2-native chats need v2 endpoints. */
+  isV1Chat?: boolean;
   /** Optional server-provided reaction set for this thread. */
   remoteReactionPalette?: string[] | null;
 }
@@ -214,8 +218,12 @@ export function InboxProvider({
   threadIntroPeer,
   peerUserId = null,
   isGroup = false,
+  isV1Chat = false,
   remoteReactionPalette = null,
 }: InboxProviderProps) {
+  // v2 endpoint is needed for groups AND for v2-native DMs (no conversationKey).
+  // v1-native DMs (have conversationKey) use v1 endpoints.
+  const useV2Messages = isGroup || !isV1Chat;
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -225,6 +233,7 @@ export function InboxProvider({
   // ── Auth / user
   const gifted = useAppSelector(state => state.auth.giftedChatUser);
   const hopenityProfile = useAppSelector(selectHopenityProfile);
+  const activePage = useAppSelector(selectActivePage);
   const user = useMemo(() => {
     const id =
       normalizeChatUserId(gifted?._id) ||
@@ -298,7 +307,7 @@ export function InboxProvider({
   const reactionEmojiRow =
     remoteReactionPalette && remoteReactionPalette.length > 0
       ? remoteReactionPalette.slice(0, 8)
-      : getReactionPalette();
+      : getEffectiveReactionPalette(_conversationId);
 
   const mapHopenityMessage = useCallback(
     (raw: any): ExtendedMessage => {
@@ -432,6 +441,7 @@ export function InboxProvider({
         },
         media,
         messageKind: parsed.messageKind,
+        donationRequest: parsed.donationRequest,
         delivery: parsed.delivery,
         outgoingHint: hint,
       };
@@ -472,11 +482,27 @@ export function InboxProvider({
           time: timeStr,
           unreadCount: 0,
         };
-        return [row, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+        const next = [row, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+        // Persist new order so cold-start cache reflects the latest message.
+        if (localUserIdStr && localUserIdStr !== 'me') {
+          writeChatDirectoryCache(localUserIdStr, next);
+        }
+        return next;
       });
     },
-    [_conversationId, setConversations],
+    [_conversationId, localUserIdStr, setConversations],
   );
+
+  // ── Persist thread cache after every send (Fix: messages survive back-navigation) ──
+  // Only write when allMessages actually has content and we're in an active conversation.
+  // This ensures optimistically-added messages are in cache before the server fetch
+  // returns, preventing them from "disappearing" when the user goes back and re-enters.
+  useEffect(() => {
+    if (_conversationId && allMessages.length > 0) {
+      writeThreadMessagesCache(_conversationId, allMessages);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_conversationId, allMessages]);
 
   // ── Animations
   const inputAnimation = useRef(new Animated.Value(0)).current;
@@ -523,6 +549,7 @@ export function InboxProvider({
       try {
         const page = await fetchHopenityChatMessages(_conversationId, token, {
           limit: PAGE_SIZE,
+          isGroup: useV2Messages,
         });
         const fetched = page.messages ?? [];
         const mapped = fetched.map(mapHopenityMessage);
@@ -569,6 +596,7 @@ export function InboxProvider({
         const res = await fetchHopenityChatMessages(_conversationId, token, {
           limit: PAGE_SIZE,
           before,
+          isGroup: useV2Messages,
         });
         const chunk = res.messages ?? [];
         const mapped = chunk.map(mapHopenityMessage);
@@ -721,7 +749,7 @@ export function InboxProvider({
           if (shouldEncryptOutgoing && plain.length > 0) {
             wire = encryptMessagePayload(plain, dmCryptoKey!);
           }
-          sendHopenityChatMessage(_conversationId, wire, token)
+          sendHopenityChatMessage(_conversationId, wire, token, activePage?.id ?? null, useV2Messages)
             .then(res => {
               if (!res) {
                 updateMessage(stamped._id, { pending: false, failed: true });
@@ -831,6 +859,8 @@ export function InboxProvider({
               _conversationId,
               wire,
               token,
+              activePage?.id ?? null,
+              useV2Messages,
             );
             if (sent?.id) {
               const p = mapApiMessageToTimeline(
@@ -930,6 +960,8 @@ export function InboxProvider({
               _conversationId,
               wire,
               token,
+              activePage?.id ?? null,
+              useV2Messages,
             );
             if (sent?.id) {
               const p = mapApiMessageToTimeline(
@@ -1071,7 +1103,7 @@ export function InboxProvider({
     if (!ok) return;
 
     launchCamera(
-      { mediaType: 'mixed' as MediaType, videoQuality: 'medium', quality: 0.8 },
+      { mediaType: 'mixed' as MediaType, videoQuality: 'low', quality: 0.8 },
       response => {
         if (response.didCancel || response.errorCode) return;
         const asset = response.assets?.[0];
@@ -1088,15 +1120,24 @@ export function InboxProvider({
 
   const handleGalleryPress = useCallback(async () => {
     launchImageLibrary(
-      { mediaType: 'mixed' as MediaType, selectionLimit: 1, quality: 0.8 },
+      {
+        mediaType: 'mixed' as MediaType,
+        selectionLimit: 10,   // up to 10 at once (WhatsApp-style)
+        quality: 0.8,
+        videoQuality: 'low',  // hardware-compress videos before upload
+      },
       response => {
         if (response.didCancel || response.errorCode) return;
-        const asset = response.assets?.[0];
-        if (!asset?.uri) return;
-        sendMediaMessage(
-          asset.uri,
-          asset.type?.startsWith('video') ? 'video' : 'image',
-        );
+        const assets = response.assets ?? [];
+        if (assets.length === 0) return;
+        // Send each asset sequentially so the order is preserved
+        assets.forEach(asset => {
+          if (!asset?.uri) return;
+          sendMediaMessage(
+            asset.uri,
+            asset.type?.startsWith('video') ? 'video' : 'image',
+          );
+        });
       },
     );
   }, [sendMediaMessage]);

@@ -33,6 +33,12 @@ import {
 } from '../services/userSettingsService';
 import { leaveGroup } from '../services/groupService';
 import { useChats } from '../context/ChatsContext';
+import {
+  addHiddenConversation,
+  writeChatDirectoryCache,
+} from '../services/offlineCache';
+import { useAppSelector as useSel } from '../hooks/redux';
+import { selectHopenityProfile } from '../redux/features/auth/authSlice';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'ConversationAction'>;
 
@@ -63,13 +69,23 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
   } = route.params;
 
   const token = useAppSelector(selectAuthToken);
+  const profile = useSel(selectHopenityProfile);
   const { setConversations } = useChats();
   const [busy, setBusy] = useState<string | null>(null);
   const [muted, setMuted] = useState(initialMuted);
   const [pinned, setPinned] = useState(initialPinned);
 
   const removeConversationLocally = () => {
-    setConversations(prev => prev.filter(c => c.id !== conversationId));
+    // Add to persistent hidden list so it never re-appears from cache or server reload.
+    addHiddenConversation(conversationId);
+    setConversations(prev => {
+      const next = prev.filter(c => c.id !== conversationId);
+      const uid = String(profile?.userId ?? '');
+      if (uid && uid !== 'me') {
+        writeChatDirectoryCache(uid, next);
+      }
+      return next;
+    });
   };
 
   const handlePin = async () => {
@@ -105,16 +121,11 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Archive',
-        onPress: async () => {
-          setBusy('archive');
-          const ok = await patchConversationArchive(conversationId, true, token);
-          setBusy(null);
-          if (ok) {
-            removeConversationLocally();
-            navigation.navigate('BottomTab', { screen: 'Home' });
-          } else {
-            Alert.alert('Error', 'Could not archive. Try again.');
-          }
+        onPress: () => {
+          // Optimistic: hide immediately, fire API best-effort.
+          removeConversationLocally();
+          patchConversationArchive(conversationId, true, token).catch(() => {});
+          navigation.navigate('BottomTab', { screen: 'Home' });
         },
       },
     ]);
@@ -159,16 +170,10 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
-            setBusy('delete');
-            const ok = await deleteConversation(conversationId, token);
-            setBusy(null);
-            if (ok) {
-              removeConversationLocally();
-              navigation.navigate('BottomTab', { screen: 'Home' });
-            } else {
-              Alert.alert('Error', 'Could not delete. Try again.');
-            }
+          onPress: () => {
+            removeConversationLocally();
+            deleteConversation(conversationId, token).catch(() => {});
+            navigation.navigate('BottomTab', { screen: 'Home' });
           },
         },
       ],

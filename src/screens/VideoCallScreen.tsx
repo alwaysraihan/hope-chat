@@ -193,11 +193,16 @@ function VideoCallGate({
     return unregister;
   }, [room]);
 
-  /** Peer sent a hangup signal — end the call immediately without the 30s fallback timer. */
+  /** Peer sent a hangup signal — end the call immediately without the 30s fallback timer.
+   *  In a 1:1 call (countRef.current === 1) the only remote hanging up ends the call.
+   *  In a group call (countRef.current > 1) one hangup is just a departure — remaining
+   *  participants stay connected. */
   useEffect(() => {
     if (!room) return;
     return subscribeCallHangup(room, () => {
-      void leaveRef.current();
+      if (countRef.current <= 1) {
+        void leaveRef.current();
+      }
     });
   }, [room]);
 
@@ -1283,6 +1288,8 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
       onClose={() => setAddPeopleVisible(false)}
       liveKitRoom={route.params?.liveKitRoom ?? ''}
       callKind="video"
+      isGroupCall={route.params?.isGroupCall}
+      groupId={route.params?.isGroupCall ? route.params?.conversationId : undefined}
     />
     </>
   );

@@ -16,6 +16,8 @@ const K_TYPING_INDICATOR = 'typing_indicator_v1';
 const K_AUTO_SAVE_PHOTOS = 'auto_save_photos_v1';
 const K_MSG_OPEN_TO = 'message_open_to_v1';
 const K_DARK_MODE = 'dark_mode_v1';
+const K_NOTIF_PREFS = 'notif_prefs_v1';
+const K_WORD_EFFECTS = 'word_effects_v1';
 
 // ─── Read Receipts ─────────────────────────────────────────────────────────────
 export function getReadReceipts(): boolean {
@@ -77,7 +79,7 @@ export function markAutoLoginAcked(): void {
   prefs().set(K_AUTO_LOGIN_ACKED, true);
 }
 export function clearAutoLoginAck(): void {
-  prefs().delete(K_AUTO_LOGIN_ACKED);
+  prefs().remove(K_AUTO_LOGIN_ACKED);
 }
 
 export type AppLanguage = 'en' | 'bn';
@@ -200,4 +202,126 @@ export function getReactionPalette(): string[] {
   return getChatAppearance().reactionEmojiPalette.length > 0
     ? getChatAppearance().reactionEmojiPalette
     : DEFAULT_REACTION_PALETTE;
+}
+
+// ─── Per-conversation appearance ──────────────────────────────────────────────
+// Stored separately from the global appearance so each chat can have its own
+// theme preset, wallpaper, and reaction palette without affecting other chats.
+
+function convAppearanceKey(conversationId: string): string {
+  return `conv_appearance_${conversationId}`;
+}
+
+export type ConvAppearance = {
+  themePresetId?: number;
+  wallpaperUri?: string | null;
+  reactionEmojiPalette?: string[];
+};
+
+export function getConvAppearance(conversationId: string): ConvAppearance {
+  try {
+    const raw = prefs().getString(convAppearanceKey(conversationId));
+    if (!raw) return {};
+    return JSON.parse(raw) as ConvAppearance;
+  } catch {
+    return {};
+  }
+}
+
+export function setConvAppearance(
+  conversationId: string,
+  patch: Partial<ConvAppearance>,
+): void {
+  const next = { ...getConvAppearance(conversationId), ...patch };
+  prefs().set(convAppearanceKey(conversationId), JSON.stringify(next));
+}
+
+/** Effective appearance for a conversation: per-conv overrides global fallback. */
+export function getEffectiveAppearance(conversationId: string | undefined): ChatAppearance {
+  const global = getChatAppearance();
+  if (!conversationId) return global;
+  const conv = getConvAppearance(conversationId);
+  return {
+    themePresetId: conv.themePresetId ?? global.themePresetId,
+    wallpaperUri: conv.wallpaperUri !== undefined ? conv.wallpaperUri : global.wallpaperUri,
+    accentHex: global.accentHex,
+    reactionEmojiPalette:
+      conv.reactionEmojiPalette && conv.reactionEmojiPalette.length > 0
+        ? conv.reactionEmojiPalette
+        : global.reactionEmojiPalette,
+  };
+}
+
+export function getEffectiveReactionPalette(conversationId: string | undefined): string[] {
+  const palette = getEffectiveAppearance(conversationId).reactionEmojiPalette;
+  return palette.length > 0 ? palette : DEFAULT_REACTION_PALETTE;
+}
+
+// ─── Notification preferences ──────────────────────────────────────────────────
+
+export type NotifPrefs = {
+  enabled: boolean;
+  messages: boolean;
+  reactions: boolean;
+  calls: boolean;
+};
+
+const DEFAULT_NOTIF_PREFS: NotifPrefs = {
+  enabled: true,
+  messages: true,
+  reactions: true,
+  calls: true,
+};
+
+export function getNotifPrefs(): NotifPrefs {
+  try {
+    const raw = prefs().getString(K_NOTIF_PREFS);
+    if (!raw) return { ...DEFAULT_NOTIF_PREFS };
+    return { ...DEFAULT_NOTIF_PREFS, ...(JSON.parse(raw) as Partial<NotifPrefs>) };
+  } catch {
+    return { ...DEFAULT_NOTIF_PREFS };
+  }
+}
+
+export function setNotifPrefs(patch: Partial<NotifPrefs>): void {
+  prefs().set(K_NOTIF_PREFS, JSON.stringify({ ...getNotifPrefs(), ...patch }));
+}
+
+// ─── Word effects ──────────────────────────────────────────────────────────────
+
+export type WordEffect = { word: string; emoji: string };
+
+export function getWordEffects(): WordEffect[] {
+  try {
+    const raw = prefs().getString(K_WORD_EFFECTS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setWordEffects(effects: WordEffect[]): void {
+  prefs().set(K_WORD_EFFECTS, JSON.stringify(effects));
+}
+
+export function addWordEffect(effect: WordEffect): void {
+  const existing = getWordEffects().filter(
+    e => e.word.toLowerCase() !== effect.word.toLowerCase(),
+  );
+  setWordEffects([...existing, effect]);
+}
+
+export function removeWordEffect(word: string): void {
+  setWordEffects(getWordEffects().filter(
+    e => e.word.toLowerCase() !== word.toLowerCase(),
+  ));
+}
+
+/** Returns the first emoji for a word that matches any stored word effect. */
+export function matchWordEffect(text: string): WordEffect | null {
+  const effects = getWordEffects();
+  const lower = text.toLowerCase();
+  return effects.find(e => lower.includes(e.word.toLowerCase())) ?? null;
 }

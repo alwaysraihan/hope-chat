@@ -13,7 +13,13 @@ import {
 import { LucideArrowLeft, Moon, Sun } from 'lucide-react-native';
 import { colorss } from '../theme';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
-import { getChatAppearance, setChatAppearance } from '../services/chatPrefs';
+import {
+  getChatAppearance,
+  setChatAppearance,
+  getConvAppearance,
+  setConvAppearance,
+  getEffectiveAppearance,
+} from '../services/chatPrefs';
 import { useAppTheme } from '../context/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -28,20 +34,36 @@ const THEME_DATA = [
   { id: 5, name: 'Pink', img: THEME_5 },
 ];
 
-const ThemeScreen = ({ navigation }: { navigation: any }) => {
+const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) => {
   const { isDark, toggleDarkMode, colors } = useAppTheme();
-  const appearance = useMemo(() => getChatAppearance(), []);
+  const conversationId: string | undefined = route?.params?.conversationId;
+
+  const appearance = useMemo(
+    () => (conversationId ? getEffectiveAppearance(conversationId) : getChatAppearance()),
+    [conversationId],
+  );
   const [selectedTheme, setSelectedTheme] = useState(appearance.themePresetId);
   const [wallpaperUri, setWallpaperUri] = useState(appearance.wallpaperUri ?? '');
   const [reactionPack, setReactionPack] = useState(
     appearance.reactionEmojiPalette.join(' '),
   );
 
+  const saveAppearance = (patch: { themePresetId?: number; wallpaperUri?: string | null; reactionEmojiPalette?: string[] }) => {
+    if (conversationId) {
+      setConvAppearance(conversationId, patch);
+    } else {
+      setChatAppearance(patch);
+    }
+  };
+
   const handleSelectTheme = (id: number) => {
     setSelectedTheme(id);
-    setChatAppearance({ themePresetId: id });
-    if (id === 2 && !isDark) toggleDarkMode();
-    else if (id !== 2 && isDark) toggleDarkMode();
+    saveAppearance({ themePresetId: id });
+    // Dark mode toggle only applies to global setting (affects UI chrome, not per-chat)
+    if (!conversationId) {
+      if (id === 2 && !isDark) toggleDarkMode();
+      else if (id !== 2 && isDark) toggleDarkMode();
+    }
   };
 
   return (
@@ -68,7 +90,7 @@ const ThemeScreen = ({ navigation }: { navigation: any }) => {
           value={isDark}
           onValueChange={() => {
             toggleDarkMode();
-            setChatAppearance({ themePresetId: isDark ? 1 : 2 });
+            saveAppearance({ themePresetId: isDark ? 1 : 2 });
             setSelectedTheme(isDark ? 1 : 2);
           }}
           trackColor={{ false: colorss.border, true: colors.accent }}
@@ -116,7 +138,7 @@ const ThemeScreen = ({ navigation }: { navigation: any }) => {
             <TextInput
               value={wallpaperUri}
               onChangeText={setWallpaperUri}
-              onBlur={() => setChatAppearance({ wallpaperUri: wallpaperUri.trim() || null })}
+              onBlur={() => saveAppearance({ wallpaperUri: wallpaperUri.trim() || null })}
               placeholder="https://…"
               placeholderTextColor={colorss.placeholder}
               style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.inputBg }]}
@@ -130,7 +152,7 @@ const ThemeScreen = ({ navigation }: { navigation: any }) => {
               value={reactionPack}
               onChangeText={setReactionPack}
               onBlur={() =>
-                setChatAppearance({
+                saveAppearance({
                   reactionEmojiPalette: reactionPack
                     .trim()
                     .split(/\s+/)
