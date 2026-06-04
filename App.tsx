@@ -21,6 +21,28 @@ import { ToastContainer } from './src/components/Toast';
 import { refreshExchangeRates } from './src/utils/currency';
 import { navigationRef } from './src/navigation/navigationRef';
 import { consumePendingIncomingCall } from './src/services/incomingCall/navigateIncomingCall';
+
+// ─── Pending screen-navigation store ─────────────────────────────────────────
+// Deep links that arrive during cold-start store their params here so they can
+// be flushed from NavigationContainer.onReady once the stack is mounted.
+type PendingScreenNav =
+  | { screen: 'BookCall';  params: { targetUserId: string; targetName: string; targetAvatar: string | null; isHopeWish: boolean } }
+  | { screen: 'HopeWish';  params: { targetUserId: string; targetName: string; targetAvatar: string | null } }
+  | { screen: 'PremiumCallSetup'; params: undefined };
+
+let _pendingScreenNav: PendingScreenNav | null = null;
+
+function setPendingScreenNav(nav: PendingScreenNav): void {
+  _pendingScreenNav = nav;
+}
+
+function flushPendingScreenNav(): void {
+  if (!_pendingScreenNav) return;
+  const nav = _pendingScreenNav;
+  _pendingScreenNav = null;
+  if (!navigationRef.isReady()) return;
+  (navigationRef as any).navigate(nav.screen, nav.params);
+}
 import BootSplash from 'react-native-bootsplash';
 import { setPendingPeerLink } from './src/services/peerDeepLink';
 import {
@@ -32,7 +54,12 @@ import {
 // hopechat://peer/{userId}?name=John%20Doe&avatar=https%3A%2F%2F...
 const PEER_DEEP_LINK_RE = /^hopechat:\/\/peer\/([^/?#]+)(?:\?(.*))?/i;
 // hopechat://peer/{userId} embedded inside a redirect param
-const PEER_PATH_RE = /^peer\/([^/?#]+)(?:\?(.*))?/i;
+const PEER_PATH_RE        = /^peer\/([^/?#]+)(?:\?(.*))?/i;
+// Same paths as top-level regexes but without the scheme prefix — used when
+// the path arrives as the `redirect` value inside a hopechat://auth link.
+const BOOK_CALL_PATH_RE   = /^book-call\/([^/?#]+)(?:\?(.*))?/i;
+const HOPE_WISH_PATH_RE   = /^hope-wish\/([^/?#]+)(?:\?(.*))?/i;
+const PREMIUM_SETUP_PATH_RE = /^premium-calls\/setup/i;
 // hopechat://join-group/{inviteCode}
 const JOIN_GROUP_RE = /^hopechat:\/\/join-group\/([^/?#]+)/i;
 // hopechat://book-call/{userId}?name=...&avatar=...
@@ -74,9 +101,10 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
       setPendingAuthLink(authPayload);
     }
 
-    // Always process the redirect so the user lands on the right chat.
+    // Always process the redirect so the user lands on the right screen.
     const { redirect } = authPayload;
     if (redirect) {
+      // ── peer/ redirect → open the matching inbox ──────────────────────────
       const pm = redirect.match(PEER_PATH_RE);
       if (pm?.[1]) {
         const peerId = decodeURIComponent(pm[1]);
@@ -87,12 +115,7 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
           avatarUrl: parseQs(qs, 'avatar') ?? null,
           chatId: parseQs(qs, 'chatId') ?? null,
         });
-        // Only navigate to Home now if already logged in; LoginScreen will do
-        // it after the token is validated for unauthenticated users.
         if (loggedIn) {
-          // The NavigationContainer may have just remounted (key changed after
-          // login) so isReady() can be false for a brief window.  Retry after
-          // one frame to ensure the navigator is fully initialised.
           if (navigationRef.isReady()) {
             navigationRef.navigate('BottomTab' as never, { screen: 'Home' } as never);
           } else {
@@ -103,6 +126,56 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
             }, 250);
           }
         }
+        return;
+      }
+
+      // ── book-call/{userId} redirect → open BookCall screen ───────────────
+      const bcPath = redirect.match(BOOK_CALL_PATH_RE);
+      if (bcPath?.[1]) {
+        const userId = decodeURIComponent(bcPath[1]);
+        const qs = bcPath[2];
+        const params = {
+          targetUserId: userId,
+          targetName: parseQs(qs, 'name') ?? '',
+          targetAvatar: parseQs(qs, 'avatar') ?? null,
+          isHopeWish: false as const,
+        };
+        if (loggedIn && navigationRef.isReady()) {
+          (navigationRef as any).navigate('BookCall', params);
+        } else {
+          // Store pending — flushed by NavigationContainer.onReady (cold start)
+          // or after the auth token is processed (not logged in yet).
+          setPendingScreenNav({ screen: 'BookCall', params });
+        }
+        return;
+      }
+
+      // ── hope-wish/{userId} redirect → open HopeWish screen ───────────────
+      const hwPath = redirect.match(HOPE_WISH_PATH_RE);
+      if (hwPath?.[1]) {
+        const userId = decodeURIComponent(hwPath[1]);
+        const qs = hwPath[2];
+        const params = {
+          targetUserId: userId,
+          targetName: parseQs(qs, 'name') ?? '',
+          targetAvatar: parseQs(qs, 'avatar') ?? null,
+        };
+        if (loggedIn && navigationRef.isReady()) {
+          (navigationRef as any).navigate('HopeWish', params);
+        } else {
+          setPendingScreenNav({ screen: 'HopeWish', params });
+        }
+        return;
+      }
+
+      // ── premium-calls/setup redirect ──────────────────────────────────────
+      if (PREMIUM_SETUP_PATH_RE.test(redirect)) {
+        if (loggedIn && navigationRef.isReady()) {
+          (navigationRef as any).navigate('PremiumCallSetup');
+        } else {
+          setPendingScreenNav({ screen: 'PremiumCallSetup', params: undefined });
+        }
+        return;
       }
     }
     return;
@@ -110,45 +183,48 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
 
   // ── Premium Calls setup deep link ─────────────────────────────────────────
   if (PREMIUM_CALLS_SETUP_RE.test(url)) {
-    const navigate = () => {
-      if (navigationRef.isReady()) (navigationRef as any).navigate('PremiumCallSetup');
-    };
-    navigationRef.isReady() ? navigate() : setTimeout(navigate, 500);
+    if (navigationRef.isReady()) {
+      (navigationRef as any).navigate('PremiumCallSetup');
+    } else {
+      setPendingScreenNav({ screen: 'PremiumCallSetup', params: undefined });
+    }
     return;
   }
 
   // ── Book call / Hope Wish deep links ───────────────────────────────────────
+  // Both use a persistent pending-nav store instead of setTimeout so they work
+  // on cold starts regardless of how long the JS bundle takes to hydrate.
   const hwm = url.match(HOPE_WISH_RE);
   if (hwm?.[1]) {
     const userId = decodeURIComponent(hwm[1]);
     const qs = hwm[2];
-    const navigate = () => {
-      if (navigationRef.isReady()) {
-        (navigationRef as any).navigate('HopeWish', {
-          targetUserId: userId,
-          targetName: parseQs(qs, 'name') ?? '',
-          targetAvatar: parseQs(qs, 'avatar') ?? null,
-        });
-      }
+    const params = {
+      targetUserId: userId,
+      targetName: parseQs(qs, 'name') ?? '',
+      targetAvatar: parseQs(qs, 'avatar') ?? null,
     };
-    navigationRef.isReady() ? navigate() : setTimeout(navigate, 500);
+    if (navigationRef.isReady()) {
+      (navigationRef as any).navigate('HopeWish', params);
+    } else {
+      setPendingScreenNav({ screen: 'HopeWish', params });
+    }
     return;
   }
   const bcm = url.match(BOOK_CALL_RE);
   if (bcm?.[1]) {
     const userId = decodeURIComponent(bcm[1]);
     const qs = bcm[2];
-    const navigate = () => {
-      if (navigationRef.isReady()) {
-        (navigationRef as any).navigate('BookCall', {
-          targetUserId: userId,
-          targetName: parseQs(qs, 'name') ?? '',
-          targetAvatar: parseQs(qs, 'avatar') ?? null,
-          isHopeWish: false,
-        });
-      }
+    const params = {
+      targetUserId: userId,
+      targetName: parseQs(qs, 'name') ?? '',
+      targetAvatar: parseQs(qs, 'avatar') ?? null,
+      isHopeWish: false,
     };
-    navigationRef.isReady() ? navigate() : setTimeout(navigate, 500);
+    if (navigationRef.isReady()) {
+      (navigationRef as any).navigate('BookCall', params);
+    } else {
+      setPendingScreenNav({ screen: 'BookCall', params });
+    }
     return;
   }
 
@@ -263,6 +339,9 @@ const NavigationWithAuthKey = () => {
       ref={navigationRef}
       onReady={() => {
         consumePendingIncomingCall();
+        // Flush any screen nav that arrived while the bundle was still loading
+        // (cold-start Book Call / Hope Wish / PremiumCallSetup deep links).
+        flushPendingScreenNav();
         BootSplash.hide({ fade: true });
       }}
     >

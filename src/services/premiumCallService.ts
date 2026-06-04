@@ -97,27 +97,54 @@ export async function savePremiumProfile(
   }
 }
 
+export type BookingResult =
+  | { ok: true;  bookingId: number; totalAmount: number }
+  | { ok: false; status: number; message: string | null; insufficientBalance: boolean; requiredUSD: number | null };
+
 export async function createBooking(payload: {
   calleeId: string;
   durationMinutes: number;
   scheduledAt: string;
   isHopeWish: boolean;
   callerNote?: string;
-  /** Short title for the session (max 255 chars) */
   topic?: string;
-  /** Detailed agenda (max 3000 chars) */
   agenda?: string;
-  /** 'single' = 1:1, 'group' = up to 4 members */
   callType?: 'single' | 'group';
-}, token: string): Promise<{ bookingId: number; totalAmount: number } | null> {
+}, token: string): Promise<BookingResult> {
   try {
     const res = await fetch(`${BASE}/bookings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: bearer(token) },
       body: JSON.stringify(payload),
     });
-    const json = await res.json();
-    return json?.responseObject ?? null;
+    const json = await res.json().catch(() => null);
+    if (res.ok && json?.responseObject) {
+      return { ok: true, ...json.responseObject };
+    }
+    const message: string | null = json?.message ?? null;
+    const lower = (message ?? '').toLowerCase();
+    const insufficientBalance =
+      res.status === 402 ||
+      lower.includes('insufficient') ||
+      lower.includes('balance') ||
+      lower.includes('not enough');
+    const requiredUSD: number | null = json?.responseObject?.requiredAmount ?? json?.requiredAmount ?? null;
+    return { ok: false, status: res.status, message, insufficientBalance, requiredUSD };
+  } catch {
+    return { ok: false, status: 0, message: 'Network error', insufficientBalance: false, requiredUSD: null };
+  }
+}
+
+/** Create a hosted-payment checkout URL to top up the wallet by `amountUSD`. */
+export async function createWalletTopupCheckout(amountUSD: number, token: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${BASE.replace('/premium-calls', '')}/wallet/topup/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: bearer(token) },
+      body: JSON.stringify({ amount: amountUSD }),
+    });
+    const json = await res.json().catch(() => null);
+    return json?.responseObject?.checkoutUrl ?? null;
   } catch {
     return null;
   }

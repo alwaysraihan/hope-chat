@@ -55,6 +55,8 @@ import {
   type VideoLength,
 } from '../services/hopeWishService';
 import { Toast } from '../components/Toast';
+import { DatePickerSheet } from '../components/DatePickerSheet';
+import { currencyForCountry, convertFromUSD } from '../utils/currency';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'HopeWish'>;
 
@@ -262,9 +264,21 @@ export default function HopeWishScreen({ navigation, route }: Props) {
   const token   = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);
 
+  // Convert USD price from the premium-calls profile to viewer's local currency.
+  const viewerCurrency = useMemo(
+    () => currencyForCountry(profile?.country),
+    [profile?.country],
+  );
+
   const [loading, setLoading]     = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [wishPrice, setWishPrice]   = useState<number | null>(null);
+  const [wishPrice, setWishPrice]   = useState<number | null>(null); // stored as USD
+
+  // Derived local-currency price for display
+  const wishPriceLocal = useMemo(
+    () => (wishPrice != null ? convertFromUSD(wishPrice, viewerCurrency) : null),
+    [wishPrice, viewerCurrency],
+  );
 
   // Form
   const [recipientType, setRecipientType] = useState<'someone_else' | 'myself'>('someone_else');
@@ -273,6 +287,7 @@ export default function HopeWishScreen({ navigation, route }: Props) {
   const [wishType, setWishType]             = useState<WishType | null>(null);
   const [tone, setTone]                     = useState<WishTone | null>(null);
   const [deliveryAt, setDeliveryAt]         = useState<Date | null>(null);
+  const [dateSheetOpen, setDateSheetOpen]   = useState(false);
   const [videoLength, setVideoLength]       = useState<VideoLength | null>(null);
   const [instructions, setInstructions]     = useState('');
   const [isPublic, setIsPublic]             = useState(true);
@@ -366,8 +381,8 @@ export default function HopeWishScreen({ navigation, route }: Props) {
           />
           <View>
             <Text style={s.creatorName}>{targetName}</Text>
-            {wishPrice != null && (
-              <Text style={s.creatorPrice}>৳{wishPrice} · personalised video</Text>
+            {wishPriceLocal != null && (
+              <Text style={s.creatorPrice}>{wishPriceLocal.display} · personalised video</Text>
             )}
           </View>
         </View>
@@ -444,13 +459,39 @@ export default function HopeWishScreen({ navigation, route }: Props) {
           ))}
         </View>
 
-        {/* ── Wish date & time ── */}
+        {/* ── Wish delivery date ── */}
         <Text style={s.fieldLabel}>
           Wish date & time <Text style={s.required}>*</Text>
         </Text>
-        <DateTimePickerRow value={deliveryAt} onChange={setDeliveryAt} />
+        <TouchableOpacity
+          style={[s.input, { flexDirection: 'row', alignItems: 'center', gap: 10 }]}
+          onPress={() => setDateSheetOpen(true)}
+          activeOpacity={0.75}
+        >
+          <Calendar size={18} color={deliveryAt ? colorss.primary : colorss.placeholder} />
+          <Text style={{ flex: 1, fontSize: 14, color: deliveryAt ? colorss.textPrimary : colorss.placeholder, fontWeight: deliveryAt ? '500' : '400' }}>
+            {deliveryAt
+              ? deliveryAt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+              : 'Select delivery date'}
+          </Text>
+          {deliveryAt && (
+            <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => setDeliveryAt(null)}>
+              <Text style={{ color: colorss.placeholder, fontSize: 16 }}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+
+        <DatePickerSheet
+          visible={dateSheetOpen}
+          onClose={() => setDateSheetOpen(false)}
+          onConfirm={({ date }) => setDeliveryAt(date)}
+          mode="date"
+          title="When to deliver the wish?"
+          confirmLabel="Set delivery date"
+        />
+
         <Text style={s.hint}>
-          He/she will receive the video via email on the scheduled date and time.
+          They will receive the video on or before this date.
         </Text>
 
         {/* ── Video length ── */}
@@ -523,7 +564,7 @@ export default function HopeWishScreen({ navigation, route }: Props) {
             <>
               <CheckCircle size={18} color="#fff" />
               <Text style={s.confirmBtnText}>
-                {wishPrice != null ? `Confirm & Pay · ৳${wishPrice}` : 'Send Hope Wish'}
+                {wishPriceLocal != null ? `Confirm & Pay · ${wishPriceLocal.display}` : 'Send Hope Wish'}
               </Text>
             </>
           )}

@@ -24,6 +24,10 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,17 +35,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FastImage from '@d11/react-native-fast-image';
 import {
   ArrowLeft,
+  Calendar,
   CheckCircle,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
-  Clock,
-  Users,
 } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -53,10 +54,13 @@ import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/a
 import { currencyForCountry, convertFromUSD } from '../utils/currency';
 import {
   fetchAvailableSlots,
+  fetchUserPremiumProfile,
   createBooking,
+  createWalletTopupCheckout,
   type PremiumCallProfile,
 } from '../services/premiumCallService';
 import { Toast } from '../components/Toast';
+import { DatePickerSheet } from '../components/DatePickerSheet';
 import {
   getDeviceTimezone,
   getLocalMidnightAsUTC,
@@ -74,12 +78,6 @@ const DURATION_OPTIONS = [
   { minutes: 30, label: '30 Min',   priceKey: 'price30min' as const },
   { minutes: 60, label: '1 Hour',   priceKey: 'price60min' as const },
 ];
-
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-const DAY_HEADERS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 const POLICIES: Array<{ key: string; title: string; body: string }> = [
   {
@@ -120,16 +118,10 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Local-calendar ISO date string — the date the viewer SEES on their calendar. */
-function localIsoDate(d: Date): string {
-  const y  = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const dy = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${dy}`;
-}
+
 
 /** "14:30" → "2:30 PM" */
-function fmt12(hhmm: string): string {
+export function fmt12(hhmm: string): string {
   const [hStr, mStr] = hhmm.split(':');
   const h = parseInt(hStr ?? '0', 10);
   const m = parseInt(mStr ?? '0', 10);
@@ -140,20 +132,6 @@ function fmt12(hhmm: string): string {
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-function getMonthGrid(year: number, month: number): (number | null)[][] {
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells: (number | null)[] = [
-    ...Array(firstDay).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-  const rows: (number | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) {
-    rows.push(cells.slice(i, i + 7).concat(Array(7 - (cells.slice(i, i + 7).length)).fill(null)));
-  }
-  return rows;
 }
 
 /**
@@ -203,7 +181,8 @@ function generateSlots(
     bookedMs.some(r => startMs < r.end && startMs + slotMs > r.start);
 
   // ── Check creator-days that overlap the viewer's day ─────────────────────
-  const schedule = profile.weeklySchedule as Record<string, { start: string; end: string }[]>;
+  // weeklySchedule can be null/undefined on older profiles — treat as empty.
+  const schedule = (profile.weeklySchedule ?? {}) as Record<string, { start: string; end: string }[]>;
   const seenKeys = new Set<string>();
   const slots: string[] = [];
 
@@ -230,8 +209,9 @@ function generateSlots(
       const endMs = creatorMidnightMs + (eh * 60 + em) * 60_000;
 
       while (curMs + slotMs <= endMs) {
-        // Only include slots that fall inside the viewer's selected day
-        if (curMs >= viewerDayStartMs && curMs < viewerDayEndMs) {
+        // Only include slots that fall inside the viewer's selected day AND
+        // haven't already started (filter past slots for today).
+        if (curMs >= viewerDayStartMs && curMs < viewerDayEndMs && curMs > Date.now()) {
           if (!isBooked(curMs)) {
             // Convert UTC ms → viewer local HH:MM
             const viewerMinsFromMidnight =
@@ -306,6 +286,7 @@ const ps = StyleSheet.create({
 
 export default function BookCallScreen({ navigation, route }: Props) {
   const { targetUserId, targetName, targetAvatar } = route.params;
+  const insets       = useSafeAreaInsets();
   const token        = useAppSelector(selectAuthToken);
   const userProfile  = useAppSelector(selectHopenityProfile);
 
@@ -316,10 +297,11 @@ export default function BookCallScreen({ navigation, route }: Props) {
   );
 
   const today = useMemo(() => new Date(), []);
-  const [loading, setLoading]         = useState(true);
+  const [loading, setLoading]           = useState(true);
+  const [loadError, setLoadError]       = useState<string | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
-  const [booking, setBooking]         = useState(false);
-  const [profile, setProfile]         = useState<PremiumCallProfile | null>(null);
+  const [booking, setBooking]           = useState(false);
+  const [profile, setProfile]           = useState<PremiumCallProfile | null>(null);
   const [existingBookings, setExistingBookings] = useState<
     { scheduledAt: string; durationMinutes: number }[]
   >([]);
@@ -334,6 +316,15 @@ export default function BookCallScreen({ navigation, route }: Props) {
   const [selectedDay, setSelectedDay]     = useState<number | null>(null);
   const [selectedTime, setSelectedTime]   = useState<string | null>(null);
   const [termsChecked, setTermsChecked]   = useState(false);
+  const [dateSheetOpen, setDateSheetOpen] = useState(false);
+  const [paymentSheet, setPaymentSheet] = useState<{
+    checkoutUrl: string;
+    amountDisplay: string;
+  } | null>(null);
+  const [topping, setTopping] = useState(false);
+  // Date the user is hovering over inside the DatePickerSheet (not yet confirmed).
+  // Drives availableSlots so slots load as soon as a day is tapped in the sheet.
+  const [sheetPickedDate, setSheetPickedDate] = useState<Date | null>(null);
 
   // Viewer's device timezone — always the most accurate source.
   const viewerTz = useMemo(() => getDeviceTimezone(), []);
@@ -345,11 +336,13 @@ export default function BookCallScreen({ navigation, route }: Props) {
   //   3. 'UTC' as the last resort
   const creatorTz = useMemo(() => {
     if (profile?.timezone) return profile.timezone;
-    // `route.params` doesn't carry the creator's country, but if it ever does
-    // this is where we'd call timezoneFromCountry(creatorCountry).
-    // For now, fall back to UTC so nothing is broken for existing profiles.
-    return 'UTC';
-  }, [profile?.timezone]);
+    // When the creator hasn't saved their timezone yet (profile.timezone is null),
+    // assume their schedule was entered in the same timezone as the viewer.
+    // Falling back to 'UTC' is wrong: it shifts all slot times by the viewer's
+    // UTC offset, pushing every slot outside the viewer's selected day window
+    // and producing "No available slots" even when slots exist.
+    return viewerTz;
+  }, [profile?.timezone, viewerTz]);
 
   const sameTimezone = viewerTz === creatorTz;
 
@@ -358,6 +351,10 @@ export default function BookCallScreen({ navigation, route }: Props) {
     return new Date(calendarYear, calendarMonth, selectedDay);
   }, [calendarYear, calendarMonth, selectedDay]);
 
+  // ── Load creator profile ──────────────────────────────────────────────────
+  // Use the profile endpoint directly — NOT the slots endpoint.  The slots
+  // endpoint returns 404 when isEnabled=false, meaning we'd never see the
+  // profile.  Fetch profile and existing bookings independently.
   useEffect(() => {
     if (!targetUserId) {
       Alert.alert('Invalid link', 'This booking link is not valid.', [
@@ -365,48 +362,57 @@ export default function BookCallScreen({ navigation, route }: Props) {
       ]);
       return;
     }
-    fetchAvailableSlots(targetUserId, isoDate(today))
-      .then(data => {
-        if (data?.profile) {
-          setProfile(data.profile);
+    fetchUserPremiumProfile(targetUserId)
+      .then(p => {
+        if (p && p.isEnabled) {
+          setProfile(p);
+          setLoadError(null);
         } else {
-          Alert.alert(
-            'Not available',
+          setLoadError(
             `${targetName} is not currently accepting call bookings.`,
-            [{ text: 'OK', onPress: () => navigation.goBack() }],
           );
         }
-        if (data?.existingBookings) setExistingBookings(data.existingBookings);
       })
-      .catch(() => Toast.error('Could not load availability. Please try again.'))
+      .catch(() => {
+        setLoadError('Could not load booking details. Please check your connection and try again.');
+      })
       .finally(() => setLoading(false));
-  }, [targetUserId, today]);
+  }, [targetUserId, targetName, navigation]);
+
+  // ── Reload existing bookings when a date is picked inside the sheet ─────
+  // sheetPickedDate is set as soon as the user taps a day in DatePickerSheet
+  // (before confirming), so slots appear immediately without a second tap.
+  // Falls back to selectedDate once the sheet is closed and a date is confirmed.
+  // If the slots endpoint fails or returns 404 we keep existingBookings empty —
+  // slots are still generated client-side from the weeklySchedule.
+  const activeSlotDate = sheetPickedDate ?? selectedDate;
 
   useEffect(() => {
-    if (!profile || !selectedDate) return;
+    if (!profile || !activeSlotDate) return;
     setSlotsLoading(true);
-    fetchAvailableSlots(targetUserId, isoDate(selectedDate))
+    fetchAvailableSlots(targetUserId, isoDate(activeSlotDate))
       .then(data => { if (data?.existingBookings) setExistingBookings(data.existingBookings); })
+      .catch(() => {})
       .finally(() => setSlotsLoading(false));
-  }, [selectedDate, targetUserId, profile]);
-
-  const monthGrid = useMemo(() =>
-    getMonthGrid(calendarYear, calendarMonth), [calendarYear, calendarMonth]);
+  }, [activeSlotDate, targetUserId, profile]);
 
   const availableSlots = useMemo(() => {
-    if (!profile || !selectedDate || !selectedDuration) return [];
+    if (!profile || !activeSlotDate || !selectedDuration) return [];
     if (profile.anytime) {
-      // "Anytime" profile: show standard business hours 8 AM – 8 PM in viewer TZ
+      // "Anytime" mode — standard hours 8 AM–8 PM, past hours filtered for today.
+      const nowMs = Date.now();
       return Array.from({ length: 13 }, (_, i) => {
-        const h = (8 + i).toString().padStart(2, '0');
-        return `${h}:00`;
-      });
+        const h = 8 + i;
+        const slotMs = getLocalMidnightAsUTC(activeSlotDate, viewerTz) + h * 3600_000;
+        if (slotMs <= nowMs) return null; // already passed
+        return `${String(h).padStart(2, '0')}:00`;
+      }).filter((s): s is string => s !== null);
     }
     return generateSlots(
-      profile, selectedDate, selectedDuration,
+      profile, activeSlotDate, selectedDuration,
       existingBookings, creatorTz, viewerTz,
     );
-  }, [profile, selectedDate, selectedDuration, existingBookings, creatorTz, viewerTz]);
+  }, [profile, activeSlotDate, selectedDuration, existingBookings, creatorTz, viewerTz]);
 
   const priceForDuration = (minutes: number): number | null => {
     if (!profile) return null;
@@ -424,36 +430,42 @@ export default function BookCallScreen({ navigation, route }: Props) {
   const totalPrice    = totalPriceUSD != null
     ? convertFromUSD(totalPriceUSD, viewerCurrency)
     : null;
-  const feePrice = totalPriceUSD != null
-    ? convertFromUSD(totalPriceUSD * 0.15, viewerCurrency)
-    : null;
+
+  // Booking window: today through the next 7 days only.
+  const maxBookingDate = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 7);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, [today]);
+
+  // Midnight of today in the viewer's local timezone — used so today's date
+  // is selectable, not compared against the current wall-clock time.
+  const todayMidnight = useMemo(
+    () => new Date(today.getFullYear(), today.getMonth(), today.getDate()),
+    [today],
+  );
 
   const isDateAvailable = useCallback((year: number, month: number, day: number): boolean => {
-    const d = new Date(year, month, day);  // midnight, viewer local TZ
-    if (d < today) return false;
-    if (!profile || profile.anytime) return true;
-    // Check in creator's timezone — a day the viewer sees may map to a different
-    // creator-day if their timezones differ by a large amount.  We scan -1/0/+1
-    // creator-days and mark the viewer-day available if any of them has slots.
-    const schedule = profile.weeklySchedule as Record<string, unknown[]>;
+    const d = new Date(year, month, day);
+    // Past dates — never bookable.  Compare at day granularity so today is
+    // always included (comparing against new Date() would exclude today until
+    // it's exactly midnight, which is never in practice).
+    if (d < todayMidnight) return false;
+    // Beyond the 7-day booking window — disabled.
+    if (d > maxBookingDate) return false;
+    // No profile yet or anytime mode — every day in the window is available.
+    if (!profile) return true;
+    if (profile.anytime) return true;
+    // Schedule-based check — null-safe.
+    const schedule = (profile.weeklySchedule ?? {}) as Record<string, unknown[]>;
     for (let shift = -1; shift <= 1; shift++) {
       const probeMs = getLocalMidnightAsUTC(d, viewerTz) + shift * 24 * 3600_000 + 12 * 3600_000;
       const creatorDayKey = getWeekdayInTimezone(new Date(probeMs), creatorTz);
       if ((schedule[creatorDayKey]?.length ?? 0) > 0) return true;
     }
     return false;
-  }, [profile, today, creatorTz, viewerTz]);
-
-  const prevMonth = () => {
-    if (calendarMonth === 0) { setCalendarMonth(11); setCalendarYear(y => y - 1); }
-    else setCalendarMonth(m => m - 1);
-    setSelectedDay(null); setSelectedTime(null);
-  };
-  const nextMonth = () => {
-    if (calendarMonth === 11) { setCalendarMonth(0); setCalendarYear(y => y + 1); }
-    else setCalendarMonth(m => m + 1);
-    setSelectedDay(null); setSelectedTime(null);
-  };
+  }, [profile, todayMidnight, maxBookingDate, creatorTz, viewerTz]);
 
   const canBook =
     !!selectedDuration &&
@@ -481,29 +493,86 @@ export default function BookCallScreen({ navigation, route }: Props) {
 
     setBooking(false);
 
-    if (!result) {
-      Toast.error('Could not complete booking. Please try again.');
+    if (result.ok) {
+      Alert.alert(
+        '📞 Call booked!',
+        `Your call with ${targetName} is scheduled for ${formatDate(selectedDate)} at ${fmt12(selectedTime!)} (${formatTimezoneLabel(viewerTz)}).`,
+        [{ text: 'OK', onPress: () => navigation.goBack() }],
+      );
       return;
     }
 
-    Alert.alert(
-      '📞 Call booked!',
-      `Your call with ${targetName} is scheduled for ${formatDate(selectedDate)} at ${fmt12(selectedTime!)} (${formatTimezoneLabel(viewerTz)}).`,
-      [{ text: 'OK', onPress: () => navigation.goBack() }],
-    );
+    // ── Insufficient balance — show top-up sheet ──────────────────────────
+    if (result.insufficientBalance) {
+      setTopping(true);
+      // Required amount: what the API says, or fall back to session price.
+      const requiredUSD = result.requiredUSD ?? totalPriceUSD ?? 0;
+      const amountDisplay = totalPrice?.display ?? `$${requiredUSD.toFixed(2)}`;
+      const url = await createWalletTopupCheckout(requiredUSD, token);
+      setTopping(false);
+      if (url) {
+        setPaymentSheet({ checkoutUrl: url, amountDisplay });
+      } else {
+        Toast.error('Could not open payment. Please top up your wallet from the app settings.');
+      }
+      return;
+    }
+
+    // ── Other errors ──────────────────────────────────────────────────────
+    Toast.error(result.message ?? 'Could not complete booking. Please try again.');
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={s.center}>
+      <View style={[s.center, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <ActivityIndicator size="large" color={colorss.primary} />
         <Text style={s.loadingText}>Loading availability…</Text>
-      </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <View style={[s.safe, { paddingTop: insets.top }]}>
+        <View style={s.nav}>
+          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <ArrowLeft size={22} color={colorss.textPrimary} />
+          </TouchableOpacity>
+          <Text style={s.navTitle}>Book a Call</Text>
+          <View style={{ width: 22 }} />
+        </View>
+        <View style={[s.center, { flex: 1 }]}>
+          <Text style={{ fontSize: 40, marginBottom: 16 }}>📅</Text>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: colorss.textPrimary, textAlign: 'center', paddingHorizontal: 32 }}>
+            Booking Unavailable
+          </Text>
+          <Text style={{ fontSize: 14, color: colorss.textSecondary, textAlign: 'center', paddingHorizontal: 32, marginTop: 10, lineHeight: 21 }}>
+            {loadError}
+          </Text>
+          <TouchableOpacity
+            style={{ marginTop: 24, backgroundColor: colorss.primary, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 28 }}
+            onPress={() => {
+              setLoading(true);
+              setLoadError(null);
+              fetchAvailableSlots(targetUserId, isoDate(today))
+                .then(data => {
+                  if (data?.profile) { setProfile(data.profile); setLoadError(null); }
+                  else setLoadError(`${targetName} hasn't set up their availability yet.`);
+                  if (data?.existingBookings) setExistingBookings(data.existingBookings);
+                })
+                .catch(() => setLoadError('Could not load booking details. Please try again.'))
+                .finally(() => setLoading(false));
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <View style={[s.safe, { paddingTop: insets.top }]}>
       {/* Nav bar */}
       <View style={s.nav}>
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
@@ -615,116 +684,70 @@ export default function BookCallScreen({ navigation, route }: Props) {
           })}
         </View>
 
-        {/* ── Full Month Calendar ── */}
+        {/* ── Date & Time picker pill ── */}
         <Text style={s.fieldLabel}>Select Date & Time</Text>
-        <View style={s.calendarCard}>
-          {/* Month header */}
-          <View style={s.calMonthRow}>
-            <TouchableOpacity onPress={prevMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <ChevronLeft size={20} color={colorss.textPrimary} />
-            </TouchableOpacity>
-            <Text style={s.calMonthText}>
-              {MONTH_NAMES[calendarMonth]} {calendarYear}
-            </Text>
-            <TouchableOpacity onPress={nextMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <ChevronRight size={20} color={colorss.textPrimary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Day headers */}
-          <View style={s.calDayHeaders}>
-            {DAY_HEADERS.map(d => (
-              <Text key={d} style={s.calDayHeader}>{d}</Text>
-            ))}
-          </View>
-
-          {/* Weeks */}
-          {monthGrid.map((week, wi) => (
-            <View key={wi} style={s.calWeek}>
-              {week.map((day, di) => {
-                if (!day) return <View key={di} style={s.calCell} />;
-                const available = isDateAvailable(calendarYear, calendarMonth, day);
-                const active = selectedDay === day;
-                const isPast = new Date(calendarYear, calendarMonth, day) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                return (
-                  <TouchableOpacity
-                    key={di}
-                    style={[
-                      s.calCell,
-                      available && !isPast && s.calCellAvailable,
-                      active && s.calCellActive,
-                      isPast && s.calCellPast,
-                    ]}
-                    onPress={() => {
-                      if (!available || isPast) return;
-                      setSelectedDay(day);
-                      setSelectedTime(null);
-                    }}
-                    disabled={!available || isPast}
-                  >
-                    <Text style={[
-                      s.calDayNum,
-                      available && !isPast && s.calDayNumAvailable,
-                      active && s.calDayNumActive,
-                      isPast && s.calDayNumPast,
-                    ]}>
-                      {day}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ))}
-        </View>
-
-        {/* Timezone banner — only when a duration is chosen so it doesn't clutter early */}
-        {selectedDuration && !sameTimezone && (
-          <View style={s.tzBanner}>
+        {!sameTimezone && selectedDuration && (
+          <View style={[s.tzBanner, { marginBottom: 8 }]}>
             <Text style={s.tzBannerText}>
-              🌐 Times shown in{' '}
-              <Text style={s.tzBold}>{formatTimezoneLabel(viewerTz)}</Text>
-              {'  ·  '}Expert is in{' '}
-              <Text style={s.tzBold}>{formatTimezoneLabel(creatorTz)}</Text>
+              🌐 Times in <Text style={s.tzBold}>{formatTimezoneLabel(viewerTz)}</Text>
+              {'  ·  '}Expert: <Text style={s.tzBold}>{formatTimezoneLabel(creatorTz)}</Text>
             </Text>
           </View>
         )}
+        <TouchableOpacity
+          style={[
+            s.datePill,
+            (!selectedDuration) && s.datePillDisabled,
+          ]}
+          onPress={() => {
+            if (!selectedDuration) {
+              Toast.info('Please select a duration first.');
+              return;
+            }
+            setDateSheetOpen(true);
+          }}
+          activeOpacity={0.75}
+        >
+          <Calendar size={18} color={selectedDay ? colorss.primary : colorss.placeholder} />
+          <Text style={[s.datePillText, !!selectedDay && s.datePillTextActive]}>
+            {selectedDay && selectedDate
+              ? `${selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}${selectedTime ? `  ·  ${fmt12(selectedTime)}` : '  — tap to pick time'}`
+              : 'Tap to select date & time'}
+          </Text>
+          {selectedDay && (
+            <TouchableOpacity
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={() => { setSelectedDay(null); setSelectedTime(null); }}
+            >
+              <Text style={{ color: colorss.placeholder, fontSize: 16 }}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
 
-        {/* Time slots (shown when day is selected) */}
-        {selectedDay && selectedDuration && (
-          <View style={s.timeSlotsWrap}>
-            {slotsLoading ? (
-              <ActivityIndicator size="small" color={colorss.primary} />
-            ) : availableSlots.length === 0 ? (
-              <Text style={s.noSlots}>No available slots on this day. Try another date.</Text>
-            ) : (
-              <View style={s.timeGrid}>
-                {availableSlots.map(t => (
-                  <TouchableOpacity
-                    key={t}
-                    style={[s.timeChip, selectedTime === t && s.timeChipActive]}
-                    onPress={() => setSelectedTime(t)}
-                  >
-                    <Text style={[s.timeText, selectedTime === t && s.timeTextActive]}>
-                      {fmt12(t)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
+        <DatePickerSheet
+          visible={dateSheetOpen}
+          onClose={() => { setDateSheetOpen(false); setSheetPickedDate(null); }}
+          onConfirm={({ date, time }) => {
+            setCalendarYear(date.getFullYear());
+            setCalendarMonth(date.getMonth());
+            setSelectedDay(date.getDate());
+            setSelectedTime(time ?? null);
+            setSheetPickedDate(null); // confirmed — fall back to selectedDate
+            setDateSheetOpen(false);
+          }}
+          isDateAvailable={isDateAvailable}
+          availableSlots={availableSlots}
+          slotsLoading={slotsLoading}
+          maxDate={maxBookingDate}
+          mode="datetime"
+          title="Select Date & Time"
+          confirmLabel="Confirm date & time"
+          onDayChange={setSheetPickedDate}
+        />
 
-        {/* Price summary */}
-        {totalPrice != null && feePrice != null && (
+        {/* Price summary — show only what the user pays, no platform breakdown */}
+        {totalPrice != null && (
           <View style={s.priceSummary}>
-            <View style={s.priceLine}>
-              <Text style={s.priceKey}>Session price</Text>
-              <Text style={s.priceVal}>{totalPrice.display}</Text>
-            </View>
-            <View style={s.priceLine}>
-              <Text style={s.priceKey}>Platform fee (15 %)</Text>
-              <Text style={s.priceVal}>{feePrice.display}</Text>
-            </View>
             <View style={[s.priceLine, s.priceTotalRow]}>
               <Text style={s.priceTotalKey}>You pay</Text>
               <Text style={s.priceTotalVal}>{totalPrice.display}</Text>
@@ -781,7 +804,65 @@ export default function BookCallScreen({ navigation, route }: Props) {
           )}
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+
+      {/* ── Insufficient balance — top-up payment sheet ───────────────── */}
+      <Modal
+        transparent
+        animationType="slide"
+        visible={!!paymentSheet || topping}
+        onRequestClose={() => setPaymentSheet(null)}
+      >
+        <Pressable style={s.payBackdrop} onPress={() => setPaymentSheet(null)} />
+        <View style={[s.paySheet, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={s.payHandle} />
+          {topping ? (
+            <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+              <ActivityIndicator size="large" color={colorss.primary} />
+              <Text style={{ marginTop: 14, color: colorss.textSecondary, fontSize: 14 }}>
+                Preparing payment…
+              </Text>
+            </View>
+          ) : paymentSheet ? (
+            <>
+              <Text style={s.payTitle}>Wallet top-up required</Text>
+              <Text style={s.paySub}>
+                Your wallet doesn't have enough balance to book this call.
+              </Text>
+
+              <View style={s.payAmountBox}>
+                <Text style={s.payAmountLabel}>Amount needed</Text>
+                <Text style={s.payAmount}>{paymentSheet.amountDisplay}</Text>
+              </View>
+
+              <Text style={s.payNote}>
+                You'll be taken to a secure payment page. Once paid, return to the app and retry booking.
+              </Text>
+
+              <TouchableOpacity
+                style={s.payBtn}
+                onPress={() => {
+                  Linking.openURL(paymentSheet.checkoutUrl).catch(() =>
+                    Toast.error('Could not open payment page.'),
+                  );
+                  setPaymentSheet(null);
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={s.payBtnText}>Top up wallet & pay</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={s.payCancelBtn}
+                onPress={() => setPaymentSheet(null)}
+                activeOpacity={0.7}
+              >
+                <Text style={s.payCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -895,6 +976,16 @@ const s = StyleSheet.create({
   tzBannerText: { fontSize: 12, color: colorss.textSecondary, lineHeight: 18 },
   tzBold:       { fontWeight: '700', color: colorss.primary },
 
+  datePill: {
+    marginHorizontal: 16, marginBottom: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1.5, borderColor: colorss.primary, borderRadius: 12,
+    padding: 14, backgroundColor: `${colorss.primary}08`,
+  },
+  datePillDisabled: { borderColor: colorss.border, backgroundColor: colorss.white },
+  datePillText: { flex: 1, fontSize: 14, color: colorss.placeholder },
+  datePillTextActive: { color: colorss.primary, fontWeight: '600' },
+
   timeSlotsWrap: { paddingHorizontal: 16, marginBottom: 20 },
   noSlots:       { color: colorss.textSecondary, fontSize: 14, paddingVertical: 8 },
   timeGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -945,4 +1036,36 @@ const s = StyleSheet.create({
   },
   confirmBtnDisabled: { opacity: 0.45 },
   confirmBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // Payment sheet
+  payBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  paySheet: {
+    backgroundColor: colorss.white,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12, shadowRadius: 16, elevation: 16,
+  },
+  payHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: colorss.border,
+    alignSelf: 'center', marginTop: 10, marginBottom: 16,
+  },
+  payTitle: { fontSize: 20, fontWeight: '700', color: colorss.textPrimary, textAlign: 'center', marginBottom: 8 },
+  paySub: { fontSize: 14, color: colorss.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  payAmountBox: {
+    backgroundColor: `${colorss.primary}10`,
+    borderRadius: 14, padding: 18,
+    alignItems: 'center', marginBottom: 16,
+  },
+  payAmountLabel: { fontSize: 12, fontWeight: '600', color: colorss.textSecondary, textTransform: 'uppercase', letterSpacing: 0.8 },
+  payAmount: { fontSize: 32, fontWeight: '800', color: colorss.primary, marginTop: 4 },
+  payNote: { fontSize: 13, color: colorss.textSecondary, textAlign: 'center', lineHeight: 19, marginBottom: 20 },
+  payBtn: {
+    backgroundColor: colorss.primary, borderRadius: 12,
+    paddingVertical: 15, alignItems: 'center', marginBottom: 10,
+  },
+  payBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  payCancelBtn: { paddingVertical: 12, alignItems: 'center' },
+  payCancelText: { color: colorss.textSecondary, fontSize: 14, fontWeight: '600' },
 });
