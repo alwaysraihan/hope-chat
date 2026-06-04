@@ -7,7 +7,8 @@ import FastImage from '@d11/react-native-fast-image';
 interface MessageHeaderProps {
   onProfilePress: () => void;
   onBackPress: () => void;
-  onAudioCall: () => void;
+  /** Pass undefined to hide the audio call button (e.g. REQUESTED chats). */
+  onAudioCall?: () => void;
   onVideoCall?: () => void;
   /** Fires when the ⋮ button is pressed — show ConversationAction sheet */
   onMorePress?: () => void;
@@ -39,8 +40,9 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   status,
   avatarUri,
 }) => {
+  // Both call actions are hidden when undefined (REQUESTED / unaccepted chats)
   const callActions = [
-    { Icon: Phone, label: 'Audio Call', onPress: onAudioCall },
+    ...(onAudioCall ? [{ Icon: Phone, label: 'Audio Call', onPress: onAudioCall }] : []),
     ...(onVideoCall ? [{ Icon: LucideVideo, label: 'Video Call', onPress: onVideoCall }] : []),
   ];
   return (

@@ -34,6 +34,11 @@ import {
 import { leaveGroup } from '../services/groupService';
 import { useChats } from '../context/ChatsContext';
 import {
+  getPinnedConversationIds,
+  setPinnedConversation,
+  setMutedConversation,
+} from '../services/chatPrefs';
+import {
   addHiddenConversation,
   writeChatDirectoryCache,
 } from '../services/offlineCache';
@@ -88,17 +93,24 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
     });
   };
 
-  const handlePin = async () => {
-    if (!token) return;
-    setBusy('pin');
+  const handlePin = () => {
     const next = !pinned;
-    const ok = await patchConversationPin(conversationId, next, token);
-    setBusy(null);
-    if (ok) {
-      setPinned(next);
-      Alert.alert(next ? 'Pinned' : 'Unpinned', `Chat ${next ? 'pinned' : 'unpinned'}.`);
-    } else {
-      Alert.alert('Error', 'Could not update pin status. Try again.');
+    // Optimistic local update — persist to MMKV immediately and reorder the inbox.
+    setPinnedConversation(conversationId, next);
+    setPinned(next);
+    setConversations(prev => {
+      const updated = prev.map(c =>
+        c.id === conversationId ? { ...c, pinned: next } : c,
+      );
+      // Re-sort: pinned first, then unpinned in original order.
+      return [
+        ...updated.filter(c => c.pinned),
+        ...updated.filter(c => !c.pinned),
+      ];
+    });
+    // Fire server update best-effort (endpoint may not be live yet).
+    if (token) {
+      patchConversationPin(conversationId, next, token).catch(() => {});
     }
   };
 
@@ -106,11 +118,21 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
     if (!token) return;
     setBusy('mute');
     const next = !muted;
+    // Persist locally first so the state survives navigation.
+    setMutedConversation(conversationId, next);
+    setMuted(next);
+    setConversations(prev =>
+      prev.map(c => c.id === conversationId ? { ...c, isMuted: next } : c),
+    );
     const ok = await patchConversationMute(conversationId, next, token);
     setBusy(null);
-    if (ok) {
-      setMuted(next);
-    } else {
+    if (!ok) {
+      // Rollback on failure
+      setMutedConversation(conversationId, !next);
+      setMuted(!next);
+      setConversations(prev =>
+        prev.map(c => c.id === conversationId ? { ...c, isMuted: !next } : c),
+      );
       Alert.alert('Error', 'Could not update mute. Try again.');
     }
   };

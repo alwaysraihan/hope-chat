@@ -50,6 +50,7 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     isMuted?: boolean;
     isPinned?: boolean;
     peerUserId?: string;
+    isArchived?: boolean;
   };
   EditSearchHistory: undefined;
   Archive: undefined;
@@ -85,6 +86,19 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     conversationId: string;
     /** Current member IDs — used to filter them out of the picker */
     existingMemberIds: string[];
+  };
+  JoinGroup: { inviteCode: string };
+  PremiumCallSetup: undefined;
+  BookCall: {
+    targetUserId: string;
+    targetName: string;
+    targetAvatar?: string | null;
+    isHopeWish?: boolean;
+  };
+  HopeWish: {
+    targetUserId: string;
+    targetName: string;
+    targetAvatar?: string | null;
   };
   TypingIndicator: undefined;
   BlockedUser: {

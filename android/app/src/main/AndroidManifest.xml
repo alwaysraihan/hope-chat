@@ -29,7 +29,9 @@
     Android grants this automatically at install time because both APKs are
     signed with the same keystore — no runtime prompt to the user.
   -->
-  <uses-permission android:name="com.hopenity.permission.READ_AUTH" />
+  <!-- com.hopenity.permission.READ_AUTH was removed from Hopenity's manifest
+       (signature-level permissions fail with Play App Signing).
+       Security is now enforced via callingPackage in HopenityAuthProvider.kt. -->
 
   <queries>
     <package android:name="com.hopenity" />
@@ -97,6 +99,13 @@
         <category android:name="android.intent.category.DEFAULT" />
         <category android:name="android.intent.category.BROWSABLE" />
         <data android:scheme="hopechat" />
+      </intent-filter>
+      <!-- Group invite deep links: hopechat://join-group/:code -->
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="hopechat" android:host="join-group" />
       </intent-filter>
     </activity>
   </application>

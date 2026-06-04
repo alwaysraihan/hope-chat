@@ -5,8 +5,11 @@ import type { OwnedPage } from '../../../services/pageService';
 
 export type HopenityProfile = {
   displayName: string;
+  isVerified?: boolean;
   avatarUrl: string | null;
   userId: string;
+  /** ISO 3166-1 alpha-2 country code from the Hopenity profile (e.g. "BD", "US"). */
+  country?: string | null;
 };
 
 type AuthState = {
@@ -99,10 +102,29 @@ const authSlice = createSlice({
           idRaw != null && String(idRaw).length > 0 ? String(idRaw) : 'me';
       }
 
+      const rawUser = u as Record<string, unknown> | null | undefined;
+      // The Hopenity login response doesn't include is_verified directly — it
+      // is derived from verification_status. We check both fields so the app
+      // works whether the session was stored before or after the Hopenity fix
+      // that writes is_verified into the shared blob.
+      const isVerified = !!(
+        rawUser?.is_verified ||
+        rawUser?.verified ||
+        rawUser?.isVerified ||
+        String(rawUser?.verification_status ?? '').toUpperCase() === 'VERIFIED'
+      );
+
+      const country =
+        typeof (rawUser?.country) === 'string' && rawUser.country.length > 0
+          ? (rawUser.country as string).toUpperCase()
+          : null;
+
       state.profile = {
         displayName,
         avatarUrl,
         userId,
+        isVerified,
+        country,
       };
       state.giftedChatUser = {
         _id: userId,

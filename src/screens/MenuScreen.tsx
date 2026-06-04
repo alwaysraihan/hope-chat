@@ -25,6 +25,7 @@ import {
   LucideMessageCircleMore,
   LucideSettings,
   LucideUsers,
+  Phone,
 } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import { IC_PROFILE } from '../assets';
@@ -62,6 +63,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
   const profile = useAppSelector(selectHopenityProfile);
   const token = useAppSelector(selectAuthToken);
   const activePage = useAppSelector(selectActivePage);
+  const isVerified = !!profile?.isVerified;
   const { lang, setLang } = useLanguage();
 
   const [pages, setPages] = useState<OwnedPage[]>([]);
@@ -101,6 +103,12 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
     { id: 'message-requests', title: t.message_requests_label, icon: <LucideMessageCircleMore size={20} color={colors.textPrimary} />,  onPress: () => navigation.navigate('MessageRequests') },
     { id: 'archive',          title: t.archive_label,          icon: <LucideArchive size={20} color={colors.textPrimary} />,            onPress: () => navigation.navigate('Archive') },
     { id: 'friend-requests',  title: activePage ? 'Followers' : t.friend_requests, icon: <LucideUsers size={20} color={colors.textPrimary} />, onPress: () => void openHopenityBestEffort().catch(() => undefined) },
+    {
+      id: 'premium-calls',
+      title: 'Premium Calls',
+      icon: <Phone size={20} color={colors.primary} />,
+      onPress: () => navigation.navigate('PremiumCallSetup'),
+    },
   ];
 
   return (

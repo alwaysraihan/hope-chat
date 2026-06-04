@@ -21,7 +21,7 @@ import BackHeader from '../components/BackHeader';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
-import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
 import { addGroupMember } from '../services/groupService';
 import { useChats } from '../context/ChatsContext';
 import { appendGroupSystemMessage } from '../services/offlineCache';
@@ -37,6 +37,7 @@ const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
   const { groupId, conversationId, existingMemberIds } = route.params;
   const { conversations } = useChats();
   const token = useAppSelector(selectAuthToken);
+  const myProfile = useAppSelector(selectHopenityProfile);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -93,7 +94,11 @@ const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
       const label = addedNames.length <= 2
         ? addedNames.join(' and ')
         : `${addedNames.slice(0, 2).join(', ')} and ${addedNames.length - 2} more`;
-      appendGroupSystemMessage(conversationId, `${label} joined the group.`);
+      const adminName = myProfile?.displayName ?? 'Admin';
+      appendGroupSystemMessage(
+        conversationId,
+        `${label} was added by ${adminName}.`,
+      );
     }
     if (failed > 0) {
       Alert.alert(

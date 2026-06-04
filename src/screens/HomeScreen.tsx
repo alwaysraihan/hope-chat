@@ -163,16 +163,35 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
       let conversationId: string;
       if (existing) {
+        // Known conversation — navigate immediately with the real ID.
         conversationId = String(existing.id);
       } else if (chatId) {
-        // Hopenity already created the chat — use the ID directly, no extra API call.
+        // Hopenity pre-provisioned the chat ID — use it directly.
         conversationId = chatId;
       } else {
-        // Provision the conversation server-side first so we always navigate
-        // with a real ID. Fall back to peerId only if the API is unreachable.
+        // Provision or find the server-side conversation.
+        // On failure we still navigate: the Inbox will show an empty state
+        // and the user can send their first message which creates the chat.
         const realId = token ? await getOrCreatePeerChat(peerId, token) : null;
         conversationId = realId ?? peerId;
       }
+
+      // Build a reliable seed so InboxScreen always has the peer's info even
+      // before the conversation row appears in the chat list.
+      const seed = existing ?? {
+        id: conversationId,
+        name: displayName ?? '',
+        avatarUrl: avatarUrl ?? null,
+        peerUserId: peerId,
+        isGroup: false,
+        // New conversations start as REQUESTED — the banner will guide the
+        // recipient through acceptance.  The sender can write freely.
+        needsAcceptance: false,
+        preview: '',
+        time: '',
+        unreadCount: 0,
+        messages: [],
+      };
 
       navigation.navigate('Inbox', {
         conversationId,
@@ -183,18 +202,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           peerUserId: peerId,
           localUserId,
         }),
-        seedConversation: existing ?? {
-          id: conversationId,
-          name: displayName ?? '',
-          avatarUrl: avatarUrl ?? null,
-          peerUserId: peerId,
-          isGroup: false,
-          needsAcceptance: false,
-          preview: '',
-          time: '',
-          unreadCount: 0,
-          messages: [],
-        },
+        seedConversation: seed,
       });
     },
     [navigation, conversations, localUserId, token],
@@ -247,7 +255,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const renderConversation = useCallback(
     ({ item }: { item: ConversationSummary }) => (
       <ConversationItem
-        item={item}
+        item={{ ...item, pinned: !!item.pinned }}
         onPress={() => navigateInbox(item)}
         onLongPress={() =>
           navigation.navigate('ConversationAction', {
@@ -255,7 +263,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             conversationName: item.name,
             isGroup: !!item.isGroup,
             isMuted: false,
-            isPinned: false,
+            isPinned: !!item.pinned,
             peerUserId: item.peerUserId ?? undefined,
           })
         }

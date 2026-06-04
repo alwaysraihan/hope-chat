@@ -18,6 +18,10 @@ import { NewGroupScreen } from '../screens/NewGroupScreen';
 import GroupSetupScreen from '../screens/GroupSetupScreen';
 import GroupInfoScreen from '../screens/GroupInfoScreen';
 import AddGroupMembersScreen from '../screens/AddGroupMembersScreen';
+import JoinGroupScreen from '../screens/JoinGroupScreen';
+import PremiumCallSetupScreen from '../screens/PremiumCallSetupScreen';
+import BookCallScreen from '../screens/BookCallScreen';
+import HopeWishScreen from '../screens/HopeWishScreen';
 import ReadReceiptsScreen from '../screens/ReadReceiptsScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScren';
 import LoginScreen from '../screens/LoginScreen';
@@ -83,6 +87,10 @@ const StackNavigator = () => {
       <RootStack.Screen name="GroupSetup" component={GroupSetupScreen} />
       <RootStack.Screen name="GroupInfo" component={GroupInfoScreen} />
       <RootStack.Screen name="AddGroupMembers" component={AddGroupMembersScreen} />
+      <RootStack.Screen name="JoinGroup" component={JoinGroupScreen} options={{ headerShown: false }} />
+      <RootStack.Screen name="PremiumCallSetup" component={PremiumCallSetupScreen} options={{ headerShown: false }} />
+      <RootStack.Screen name="BookCall" component={BookCallScreen} options={{ headerShown: false }} />
+      <RootStack.Screen name="HopeWish" component={HopeWishScreen} options={{ headerShown: false }} />
       <RootStack.Screen name="ReadReceipts" component={ReadReceiptsScreen} />
       <RootStack.Screen
         name="TypingIndicator"

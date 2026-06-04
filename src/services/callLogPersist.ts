@@ -45,12 +45,14 @@ export async function persistCallOutcomeChatMessage(
   line: string,
   token: string,
   localUser: { _id?: unknown; name?: string },
+  isGroup?: boolean,
 ): Promise<ExtendedMessage | null> {
   let wire = line;
   const peer = p.peerUserId?.trim();
   const loc =
     normalizeChatUserId(String(localUser._id ?? '')) || String(localUser._id ?? '');
-  if (isE2eeEnabled() && peer && loc && loc !== 'me') {
+  // Skip E2EE for group chats — groups don't use symmetric DM keys.
+  if (!isGroup && isE2eeEnabled() && peer && loc && loc !== 'me') {
     try {
       const key = deriveConversationMessageKey(loc, normalizeChatUserId(peer) || peer, p.conversationId);
       wire = encryptMessagePayload(line, key);
@@ -59,7 +61,8 @@ export async function persistCallOutcomeChatMessage(
     }
   }
 
-  const res = await sendHopenityChatMessage(p.conversationId, wire, token);
+  // Group chats require the v2 endpoint — v1 returns 403 for group conversation IDs.
+  const res = await sendHopenityChatMessage(p.conversationId, wire, token, null, isGroup);
   if (!res) {
     return null;
   }

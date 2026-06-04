@@ -16,6 +16,8 @@ export type PeerLinkPayload = {
   avatarUrl?: string | null;
   /** Real conversation ID provisioned by Hopenity before opening HopeChat. */
   chatId?: string | null;
+  /** When true, HopeChat should navigate to the chat and hint that user wants to call. */
+  autoCall?: boolean;
 };
 
 let _pending: PeerLinkPayload | null = null;

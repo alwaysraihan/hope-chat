@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   View,
   Text,
   TouchableOpacity,
@@ -61,6 +62,10 @@ const InboxScreenInner: React.FC<
   const [needsAcceptance, setNeedsAcceptance] = useState(
     !!conversation.needsAcceptance,
   );
+  // True when the local user sent the initial request and the other side
+  // hasn't accepted yet.  We restrict to 1 outgoing message before acceptance
+  // to prevent spam and match the "single intro message" UX pattern.
+  const isSentRequest = !!conversation.isSentRequest;
 
   useEffect(() => {
     setNeedsAcceptance(!!conversation.needsAcceptance);
@@ -70,8 +75,14 @@ const InboxScreenInner: React.FC<
     if (!token || acceptBusy) return;
     setAcceptBusy(true);
     try {
-      const ok = await acceptHopenityChatRequest(conversation.id, token);
-      if (!ok) return;
+      const { ok, message } = await acceptHopenityChatRequest(conversation.id, token);
+      if (!ok) {
+        Alert.alert(
+          'Could not accept',
+          message ?? 'The request could not be accepted. Please try again.',
+        );
+        return;
+      }
       setNeedsAcceptance(false);
       setConversations(prev =>
         prev.map(c =>
@@ -331,7 +342,9 @@ const InboxScreenInner: React.FC<
           }
         }}
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}
-        onAudioCall={() => {
+        // Calls are blocked on REQUESTED conversations (both directions) —
+        // the chat must be accepted before voice/video calls are allowed.
+        onAudioCall={needsAcceptance || isSentRequest ? undefined : () => {
           if (conversation.isGroup) {
             if (token) {
               notifyGroupCall({
@@ -360,7 +373,7 @@ const InboxScreenInner: React.FC<
             isGroupCall: conversation.isGroup,
           });
         }}
-        onVideoCall={() => {
+        onVideoCall={needsAcceptance || isSentRequest ? undefined : () => {
           if (conversation.isGroup) {
             if (token) {
               notifyGroupCall({
@@ -395,6 +408,8 @@ const InboxScreenInner: React.FC<
             conversationName: peerName,
             isGroup: conversation.isGroup,
             peerUserId: conversation.peerUserId ?? undefined,
+            isPinned: !!conversation.pinned,
+            isMuted: !!conversation.isMuted,
           })
         }
       />
@@ -408,6 +423,7 @@ const InboxScreenInner: React.FC<
       )}
 
       {(() => {
+        // Incoming request: recipient sees Accept banner, input is locked.
         const requestBanner = needsAcceptance ? (
           <View style={acceptStyles.banner}>
             <Text style={acceptStyles.bannerText}>
@@ -428,14 +444,36 @@ const InboxScreenInner: React.FC<
           </View>
         ) : null;
 
+        // Outgoing request: sender already sent 1 message.  Lock the input
+        // until the other person accepts — prevents spam and matches the
+        // "single intro message" pattern (like Instagram DM requests).
+        const sentCount = messages.filter(m => {
+          const uid = normalizeChatUserId((m as any).user?._id);
+          return uid === (normalizeChatUserId(user?._id) || 'me');
+        }).length;
+        const sentRequestLocked = isSentRequest && sentCount >= 1;
+
+        const sentRequestBanner = sentRequestLocked ? (
+          <View style={acceptStyles.banner}>
+            <Text style={acceptStyles.bannerText}>
+              ✉️ Your message has been sent.{'\n'}
+              You can send more once {conversation.name || 'they'} accepts the request.
+            </Text>
+          </View>
+        ) : null;
+
+        const inputLocked = needsAcceptance || sentRequestLocked;
+
         const mainChat = (
           <GiftedChat
             placeholder={
               needsAcceptance
                 ? 'Accept the request above to reply…'
-                : 'Type here…'
+                : sentRequestLocked
+                  ? 'Waiting for acceptance…'
+                  : 'Type here…'
             }
-            textInputProps={{ editable: !needsAcceptance }}
+            textInputProps={{ editable: !inputLocked }}
             messages={messages as unknown as IMessage[]}
             {...(initialText ? { text: initialText } : {})}
             onSend={(msgs: IMessage[]) => onSend(msgs as ExtendedMessage[])}
@@ -483,12 +521,14 @@ const InboxScreenInner: React.FC<
               style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.02)' }}
             >
               {requestBanner}
+              {sentRequestBanner}
               {mainChat}
             </View>
           </ImageBackground>
         ) : (
           <View style={{ flex: 1, backgroundColor: colorss.background }}>
             {requestBanner}
+            {sentRequestBanner}
             {mainChat}
           </View>
         );
@@ -555,18 +595,41 @@ const InboxGate: React.FC<Props> = props => {
     );
   }
 
-  const threadIntroPeer = useMemo(
-    () => ({
-      name: props.route.params.displayName?.trim() || conv.name,
-      avatarUrl: props.route.params.avatarUrl ?? conv.avatarUrl ?? null,
-    }),
-    [
-      conv.avatarUrl,
-      conv.name,
-      props.route.params.avatarUrl,
-      props.route.params.displayName,
-    ],
-  );
+  const threadIntroPeer = useMemo(() => {
+    const name = props.route.params.displayName?.trim() || conv.name;
+    const avatarUrl = props.route.params.avatarUrl ?? conv.avatarUrl ?? null;
+
+    // Groups: show member count instead of friendship status
+    if (conv.isGroup) {
+      const count = conv.groupMemberCount;
+      return {
+        name,
+        avatarUrl,
+        subtitle: count ? `${count} people in this group` : 'Group chat',
+        prompt: 'Say hello to the group!',
+      };
+    }
+
+    // 1-to-1: subtitle depends on relationship
+    let subtitle: string;
+    if (conv.needsAcceptance) {
+      subtitle = 'Wants to connect with you on Hopenity';
+    } else if (conv.peerUserId) {
+      subtitle = "You're friends on Hopenity";
+    } else {
+      subtitle = 'Hopenity user';
+    }
+    return { name, avatarUrl, subtitle };
+  }, [
+    conv.avatarUrl,
+    conv.groupMemberCount,
+    conv.isGroup,
+    conv.name,
+    conv.needsAcceptance,
+    conv.peerUserId,
+    props.route.params.avatarUrl,
+    props.route.params.displayName,
+  ]);
 
   return (
     <InboxProvider

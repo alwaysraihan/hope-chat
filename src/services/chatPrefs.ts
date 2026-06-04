@@ -204,6 +204,60 @@ export function getReactionPalette(): string[] {
     : DEFAULT_REACTION_PALETTE;
 }
 
+// ─── Muted conversations (client-side cache of server state) ──────────────────
+
+const K_MUTED_IDS = 'muted_conversation_ids_v1';
+
+export function getMutedConversationIds(): string[] {
+  try {
+    const raw = prefs().getString(K_MUTED_IDS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setMutedConversation(id: string, muted: boolean): void {
+  const current = getMutedConversationIds();
+  const next = muted
+    ? Array.from(new Set([...current, id]))
+    : current.filter(x => x !== id);
+  prefs().set(K_MUTED_IDS, JSON.stringify(next));
+}
+
+export function isConversationMuted(id: string): boolean {
+  return getMutedConversationIds().includes(id);
+}
+
+// ─── Pinned conversations (client-side — backend pin endpoint is not yet live) ─
+
+const K_PINNED_IDS = 'pinned_conversation_ids_v1';
+
+export function getPinnedConversationIds(): string[] {
+  try {
+    const raw = prefs().getString(K_PINNED_IDS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setPinnedConversation(id: string, pinned: boolean): void {
+  const current = getPinnedConversationIds();
+  const next = pinned
+    ? Array.from(new Set([...current, id]))
+    : current.filter(x => x !== id);
+  prefs().set(K_PINNED_IDS, JSON.stringify(next));
+}
+
+export function isConversationPinned(id: string): boolean {
+  return getPinnedConversationIds().includes(id);
+}
+
 // ─── Per-conversation appearance ──────────────────────────────────────────────
 // Stored separately from the global appearance so each chat can have its own
 // theme preset, wallpaper, and reaction palette without affecting other chats.

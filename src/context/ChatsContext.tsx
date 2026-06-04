@@ -42,6 +42,7 @@ import {
 import { persistCallOutcomeChatMessage } from '../services/callLogPersist';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { getLocalNickname } from '../services/nicknameCache';
+import { getPinnedConversationIds, getMutedConversationIds } from '../services/chatPrefs';
 
 export type ConversationSummary = {
   id: string;
@@ -64,6 +65,8 @@ export type ConversationSummary = {
   avatarUrl?: string | null;
   /** Recipient must accept this REQUESTED chat before replying (server-enforced). */
   needsAcceptance?: boolean;
+  /** True when the local user sent the initial request and the other side hasn't accepted yet. */
+  isSentRequest?: boolean;
   /** Other user in a 1:1 chat — used for E2EE key agreement + previews. */
   peerUserId?: string | null;
   /** Server-provided chat chrome (optional); merged in Inbox with local theme prefs. */
@@ -80,6 +83,10 @@ export type ConversationSummary = {
   groupOnlineCount?: number;
   /** True when this chat came from the v1 API (has conversationKey). v2-native chats need v2 endpoints. */
   isV1Chat?: boolean;
+  /** Client-side pin flag — stored in MMKV, pinned chats sort to the top of the inbox. */
+  pinned?: boolean;
+  /** Client-side mute flag — stored in MMKV, muted chats suppress notifications. */
+  isMuted?: boolean;
   messages: ExtendedMessage[];
 };
 
@@ -533,10 +540,19 @@ export function mapChatItemToSummary(
   const preview = formatChatListPreview(lastForPreview, localId);
   const time = formatChatTime(created);
 
+  const isRequested = String(chat.status ?? '').toUpperCase() === 'REQUESTED';
+  // Incoming request: the other user initiated it and we haven't accepted yet.
   const needsAcceptance =
-    String(chat.status ?? '').toUpperCase() === 'REQUESTED' &&
+    isRequested &&
+    (
+      chat.requestedById == null ||
+      normalizeChatUserId(String(chat.requestedById)) !== localId
+    );
+  // Outgoing request: we initiated it and the other side hasn't accepted yet.
+  const isSentRequest =
+    isRequested &&
     chat.requestedById != null &&
-    normalizeChatUserId(chat.requestedById) !== localId;
+    normalizeChatUserId(String(chat.requestedById)) === localId;
 
   const ct = chat.chatTheme;
 
@@ -579,6 +595,7 @@ export function mapChatItemToSummary(
     isOnline: isGroup ? undefined : presence.isOnline,
     lastSeenAt: isGroup ? null : (presence.lastSeenAt ?? null),
     needsAcceptance,
+    isSentRequest,
     peerUserId: peerUserNorm,
     peerHasActiveStory: storyHints.peerHasActiveStory,
     peerStoryCount: storyHints.peerStoryCount,
@@ -623,21 +640,33 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     const cached = readChatDirectoryCache(uid);
     if (cached && cached.length > 0) {
       const hidden = new Set(getHiddenConversationIds());
-      setConversations(cached.filter(c => !hidden.has(c.id)));
+      const pinnedIds = new Set(getPinnedConversationIds());
+      const visible = cached
+        .filter(c => !hidden.has(c.id))
+        .map(c => ({ ...c, pinned: pinnedIds.has(c.id) }));
+      setConversations([
+        ...visible.filter(c => c.pinned),
+        ...visible.filter(c => !c.pinned),
+      ]);
     }
   }, [token, localUser._id]);
 
   const activePageIdRef = useRef<string | null>(activePage?.id ?? null);
+  // Always-current ref so the CALL_OUTCOME_EVENT handler can look up a conversation
+  // without becoming a stale closure (conversations is not in that effect's deps).
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
 
-  // When the active page changes, wipe the current list immediately so the
-  // screen doesn't flash the previous account's conversations while the new
-  // fetch is in flight.
+  // When the active page changes, show a loading state immediately so the inbox
+  // feels instant (like Messenger) — the reload will overwrite the list when
+  // the API responds.  We no longer blank the list here because a blank screen
+  // is more jarring than briefly seeing the previous account's conversations.
   useEffect(() => {
     const prev = activePageIdRef.current;
     const next = activePage?.id ?? null;
     if (prev !== next) {
       activePageIdRef.current = next;
-      setConversations([]);
+      setListLoading(true);
     }
   }, [activePage]);
 
@@ -668,11 +697,27 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
       setPendingRequestCount(counts?.requested ?? 0);
       const hidden = new Set(getHiddenConversationIds());
-      const next = chats
+      const pinnedIds = new Set(getPinnedConversationIds());
+      const mutedIds = new Set(getMutedConversationIds());
+      const mapped = chats
         .map(chat => mapChatItemToSummary(chat, localUser))
-        .filter(c => !hidden.has(c.id));
+        .filter(c => !hidden.has(c.id))
+        .map(c => ({
+          ...c,
+          pinned: pinnedIds.has(c.id),
+          isMuted: mutedIds.has(c.id),
+        }));
+      // Pinned chats sort to the top; within each group order is preserved from server.
+      const next = [
+        ...mapped.filter(c => c.pinned),
+        ...mapped.filter(c => !c.pinned),
+      ];
       setConversations(next);
-      writeChatDirectoryCache(String(localUser._id ?? ''), next);
+      // Only cache personal-mode results — page inbox is transient and should
+      // never appear after switching back to personal account.
+      if (!activePage) {
+        writeChatDirectoryCache(String(localUser._id ?? ''), next);
+      }
     } catch (err) {
       console.error('[ChatsProvider] fetchHopenityChatDirectory error:', err);
     } finally {
@@ -757,11 +802,17 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           let finalMsg: ExtendedMessage = offlineMsg;
           if (token) {
             try {
+              // Derive isGroup from the conversation summary so the persisted
+              // call log uses the v2 endpoint for group chats (v1 returns 403).
+              // Use conversationsRef to avoid stale closure (this handler is not
+              // re-created when conversations changes).
+              const conv = conversationsRef.current.find(c => c.id === p.conversationId);
               const saved = await persistCallOutcomeChatMessage(
                 p,
                 line,
                 token,
                 localUser,
+                !!conv?.isGroup,
               );
               if (saved) {
                 finalMsg = saved;

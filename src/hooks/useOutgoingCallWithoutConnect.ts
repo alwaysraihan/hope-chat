@@ -47,8 +47,10 @@ export function useOutgoingCallWithoutConnect(
     const o = optsRef.current;
     if (o.callDirection !== 'outgoing') return;
     const cid = o.conversationId?.trim();
-    const pid = o.peerUserId?.trim();
-    if (!cid || !pid) return;
+    const pid = o.peerUserId?.trim() || undefined;
+    // Allow group calls through even without a peerUserId — groups have no
+    // single peer, but the call log still needs to appear in the group chat.
+    if (!cid) return;
     emittedRef.current = true;
 
     if (peerJoinedRef.current && connectedAtMsRef.current != null) {

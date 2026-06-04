@@ -18,6 +18,7 @@ import {
   Camera,
   ChevronRight,
   Crown,
+  Link,
   LogOut,
   UserMinus,
   UserPlus,
@@ -30,12 +31,15 @@ import BackHeader from '../components/BackHeader';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   selectAuthToken,
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
 import {
   fetchGroupInfo,
+  generateGroupInviteLink,
+  revokeGroupInviteLink,
   GroupInfo,
   GroupMember,
   leaveGroup,
@@ -44,6 +48,7 @@ import {
   updateGroupInfo,
   uploadGroupPhoto,
 } from '../services/groupService';
+import { Share, Alert as RNAlert } from 'react-native';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { openHopenityProfile } from '../services/hopenityLinking';
 import { appendGroupSystemMessage } from '../services/offlineCache';
@@ -78,6 +83,15 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Re-fetch whenever screen regains focus (e.g. after adding members in AddGroupMembersScreen).
+  // This gives the user immediate feedback without needing to manually pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      void load();
+    }, [load, token]),
+  );
 
   const handlePickPhoto = async () => {
     if (!isAdmin || !token) return;
@@ -122,7 +136,11 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
           onPress: async () => {
             const ok = await removeGroupMember(groupId, member.userId, token);
             if (ok) {
-              appendGroupSystemMessage(conversationId, `${member.name ?? member.userId} was removed from the group.`);
+              const adminName = profile?.displayName ?? 'Admin';
+              appendGroupSystemMessage(
+                conversationId,
+                `${member.name ?? member.userId} was removed by ${adminName}.`,
+              );
               setGroupInfo(prev =>
                 prev
                   ? { ...prev, members: prev.members.filter(m => m.userId !== member.userId) }
@@ -300,22 +318,47 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
 
         {/* Add members (admin only) */}
         {isAdmin && (
-          <TouchableOpacity
-            style={styles.actionRow}
-            onPress={() =>
-              navigation.navigate('AddGroupMembers', {
-                groupId,
-                conversationId,
-                existingMemberIds: groupInfo.members.map(m => m.userId),
-              })
-            }
-          >
-            <View style={[styles.actionIcon, { backgroundColor: '#e8f4fd' }]}>
-              <UserPlus size={20} color={colorss.accent} />
-            </View>
-            <Text style={styles.actionText}>Add Members</Text>
-            <ChevronRight size={18} color={colorss.textSecondary} />
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={styles.actionRow}
+              onPress={() =>
+                navigation.navigate('AddGroupMembers', {
+                  groupId,
+                  conversationId,
+                  existingMemberIds: groupInfo.members.map(m => m.userId),
+                })
+              }
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#e8f4fd' }]}>
+                <UserPlus size={20} color={colorss.accent} />
+              </View>
+              <Text style={styles.actionText}>Add Members</Text>
+              <ChevronRight size={18} color={colorss.textSecondary} />
+            </TouchableOpacity>
+
+            {/* Invite via link */}
+            <TouchableOpacity
+              style={styles.actionRow}
+              onPress={async () => {
+                if (!token) return;
+                const result = await generateGroupInviteLink(groupId, token);
+                if (!result) {
+                  Alert.alert('Error', 'Could not generate invite link. Try again.');
+                  return;
+                }
+                await Share.share({
+                  message: `Join my group "${groupInfo.name}" on HopeChat:\n${result.link}`,
+                  url: result.link,
+                });
+              }}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#f0f4ff' }]}>
+                <Link size={20} color="#6366f1" />
+              </View>
+              <Text style={styles.actionText}>Invite via Link</Text>
+              <ChevronRight size={18} color={colorss.textSecondary} />
+            </TouchableOpacity>
+          </>
         )}
 
         {/* Members list */}

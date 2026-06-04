@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
+  Alert,
   Text,
   StyleSheet,
   TouchableOpacity,
@@ -110,9 +111,14 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     if (!token) return;
     setAcceptingId(chatId);
     try {
-      const ok = await acceptHopenityChatRequest(chatId, token);
+      const { ok, message } = await acceptHopenityChatRequest(chatId, token);
       if (ok) {
         await Promise.all([loadRequested(), reloadConversations()]);
+      } else {
+        Alert.alert(
+          'Could not accept',
+          message ?? 'The request could not be accepted. Please try again.',
+        );
       }
     } finally {
       setAcceptingId(null);

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { Alert, PermissionsAndroid, Platform } from 'react-native';
+import { PermissionsAndroid, Platform } from 'react-native';
+import { Toast } from '../components/Toast';
 import RNFS from 'react-native-fs';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 
@@ -100,6 +101,7 @@ export function useMediaDownload(): UseMediaDownloadReturn {
       if (!isRemote) {
         try {
           setDownloadState('downloading');
+          Toast.loading('Saving to gallery…');
 
           await CameraRoll.save(uri, {
             type: mediaType === 'video' ? 'video' : 'photo',
@@ -107,9 +109,11 @@ export function useMediaDownload(): UseMediaDownloadReturn {
 
           setProgress(1);
           setDownloadState('done');
+          Toast.success('Saved to gallery!');
           resetState();
         } catch (error) {
           console.error('[useMediaDownload] local save error:', error);
+          Toast.error('Could not save to gallery.');
           setDownloadState('error');
           resetState();
         }
@@ -124,15 +128,13 @@ export function useMediaDownload(): UseMediaDownloadReturn {
       const hasPermission = await ensureAndroidPermission();
 
       if (!hasPermission) {
-        Alert.alert(
-          'Permission Required',
-          'Please allow storage access to save media.',
-        );
+        Toast.error('Storage permission needed to save media.');
         return;
       }
 
       setDownloadState('downloading');
       setProgress(0);
+      Toast.loading('Saving to gallery…');
 
       const localPath = buildLocalPath(uri, mediaType);
 
@@ -170,11 +172,12 @@ export function useMediaDownload(): UseMediaDownloadReturn {
 
         setProgress(1);
         setDownloadState('done');
+        Toast.success('Saved to gallery!');
         resetState();
       } catch (error) {
         console.error('[useMediaDownload] download error:', error);
 
-        Alert.alert('Download Failed', 'Unable to save media to gallery.');
+        Toast.error('Could not save to gallery. Please try again.');
 
         setDownloadState('error');
         resetState();

@@ -17,6 +17,8 @@ import { LanguageProvider } from './src/context/LanguageContext';
 import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
 import AppErrorBoundary from './src/components/AppErrorBoundary';
+import { ToastContainer } from './src/components/Toast';
+import { refreshExchangeRates } from './src/utils/currency';
 import { navigationRef } from './src/navigation/navigationRef';
 import { consumePendingIncomingCall } from './src/services/incomingCall/navigateIncomingCall';
 import BootSplash from 'react-native-bootsplash';
@@ -31,6 +33,18 @@ import {
 const PEER_DEEP_LINK_RE = /^hopechat:\/\/peer\/([^/?#]+)(?:\?(.*))?/i;
 // hopechat://peer/{userId} embedded inside a redirect param
 const PEER_PATH_RE = /^peer\/([^/?#]+)(?:\?(.*))?/i;
+// hopechat://join-group/{inviteCode}
+const JOIN_GROUP_RE = /^hopechat:\/\/join-group\/([^/?#]+)/i;
+// hopechat://book-call/{userId}?name=...&avatar=...
+const BOOK_CALL_RE = /^hopechat:\/\/book-call\/([^/?#]+)(?:\?(.*))?/i;
+// hopechat://hope-wish/{userId}?name=...&avatar=...
+const HOPE_WISH_RE = /^hopechat:\/\/hope-wish\/([^/?#]+)(?:\?(.*))?/i;
+// hopechat://premium-calls/setup
+const PREMIUM_CALLS_SETUP_RE = /^hopechat:\/\/premium-calls\/setup/i;
+// hopechat.chat/group/join/{code}  (primary shareable URL)
+const HOPECHAT_GROUP_JOIN_RE = /hopechat\.chat\/group\/join\/([^/?#]+)/i;
+// hopenity.com/group/join/{code}  (legacy — keep handling old shared links)
+const HOPENITY_GROUP_JOIN_RE = /hopenity\.com\/group\/join\/([^/?#]+)/i;
 
 function parseQs(qs: string | undefined, key: string): string | undefined {
   if (!qs) return undefined;
@@ -94,6 +108,80 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
     return;
   }
 
+  // ── Premium Calls setup deep link ─────────────────────────────────────────
+  if (PREMIUM_CALLS_SETUP_RE.test(url)) {
+    const navigate = () => {
+      if (navigationRef.isReady()) (navigationRef as any).navigate('PremiumCallSetup');
+    };
+    navigationRef.isReady() ? navigate() : setTimeout(navigate, 500);
+    return;
+  }
+
+  // ── Book call / Hope Wish deep links ───────────────────────────────────────
+  const hwm = url.match(HOPE_WISH_RE);
+  if (hwm?.[1]) {
+    const userId = decodeURIComponent(hwm[1]);
+    const qs = hwm[2];
+    const navigate = () => {
+      if (navigationRef.isReady()) {
+        (navigationRef as any).navigate('HopeWish', {
+          targetUserId: userId,
+          targetName: parseQs(qs, 'name') ?? '',
+          targetAvatar: parseQs(qs, 'avatar') ?? null,
+        });
+      }
+    };
+    navigationRef.isReady() ? navigate() : setTimeout(navigate, 500);
+    return;
+  }
+  const bcm = url.match(BOOK_CALL_RE);
+  if (bcm?.[1]) {
+    const userId = decodeURIComponent(bcm[1]);
+    const qs = bcm[2];
+    const navigate = () => {
+      if (navigationRef.isReady()) {
+        (navigationRef as any).navigate('BookCall', {
+          targetUserId: userId,
+          targetName: parseQs(qs, 'name') ?? '',
+          targetAvatar: parseQs(qs, 'avatar') ?? null,
+          isHopeWish: false,
+        });
+      }
+    };
+    navigationRef.isReady() ? navigate() : setTimeout(navigate, 500);
+    return;
+  }
+
+  // ── Group invite links ────────────────────────────────────────────────────
+  // Handles all three forms:
+  //   hopechat.chat/group/join/{code}    ← primary (new shareable URL)
+  //   hopenity.com/group/join/{code}     ← legacy (keep old shared links working)
+  //   hopechat://join-group/{code}       ← in-app deep link (handled below)
+  const groupJoinMatch =
+    url.match(HOPECHAT_GROUP_JOIN_RE) ?? url.match(HOPENITY_GROUP_JOIN_RE);
+  if (groupJoinMatch?.[1]) {
+    const code = decodeURIComponent(groupJoinMatch[1]);
+    const navigate = () => { if (navigationRef.isReady()) (navigationRef as any).navigate('JoinGroup', { inviteCode: code }); };
+    navigationRef.isReady() ? navigate() : setTimeout(navigate, 500);
+    return;
+  }
+
+  const gm = url.match(JOIN_GROUP_RE);
+  if (gm?.[1]) {
+    const inviteCode = decodeURIComponent(gm[1]);
+    const navigate = () => {
+      if (navigationRef.isReady()) {
+        (navigationRef as any).navigate('JoinGroup', { inviteCode });
+      }
+    };
+    if (navigationRef.isReady()) {
+      navigate();
+    } else {
+      setTimeout(navigate, 500);
+    }
+    return;
+  }
+
   // ── Peer deep link (hopechat://peer/{userId}?...) ───────────────────────────
   const m = url.match(PEER_DEEP_LINK_RE);
   if (!m?.[1]) return;
@@ -103,9 +191,8 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
     peerId,
     displayName: parseQs(qs, 'name'),
     avatarUrl: parseQs(qs, 'avatar') ?? null,
-    // Hopenity may pass the real conversationId so HopeChat can navigate
-    // directly without a redundant getOrCreatePeerChat API call.
     chatId: parseQs(qs, 'chatId') ?? null,
+    autoCall: parseQs(qs, 'autoCall') === '1',
   });
   // Bring HomeScreen into view so its listener can navigate to the right chat.
   if (navigationRef.isReady()) {
@@ -159,6 +246,8 @@ const NavigationWithAuthKey = () => {
       handleDeepLinkUrl(url);
     };
 
+    // Refresh exchange rates in the background so price conversions stay current.
+    void refreshExchangeRates();
     Linking.getInitialURL().then(handle);
     const sub = Linking.addEventListener('url', ({ url }) => {
       // Runtime links are always new; reset the guard so they are always handled.
@@ -179,6 +268,7 @@ const NavigationWithAuthKey = () => {
     >
       <SystemBars style={'dark'} />
       <AppInner />
+      <ToastContainer />
     </NavigationContainer>
   );
 };

@@ -222,6 +222,91 @@ export async function uploadGroupPhoto(
   }
 }
 
+// ── Invite link ────────────────────────────────────────────────────────────────
+
+export type GroupInvitePreview = {
+  groupId: string;
+  groupName: string;
+  groupPhotoUrl: string | null;
+  memberCount: number;
+};
+
+export async function generateGroupInviteLink(
+  groupId: string,
+  token: string,
+): Promise<{ code: string; link: string } | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v2/groups/${encodeURIComponent(groupId)}/invite-link`,
+      { method: 'POST', headers: { Authorization: bearer(token) } },
+    );
+    const json = await res.json().catch(() => null);
+    const raw = json?.responseObject ?? json;
+    if (!raw?.code) return null;
+    const code = String(raw.code);
+    // Use the hopechat.chat domain — it's the app's own web presence so the
+    // link is always clickable when shared outside the app (WhatsApp, SMS, etc.)
+    // and opens HopeChat directly on devices that have it installed.
+    const link = `https://hopechat.chat/group/join/${encodeURIComponent(code)}`;
+    return { code, link };
+  } catch {
+    return null;
+  }
+}
+
+export async function revokeGroupInviteLink(
+  groupId: string,
+  token: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v2/groups/${encodeURIComponent(groupId)}/invite-link`,
+      { method: 'DELETE', headers: { Authorization: bearer(token) } },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function getGroupByInviteCode(
+  code: string,
+): Promise<GroupInvitePreview | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v2/groups/join/${encodeURIComponent(code)}`,
+    );
+    const json = await res.json().catch(() => null);
+    const raw = json?.responseObject ?? json;
+    if (!raw?.groupId) return null;
+    return {
+      groupId: String(raw.groupId),
+      groupName: String(raw.groupName ?? ''),
+      groupPhotoUrl: raw.groupPhotoUrl ?? null,
+      memberCount: Number(raw.memberCount ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function joinGroupByCode(
+  code: string,
+  token: string,
+): Promise<{ groupId: string } | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v2/groups/join/${encodeURIComponent(code)}`,
+      { method: 'POST', headers: { Authorization: bearer(token) } },
+    );
+    const json = await res.json().catch(() => null);
+    const raw = json?.responseObject ?? json;
+    return raw?.groupId ? { groupId: String(raw.groupId) } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Fire-and-forget: tell all group members there's an incoming group call. */
 export async function notifyGroupCall(params: {
   groupId: string;

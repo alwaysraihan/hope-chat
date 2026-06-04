@@ -24,6 +24,7 @@ export type HopenityChatItem = {
     lastSeen?: string | number | null;
     last_seen?: string | number | null;
     lastActiveAt?: string | number | null;
+    is_verified?: boolean;
     peerHasActiveStory?: boolean;
     peer_has_active_story?: boolean;
     hasActiveStory?: boolean;
@@ -44,6 +45,7 @@ export type HopenityChatItem = {
     lastSeen?: string | number | null;
     last_seen?: string | number | null;
     lastActiveAt?: string | number | null;
+    is_verified?: boolean;
     peerHasActiveStory?: boolean;
     peer_has_active_story?: boolean;
     hasActiveStory?: boolean;
@@ -54,6 +56,8 @@ export type HopenityChatItem = {
     unviewed_story_count?: number;
   };
   userBPage?: { name?: string; image?: string | null } | null;
+  /** ISO timestamp of the last update — v1 always includes it; v2 groups may omit it. */
+  updatedAt?: string | null;
   /** True when this is a group chat (≥ 2 participants other than self). */
   isGroup?: boolean;
   groupName?: string | null;
@@ -275,6 +279,22 @@ export async function fetchHopenityChatDirectory(
         }),
       );
 
+      // Build a lookup map so we can enrich v2 chats that are missing `updatedAt`
+      // (the v2 API omits `updatedAt` on group chats, while the v1 endpoint includes
+      // it for the same rows — we use v1 data to fill the gap before sorting).
+      const v1ById = new Map<string, HopenityChatItem>(
+        v1Chats.map(c => [String(c.id ?? ''), c]),
+      );
+
+      // Enrich v2 chats that lack `updatedAt` with the v1 value so the sort below
+      // can use a real timestamp instead of falling back to 0.
+      const enrichedBase = base.chats.map(c => {
+        if ((c as any).updatedAt) return c;
+        const v1 = v1ById.get(String(c.id ?? ''));
+        const v1Updated = v1 ? (v1 as any).updatedAt ?? (v1 as any).updated_at : undefined;
+        return v1Updated ? { ...c, updatedAt: v1Updated } : c;
+      });
+
       const v1Only = v1Chats.filter(c => {
         const matchesStatus = wantRequested ? c.status === 'REQUESTED' : c.status === 'ACTIVE';
         if (!matchesStatus) return false;
@@ -291,20 +311,23 @@ export async function fetchHopenityChatDirectory(
         return !v2PeerIds.has(peerA) && !v2PeerIds.has(peerB);
       });
 
-      if (v1Only.length > 0) {
-        const merged = [...base.chats, ...v1Only];
-        // Sort merged list newest-first so v2 groups and v1 DMs interleave correctly.
-        merged.sort((a, b) => {
-          const ta = new Date(
-            (a as any).updatedAt ?? (a as any).updated_at ?? (a.lastMessage as any)?.createdAt ?? 0,
-          ).getTime();
-          const tb = new Date(
-            (b as any).updatedAt ?? (b as any).updated_at ?? (b.lastMessage as any)?.createdAt ?? 0,
-          ).getTime();
-          return tb - ta;
-        });
-        base = { ...base, chats: merged };
-      }
+      // Always sort — previously this only ran when v1Only was non-empty, which
+      // meant the v2 list order (groups first, regardless of timestamp) was used
+      // whenever every v1 chat already appeared in v2 by ID. Now we sort every time.
+      const merged = v1Only.length > 0
+        ? [...enrichedBase, ...v1Only]
+        : enrichedBase;
+
+      merged.sort((a, b) => {
+        const ta = new Date(
+          (a as any).updatedAt ?? (a as any).updated_at ?? (a.lastMessage as any)?.createdAt ?? 0,
+        ).getTime();
+        const tb = new Date(
+          (b as any).updatedAt ?? (b as any).updated_at ?? (b.lastMessage as any)?.createdAt ?? 0,
+        ).getTime();
+        return tb - ta;
+      });
+      base = { ...base, chats: merged };
     } catch {
       // v1 merge is best-effort — never block the main response
     }
@@ -487,20 +510,54 @@ export async function markHopenityChatRead(
   return response.ok;
 }
 
+/**
+ * Accept an incoming chat request.
+ *
+ * Tries v1 first; if the chatId is a v2-format string (no conversationKey
+ * is present to know for sure) and v1 returns 404, retries with v2 so
+ * chats that came in through the v2 path are also correctly accepted.
+ *
+ * Returns { ok, message } so the caller can surface API errors to the user.
+ */
 export async function acceptHopenityChatRequest(
   chatId: string | number,
   token?: string | null,
-): Promise<boolean> {
-  if (!token) return false;
-  const url = `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(String(chatId))}/request/accept`;
-  const response = await fetch(url, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  return response.ok;
+): Promise<{ ok: boolean; message: string | null }> {
+  if (!token) return { ok: false, message: 'Not signed in.' };
+
+  const cid = encodeURIComponent(String(chatId));
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
+
+  // Try v1 endpoint first (covers the majority of DM request chats)
+  try {
+    const r1 = await fetch(
+      `${API_BASE_URL}/api/v1/chats/${cid}/request/accept`,
+      { method: 'PATCH', headers },
+    );
+    if (r1.ok) return { ok: true, message: null };
+
+    // 404 might mean this is a v2-format chat — fall through to v2 attempt
+    if (r1.status !== 404 && r1.status !== 405) {
+      const j = await r1.json().catch(() => null);
+      return { ok: false, message: (j?.message ?? j?.error ?? null) as string | null };
+    }
+  } catch { /* network error — try v2 below */ }
+
+  // v2 fallback for chats with v2-style IDs
+  try {
+    const r2 = await fetch(
+      `${API_BASE_URL}/api/v2/chats/${cid}/request/accept`,
+      { method: 'PATCH', headers },
+    );
+    if (r2.ok) return { ok: true, message: null };
+    const j = await r2.json().catch(() => null);
+    return { ok: false, message: (j?.message ?? j?.error ?? null) as string | null };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : 'Network error.' };
+  }
 }
 
 export async function sendHopenityChatMessage(

@@ -1,8 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import {
-  Alert,
   Dimensions,
+  Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -24,6 +25,7 @@ import { ExtendedMessage } from '../types/chat';
 import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { getAutoSavePhotos } from '../../services/chatPrefs';
+import { Toast } from '../Toast';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -44,33 +46,81 @@ async function downloadMediaToGallery(
   remoteUrl: string,
   type: 'image' | 'video',
 ): Promise<void> {
+  Toast.loading('Saving to gallery…');
   try {
     const ext = type === 'video' ? 'mp4' : 'jpg';
     const destPath = `${RNFS.CachesDirectoryPath}/hopechat_dl_${Date.now()}.${ext}`;
     await RNFS.downloadFile({ fromUrl: remoteUrl, toFile: destPath }).promise;
     await CameraRoll.saveAsset(destPath, { type: type === 'video' ? 'video' : 'photo' });
-    Alert.alert('Saved', `${type === 'video' ? 'Video' : 'Photo'} saved to your gallery.`);
+    Toast.success('Saved to gallery!');
   } catch {
-    Alert.alert('Download failed', 'Could not save the file. Please try again.');
+    Toast.error('Could not save. Please try again.');
   }
 }
 
-function showMediaActionSheet(
-  url: string,
-  type: 'image' | 'video',
-): void {
-  Alert.alert(
-    type === 'video' ? 'Video' : 'Photo',
-    undefined,
-    [
-      {
-        text: `Save ${type === 'video' ? 'video' : 'photo'}`,
-        onPress: () => downloadMediaToGallery(url, type),
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ],
+// ─── Component ────────────────────────────────────────────────────────────────
+
+// ─── Media action sheet (replaces system Alert) ───────────────────────────────
+
+function MediaActionSheet({
+  url,
+  type,
+  onClose,
+}: {
+  url: string | null;
+  type: 'image' | 'video';
+  onClose: () => void;
+}) {
+  if (!url) return null;
+  const label = type === 'video' ? 'video' : 'photo';
+  return (
+    <Modal transparent animationType="slide" visible={!!url} onRequestClose={onClose}>
+      <Pressable style={sheet.backdrop} onPress={onClose} />
+      <View style={sheet.container}>
+        <View style={sheet.handle} />
+        <TouchableOpacity
+          style={sheet.action}
+          onPress={() => { onClose(); downloadMediaToGallery(url, type); }}
+          activeOpacity={0.7}
+        >
+          <Text style={sheet.actionIcon}>{type === 'video' ? '🎬' : '🖼️'}</Text>
+          <Text style={sheet.actionText}>Save {label} to gallery</Text>
+        </TouchableOpacity>
+        <View style={sheet.divider} />
+        <TouchableOpacity style={sheet.action} onPress={onClose} activeOpacity={0.7}>
+          <Text style={sheet.cancelText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
   );
 }
+
+const sheet = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+  container: {
+    backgroundColor: colorss.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    paddingHorizontal: 0,
+  },
+  handle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: colorss.border,
+    alignSelf: 'center', marginTop: 10, marginBottom: 8,
+  },
+  action: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 20, paddingVertical: 16,
+  },
+  actionIcon: { fontSize: 22 },
+  actionText: { fontSize: 16, fontWeight: '500', color: colorss.textPrimary },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colorss.border, marginHorizontal: 0 },
+  cancelText: {
+    fontSize: 16, fontWeight: '600', color: colorss.error,
+    textAlign: 'center', flex: 1,
+  },
+});
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -80,9 +130,17 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const msg = currentMessage as ExtendedMessage;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
+  const [sheetType, setSheetType] = useState<'image' | 'video'>('image');
+
   const openPreview = useCallback((url: string, type: 'image' | 'video') => {
     setPreviewType(type);
     setPreviewUrl(url);
+  }, []);
+
+  const openSheet = useCallback((url: string, type: 'image' | 'video') => {
+    setSheetType(type);
+    setSheetUrl(url);
   }, []);
 
   if (msg.threadIntro) {
@@ -179,7 +237,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           )}
           <TouchableOpacity
             onPress={() => !media.uploading && imageUri && openPreview(imageUri, 'image')}
-            onLongPress={() => !media.uploading && imageUri && showMediaActionSheet(imageUri, 'image')}
+            onLongPress={() => !media.uploading && imageUri && openSheet(imageUri, 'image')}
             activeOpacity={0.92}
             delayLongPress={350}
           >
@@ -206,6 +264,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           mediaType="image"
           onClose={() => setPreviewUrl(null)}
         />
+        <MediaActionSheet url={sheetUrl} type={sheetType} onClose={() => setSheetUrl(null)} />
       </Reaction>
     );
   }
@@ -220,7 +279,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
         <TouchableOpacity
           style={[styles.mediaWrapper, isOwn ? styles.alignRight : styles.alignLeft]}
           onPress={() => !media.uploading && videoUri && openPreview(videoUri, 'video')}
-          onLongPress={() => !media.uploading && videoUri && showMediaActionSheet(videoUri, 'video')}
+          onLongPress={() => !media.uploading && videoUri && openSheet(videoUri, 'video')}
           activeOpacity={0.92}
           delayLongPress={350}
         >
@@ -255,6 +314,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           mediaType="video"
           onClose={() => setPreviewUrl(null)}
         />
+        <MediaActionSheet url={sheetUrl} type={sheetType} onClose={() => setSheetUrl(null)} />
       </Reaction>
     );
   }

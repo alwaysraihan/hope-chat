@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, radius, fonts, spacing, colorss } from '../../theme';
 import FastImage from '@d11/react-native-fast-image';
+import { Pin } from 'lucide-react-native';
 
 type Item = {
   id: string;
@@ -13,6 +14,7 @@ type Item = {
   isTyping?: boolean;
   isUnread?: boolean;
   avatarUrl?: string | null;
+  pinned?: boolean;
 };
 
 const ConversationItem = ({
@@ -48,7 +50,12 @@ const ConversationItem = ({
           <Text style={styles.name} numberOfLines={1}>
             {item.name}
           </Text>
-          <Text style={styles.time}>{item.time}</Text>
+          <View style={styles.metaRow}>
+            {item.pinned && (
+              <Pin size={12} color={colorss.textSecondary} style={styles.pinIcon} />
+            )}
+            <Text style={styles.time}>{item.time}</Text>
+          </View>
         </View>
         <Text
           style={[styles.preview, item.isUnread && styles.previewUnread]}
@@ -106,7 +113,7 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     marginBottom: 3,
   },
   name: {
@@ -115,6 +122,14 @@ const styles = StyleSheet.create({
     color: colorss.textPrimary,
     flex: 1,
     marginRight: spacing.sm,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pinIcon: {
+    opacity: 0.6,
   },
   time: {
     fontSize: 11,

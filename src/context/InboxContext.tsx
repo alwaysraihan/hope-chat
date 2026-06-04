@@ -160,6 +160,10 @@ export function useInbox(): InboxContextValue {
 interface ThreadIntroPeer {
   name: string;
   avatarUrl?: string | null;
+  /** Override the default subtitle ("You're friends on Hopenity"). */
+  subtitle?: string;
+  /** Prompt text below the subtitle (defaults to "Say hi…"). */
+  prompt?: string;
 }
 
 interface InboxProviderProps {
@@ -188,10 +192,10 @@ function buildThreadIntroMessage(peer: ThreadIntroPeer): ExtendedMessage {
     _id: INTRO_MESSAGE_ID,
     threadIntro: {
       peerName: peer.name,
-      subtitle: "You're friends on Hopenity",
+      subtitle: peer.subtitle ?? "You're friends on Hopenity",
       avatarUrl: peer.avatarUrl ?? null,
     },
-    text: `Say hi to your new Hopenity friend, ${first}.`,
+    text: peer.prompt ?? `Say hi to your new Hopenity friend, ${first}.`,
     createdAt: new Date(1),
     user: { _id: '__hopenity_intro', name: 'Hopenity' },
   };
@@ -553,10 +557,52 @@ export function InboxProvider({
         });
         const fetched = page.messages ?? [];
         const mapped = fetched.map(mapHopenityMessage);
+        // Normalise to ascending order (oldest first) before storing.
+        // v2 groups return messages newest-first; v1 DMs return oldest-first.
+        // Without this sort, group messages render in reverse (newest at top).
+        mapped.sort((a, b) => {
+          const getMs = (m: ExtendedMessage) => {
+            const r = m.createdAt as unknown;
+            return r instanceof Date ? r.getTime() : new Date(r as string | number).getTime();
+          };
+          return getMs(a) - getMs(b);
+        });
         const mergedAsc = mergeLocalCallLogsFromCache(_conversationId, mapped);
-        setAllMessages(mergedAsc);
-        const desc = [...mergedAsc].reverse();
-        setMessages(mergeIntroDesc(desc, threadIntroPeer));
+        // Preserve any pending/failed messages from the current state that the
+        // API hasn't confirmed yet.  Race: user sends message → navigates back
+        // before the API responds → re-enters → load() runs → API response
+        // doesn't include the not-yet-processed message → it disappears.
+        // By keeping pending entries that aren't already in the server response
+        // (matched by _id) we prevent the optimistic message from vanishing.
+        setAllMessages(prev => {
+          const serverIds = new Set(mergedAsc.map(m => String(m._id)));
+          const pendingToKeep = prev.filter(
+            m => (m.pending || m.failed) && !serverIds.has(String(m._id)),
+          );
+          if (pendingToKeep.length === 0) return mergedAsc;
+          const combined = [...mergedAsc, ...pendingToKeep];
+          combined.sort((a, b) => {
+            const toMs = (t: unknown) =>
+              t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
+            return toMs(a.createdAt) - toMs(b.createdAt);
+          });
+          return combined;
+        });
+        setMessages(prev => {
+          const serverIds = new Set(mergedAsc.map(m => String(m._id)));
+          const pendingToKeep = (prev as ExtendedMessage[]).filter(
+            (m: ExtendedMessage) => (m.pending || m.failed) && !serverIds.has(String(m._id)),
+          );
+          const desc = [...mergedAsc].reverse();
+          if (pendingToKeep.length === 0) return mergeIntroDesc(desc, threadIntroPeer);
+          const combined = [...mergedAsc, ...pendingToKeep];
+          combined.sort((a, b) => {
+            const toMs = (t: unknown) =>
+              t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
+            return toMs(a.createdAt) - toMs(b.createdAt);
+          });
+          return mergeIntroDesc([...combined].reverse(), threadIntroPeer);
+        });
         setHasMore(
           page.pagination?.hasMore ??
             fetched.length >= PAGE_SIZE,
@@ -600,6 +646,14 @@ export function InboxProvider({
         });
         const chunk = res.messages ?? [];
         const mapped = chunk.map(mapHopenityMessage);
+        // Normalise to ascending (oldest first) regardless of API version order.
+        mapped.sort((a, b) => {
+          const getMs = (m: ExtendedMessage) => {
+            const r = m.createdAt as unknown;
+            return r instanceof Date ? r.getTime() : new Date(r as string | number).getTime();
+          };
+          return getMs(a) - getMs(b);
+        });
 
         let nextAsc: ExtendedMessage[];
 

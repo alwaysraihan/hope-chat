@@ -104,6 +104,14 @@ export type HopenityPersistedUserBlob = {
     profile_photo?: string;
     avatar?: string;
     avatar_url?: string;
+    /** ISO 3166-1 alpha-2 country code (e.g. "BD", "US"). */
+    country?: string | null;
+    // Verification — Hopenity login response has verification_status; is_verified
+    // is derived and written by the Hopenity app before storing the shared blob.
+    is_verified?: boolean;
+    verified?: boolean;
+    isVerified?: boolean;
+    verification_status?: string;
   } | null;
   isLogin?: boolean;
 };
