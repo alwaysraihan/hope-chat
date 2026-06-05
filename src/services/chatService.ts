@@ -462,6 +462,50 @@ export async function getOrCreatePeerChat(
   }
 }
 
+export type PeerChatInfo = {
+  chatId: string;
+  peerName: string;
+  peerAvatarUrl: string | null;
+};
+
+/**
+ * Same as getOrCreatePeerChat but also returns the peer's display name and
+ * avatar extracted from the response, so callers can pass them to navigation
+ * params without a separate profile lookup.
+ */
+export async function getOrCreatePeerChatWithInfo(
+  targetUserId: string,
+  token: string,
+): Promise<PeerChatInfo | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/chats`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ targetUserId }),
+    });
+    const json = await response.json().catch(() => null);
+    const raw = json?.responseObject ?? json?.data ?? json;
+    const id = raw?.id ?? raw?.chatId ?? raw?.conversation_id;
+    if (id == null) return null;
+    // The API response embeds userA / userB; pick whichever matches targetUserId.
+    const userA = raw?.userA;
+    const userB = raw?.userB;
+    const peer = userA?.user_id === targetUserId ? userA
+               : userB?.user_id === targetUserId ? userB
+               : null;
+    return {
+      chatId: String(id),
+      peerName: peer?.name ?? '',
+      peerAvatarUrl: peer?.image ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Loads messages; unwraps `{ messages, pagination }` from `responseObject`. */
 export async function fetchHopenityChatMessages(
   chatId: string | number,

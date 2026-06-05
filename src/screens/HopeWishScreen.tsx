@@ -23,7 +23,9 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -42,8 +44,18 @@ import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
 import {
+  formatBookingCardMessage,
+  scheduleBookingNotifications,
+} from '../services/bookingNotifications';
+import {
+  getOrCreatePeerChat,
+  sendHopenityChatMessage,
+} from '../services/chatService';
+import { setBookingForChat } from '../services/bookingChatMap';
+import {
   submitHopeWishOrder,
   fetchCreatorWishInfo,
+  createWalletTopupCheckout,
   WISH_TYPE_LABELS,
   WISH_TYPE_EMOJI,
   TONE_LABELS,
@@ -55,6 +67,7 @@ import {
   type VideoLength,
 } from '../services/hopeWishService';
 import { Toast } from '../components/Toast';
+import { PaymentWebViewModal } from '../components/PaymentWebViewModal';
 import { DatePickerSheet } from '../components/DatePickerSheet';
 import { currencyForCountry, convertFromUSD } from '../utils/currency';
 
@@ -270,9 +283,17 @@ export default function HopeWishScreen({ navigation, route }: Props) {
     [profile?.country],
   );
 
-  const [loading, setLoading]     = useState(true);
+  const [loading, setLoading]       = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [topping, setTopping]       = useState(false);
   const [wishPrice, setWishPrice]   = useState<number | null>(null); // stored as USD
+  const [paymentSheet, setPaymentSheet] = useState<{
+    checkoutUrl: string;
+    amountDisplay: string;
+    returnUrlPrefix: string | null;
+  } | null>(null);
+  const [webViewUrl, setWebViewUrl] = useState<string | null>(null);
+  const [webViewReturnUrlPrefix, setWebViewReturnUrlPrefix] = useState<string | null>(null);
 
   // Derived local-currency price for display
   const wishPriceLocal = useMemo(
@@ -303,6 +324,8 @@ export default function HopeWishScreen({ navigation, route }: Props) {
             [{ text: 'OK', onPress: () => navigation.goBack() }],
           );
         }
+        // Default delivery date to 7 days from now
+        setDeliveryAt(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
       })
       .finally(() => setLoading(false));
   }, [targetUserId, targetName]);
@@ -317,7 +340,7 @@ export default function HopeWishScreen({ navigation, route }: Props) {
     !!wishType &&
     !!tone &&
     !!videoLength &&
-    instructions.trim().length > 20;
+    instructions.trim().length > 0;
 
   const handleSubmit = async () => {
     if (!token || !wishType || !tone || !videoLength) return;
@@ -341,16 +364,72 @@ export default function HopeWishScreen({ navigation, route }: Props) {
 
     setSubmitting(false);
 
-    if (!result) {
-      Toast.error('Could not send request. Please try again.');
+    if (result.ok) {
+      const scheduledAtIso = deliveryAt?.toISOString()
+        ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      // Schedule delivery reminder (best-effort)
+      scheduleBookingNotifications({
+        bookingId: result.bookingId,
+        isHopeWish: true,
+        scheduledAt: scheduledAtIso,
+        durationMinutes: videoLength ?? 60,
+        peerName: targetName,
+      });
+
+      // Open or create the booking chat
+      const rawChatId = result.chatThreadId
+        ? String(result.chatThreadId)
+        : await getOrCreatePeerChat(targetUserId, token);
+
+      if (rawChatId) {
+        // Persist chat→booking link so InboxScreen can restore booking context
+        // even when the user navigates to the chat from the home screen later.
+        setBookingForChat(rawChatId, result.bookingId);
+
+        // Send booking confirmation card to the chat
+        const card = formatBookingCardMessage({
+          bookingId: result.bookingId,
+          isHopeWish: true,
+          scheduledAt: scheduledAtIso,
+          durationMinutes: videoLength ?? 60,
+          totalAmount: result.totalAmount,
+          peerName: targetName,
+        });
+        sendHopenityChatMessage(rawChatId, card, token).catch(() => {});
+
+        navigation.replace('Inbox', {
+          conversationId: rawChatId,
+          displayName: targetName,
+          avatarUrl: targetAvatar ?? null,
+          bookingId: result.bookingId,
+          messagingEnabled: true,
+        });
+      } else {
+        navigation.goBack();
+      }
       return;
     }
 
-    Alert.alert(
-      '🌟 Hope Wish sent!',
-      `Your video request has been sent to ${targetName}. They'll record it within 7 days.`,
-      [{ text: 'OK', onPress: () => navigation.goBack() }],
-    );
+    if (result.insufficientBalance) {
+      const requiredUSD = result.requiredUSD ?? wishPrice ?? 0;
+      const amountDisplay = convertFromUSD(requiredUSD, viewerCurrency).display;
+      setTopping(true);
+      const checkout = await createWalletTopupCheckout(requiredUSD, token);
+      setTopping(false);
+      if (checkout) {
+        setPaymentSheet({
+          checkoutUrl: checkout.checkoutUrl,
+          amountDisplay,
+          returnUrlPrefix: checkout.returnUrlPrefix,
+        });
+      } else {
+        Toast.error('Could not load payment page. Please try again.');
+      }
+      return;
+    }
+
+    Toast.error(result.message ?? 'Could not send request. Please try again.');
   };
 
   if (loading) {
@@ -553,12 +632,12 @@ export default function HopeWishScreen({ navigation, route }: Props) {
       {/* Confirm & Pay */}
       <View style={s.footer}>
         <TouchableOpacity
-          style={[s.confirmBtn, (!canSubmit || submitting) && s.confirmBtnDisabled]}
+          style={[s.confirmBtn, (!canSubmit || submitting || topping) && s.confirmBtnDisabled]}
           onPress={handleSubmit}
-          disabled={!canSubmit || submitting}
+          disabled={!canSubmit || submitting || topping}
           activeOpacity={0.85}
         >
-          {submitting ? (
+          {(submitting || topping) ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (
             <>
@@ -570,6 +649,62 @@ export default function HopeWishScreen({ navigation, route }: Props) {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* ── In-app payment WebView ── */}
+      <PaymentWebViewModal
+        visible={!!webViewUrl}
+        url={webViewUrl}
+        title="Top Up Wallet"
+        matchUrlPrefix={webViewReturnUrlPrefix}
+        onClose={() => { setWebViewUrl(null); setWebViewReturnUrlPrefix(null); }}
+        onPaymentComplete={() => {
+          setWebViewUrl(null);
+          setWebViewReturnUrlPrefix(null);
+          Toast.success('Payment complete! You can now retry your Hope Wish.');
+        }}
+      />
+
+      {/* ── Insufficient-balance payment sheet ── */}
+      <Modal
+        visible={!!paymentSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPaymentSheet(null)}
+      >
+        <Pressable style={s.payBackdrop} onPress={() => setPaymentSheet(null)} />
+        <View style={s.paySheet}>
+          <View style={s.payHandle} />
+          <Text style={s.payTitle}>Top Up Wallet</Text>
+          <Text style={s.payBody}>
+            Your wallet balance is insufficient for this Hope Wish.{'\n'}
+            You need at least{' '}
+            <Text style={{ fontWeight: '700', color: colorss.primary }}>
+              {paymentSheet?.amountDisplay}
+            </Text>{' '}
+            to complete this order.
+          </Text>
+          <TouchableOpacity
+            style={s.payBtn}
+            activeOpacity={0.85}
+            onPress={() => {
+              if (paymentSheet?.checkoutUrl) {
+                setWebViewUrl(paymentSheet.checkoutUrl);
+                setWebViewReturnUrlPrefix(paymentSheet.returnUrlPrefix);
+              }
+              setPaymentSheet(null);
+            }}
+          >
+            <Text style={s.payBtnText}>Recharge Wallet · {paymentSheet?.amountDisplay}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.payCancelBtn}
+            activeOpacity={0.7}
+            onPress={() => setPaymentSheet(null)}
+          >
+            <Text style={s.payCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -642,4 +777,27 @@ const s = StyleSheet.create({
   },
   confirmBtnDisabled: { opacity: 0.45 },
   confirmBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // Payment sheet
+  payBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  paySheet: {
+    backgroundColor: colorss.white,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12, shadowRadius: 16, elevation: 16,
+  },
+  payHandle: {
+    width: 40, height: 4, borderRadius: 2, backgroundColor: colorss.border,
+    alignSelf: 'center', marginTop: 10, marginBottom: 16,
+  },
+  payTitle: { fontSize: 18, fontWeight: '700', color: colorss.textPrimary, marginBottom: 10 },
+  payBody: { fontSize: 14, color: colorss.textSecondary, lineHeight: 21, marginBottom: 24 },
+  payBtn: {
+    backgroundColor: colorss.primary, borderRadius: 12,
+    paddingVertical: 15, alignItems: 'center', marginBottom: 10,
+  },
+  payBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  payCancelBtn: { alignItems: 'center', paddingVertical: 12 },
+  payCancelText: { color: colorss.textSecondary, fontSize: 14 },
 });

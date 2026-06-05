@@ -38,6 +38,7 @@ export type CallBooking = {
   callerNote: string | null;
   noteAccepted: boolean;
   messagingEnabled: boolean;
+  callType?: 'single' | 'group';
 };
 
 function bearer(token: string) {
@@ -98,7 +99,7 @@ export async function savePremiumProfile(
 }
 
 export type BookingResult =
-  | { ok: true;  bookingId: number; totalAmount: number }
+  | { ok: true;  bookingId: number; totalAmount: number; chatThreadId: number | null }
   | { ok: false; status: number; message: string | null; insufficientBalance: boolean; requiredUSD: number | null };
 
 export async function createBooking(payload: {
@@ -119,7 +120,13 @@ export async function createBooking(payload: {
     });
     const json = await res.json().catch(() => null);
     if (res.ok && json?.responseObject) {
-      return { ok: true, ...json.responseObject };
+      const obj = json.responseObject;
+      return {
+        ok: true,
+        bookingId: obj.id ?? obj.bookingId,
+        totalAmount: obj.totalAmount ?? 0,
+        chatThreadId: obj.chatThreadId ?? null,
+      };
     }
     const message: string | null = json?.message ?? null;
     const lower = (message ?? '').toLowerCase();
@@ -135,8 +142,13 @@ export async function createBooking(payload: {
   }
 }
 
-/** Create a hosted-payment checkout URL to top up the wallet by `amountUSD`. */
-export async function createWalletTopupCheckout(amountUSD: number, token: string): Promise<string | null> {
+/** Create a hosted-payment checkout to top up the wallet by `amountUSD`.
+ *  Returns both the checkout URL and the return URL prefix used to detect
+ *  payment completion in the WebView (matching Hopenity's flow). */
+export async function createWalletTopupCheckout(
+  amountUSD: number,
+  token: string,
+): Promise<{ checkoutUrl: string; returnUrlPrefix: string | null } | null> {
   try {
     const res = await fetch(`${BASE.replace('/premium-calls', '')}/wallet/topup/checkout`, {
       method: 'POST',
@@ -144,7 +156,12 @@ export async function createWalletTopupCheckout(amountUSD: number, token: string
       body: JSON.stringify({ amount: amountUSD }),
     });
     const json = await res.json().catch(() => null);
-    return json?.responseObject?.checkoutUrl ?? null;
+    const checkoutUrl: string | null = json?.responseObject?.checkoutUrl ?? null;
+    if (!checkoutUrl) return null;
+    return {
+      checkoutUrl,
+      returnUrlPrefix: json?.responseObject?.returnUrlPrefix ?? null,
+    };
   } catch {
     return null;
   }
@@ -180,9 +197,52 @@ export async function fetchAvailableSlots(userId: string, date: string): Promise
   }
 }
 
+/** Toggle whether the booking's chat thread has messaging enabled.
+ *  The creator (callee) can disable/re-enable the caller's ability to message. */
+export async function toggleBookingMessaging(
+  bookingId: number,
+  enabled: boolean,
+  token: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/bookings/${bookingId}/messaging`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: bearer(token) },
+      body: JSON.stringify({ enabled }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function completeBooking(bookingId: number, token: string): Promise<boolean> {
   try {
     const res = await fetch(`${BASE}/bookings/${bookingId}/complete`, {
+      method: 'PATCH',
+      headers: { Authorization: bearer(token) },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function confirmBooking(bookingId: number, token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/bookings/${bookingId}/confirm`, {
+      method: 'PATCH',
+      headers: { Authorization: bearer(token) },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function rejectBooking(bookingId: number, token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/bookings/${bookingId}/reject`, {
       method: 'PATCH',
       headers: { Authorization: bearer(token) },
     });

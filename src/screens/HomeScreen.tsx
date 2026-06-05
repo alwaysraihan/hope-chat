@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Image,
   View,
   Text,
   FlatList,
@@ -21,7 +22,7 @@ import {
 } from '../types/navigators';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { BellOff, PlayCircle } from 'lucide-react-native';
+import { ChevronRight, PlayCircle } from 'lucide-react-native';
 import { useChats } from '../context/ChatsContext';
 import type { ConversationSummary } from '../context/ChatsContext';
 import { useFocusEffect } from '@react-navigation/native';
@@ -37,6 +38,8 @@ import {
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
 import { useT } from '../hooks/useT';
+import { IC_HOPENITY } from '../assets';
+import { fetchMyBookings } from '../services/premiumCallService';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import {
@@ -67,11 +70,28 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { conversations, reloadConversations, listLoading, pendingRequestCount } =
     useChats();
 
+  // ── Active booking banner ─────────────────────────────────────────────────
+  const [activeBookingCount, setActiveBookingCount] = useState(0);
+
   useFocusEffect(
     useCallback(() => {
       reloadConversations().catch(() => undefined);
+
+      // Fetch active bookings (both as caller and callee) in the background.
+      if (!token) return undefined;
+      const ACTIVE = new Set(['PENDING', 'CONFIRMED', 'IN_CALL']);
+      Promise.all([
+        fetchMyBookings('caller', token).catch(() => []),
+        fetchMyBookings('callee', token).catch(() => []),
+      ]).then(([booked, received]) => {
+        const count =
+          booked.filter(b => ACTIVE.has(b.status)).length +
+          received.filter(b => ACTIVE.has(b.status)).length;
+        setActiveBookingCount(count);
+      });
+
       return undefined;
-    }, [reloadConversations]),
+    }, [reloadConversations, token]),
   );
 
   const directChats = useMemo(() => {
@@ -277,6 +297,26 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const ListHeader = useCallback(
     () => (
       <>
+        {/* ── Active booking banner ── */}
+        {activeBookingCount > 0 ? (
+          <TouchableOpacity
+            style={styles.bookingBanner}
+            onPress={() => navigation.navigate('MyBookings')}
+            activeOpacity={0.85}
+          >
+            <Image source={IC_HOPENITY} style={styles.bookingLogo} resizeMode="contain" />
+            <View style={styles.bookingBannerText}>
+              <Text style={styles.bookingBannerTitle}>Your Booking</Text>
+              <Text style={styles.bookingBannerSub}>
+                {activeBookingCount === 1
+                  ? '1 active booking'
+                  : `${activeBookingCount} active bookings`}
+              </Text>
+            </View>
+            <ChevronRight size={18} color={colorss.primary} />
+          </TouchableOpacity>
+        ) : null}
+
         {showStoryStrips ? (
           <>
             {activePeers.length > 0 ? (
@@ -353,6 +393,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       </>
     ),
     [
+      activeBookingCount,
       activePeers,
       friendsStrip,
       navigateInbox,
@@ -406,6 +447,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colorss.white,
   },
+  // Booking banner
+  bookingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 6,
+    backgroundColor: `${colorss.primary}0E`,
+    borderWidth: 1,
+    borderColor: `${colorss.primary}30`,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  bookingLogo: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+  },
+  bookingBannerText: {
+    flex: 1,
+  },
+  bookingBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colorss.textPrimary,
+  },
+  bookingBannerSub: {
+    fontSize: 12,
+    color: colorss.textSecondary,
+    marginTop: 2,
+  },
+
   storySection: {
     paddingBottom: 4,
   },

@@ -18,6 +18,7 @@ import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
+  CalendarDays,
   ChevronDown,
   LucideArchive,
   LucideGlobe,
@@ -108,6 +109,12 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
       title: 'Premium Calls',
       icon: <Phone size={20} color={colors.primary} />,
       onPress: () => navigation.navigate('PremiumCallSetup'),
+    },
+    {
+      id: 'my-bookings',
+      title: 'My Bookings',
+      icon: <CalendarDays size={20} color={colors.primary} />,
+      onPress: () => navigation.navigate('MyBookings'),
     },
   ];
 

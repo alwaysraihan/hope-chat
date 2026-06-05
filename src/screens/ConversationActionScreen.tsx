@@ -13,6 +13,8 @@ import {
   BellOff,
   LogOut,
   LucidePin,
+  MessageSquareOff,
+  MessageSquare,
   PinOff,
   Tag,
   Trash,
@@ -31,6 +33,7 @@ import {
   patchConversationMute,
   patchConversationPin,
 } from '../services/userSettingsService';
+import { toggleBookingMessaging } from '../services/premiumCallService';
 import { leaveGroup } from '../services/groupService';
 import { useChats } from '../context/ChatsContext';
 import {
@@ -71,6 +74,9 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
     isGroup,
     isMuted: initialMuted = false,
     isPinned: initialPinned = false,
+    bookingId,
+    messagingEnabled: initialMessagingEnabled = true,
+    isBookingCallee = false,
   } = route.params;
 
   const token = useAppSelector(selectAuthToken);
@@ -79,6 +85,7 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
   const [busy, setBusy] = useState<string | null>(null);
   const [muted, setMuted] = useState(initialMuted);
   const [pinned, setPinned] = useState(initialPinned);
+  const [messagingEnabled, setMessagingEnabled] = useState(initialMessagingEnabled);
 
   const removeConversationLocally = () => {
     // Add to persistent hidden list so it never re-appears from cache or server reload.
@@ -182,6 +189,19 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
     ]);
   };
 
+  const handleToggleMessaging = async () => {
+    if (!token || !bookingId) return;
+    setBusy('messaging');
+    const next = !messagingEnabled;
+    const ok = await toggleBookingMessaging(bookingId, next, token);
+    setBusy(null);
+    if (ok) {
+      setMessagingEnabled(next);
+    } else {
+      Alert.alert('Error', 'Could not update messaging settings. Try again.');
+    }
+  };
+
   const handleDelete = () => {
     if (!token) return;
     Alert.alert(
@@ -263,6 +283,17 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
       onPress: handleLeave,
       destructive: true,
       show: !!isGroup,
+    },
+    {
+      id: 'messaging',
+      title: messagingEnabled ? 'Disable messaging' : 'Enable messaging',
+      icon: busy === 'messaging'
+        ? <ActivityIndicator size="small" color={colorss.primary} />
+        : messagingEnabled
+          ? <MessageSquareOff size={22} color={colorss.primary} />
+          : <MessageSquare size={22} color={colorss.primary} />,
+      onPress: handleToggleMessaging,
+      show: !!bookingId && isBookingCallee,
     },
     {
       id: 'delete',

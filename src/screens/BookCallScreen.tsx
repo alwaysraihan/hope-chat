@@ -24,7 +24,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -59,7 +58,17 @@ import {
   createWalletTopupCheckout,
   type PremiumCallProfile,
 } from '../services/premiumCallService';
+import {
+  formatBookingCardMessage,
+  scheduleBookingNotifications,
+} from '../services/bookingNotifications';
+import {
+  getOrCreatePeerChat,
+  sendHopenityChatMessage,
+} from '../services/chatService';
+import { setBookingForChat } from '../services/bookingChatMap';
 import { Toast } from '../components/Toast';
+import { PaymentWebViewModal } from '../components/PaymentWebViewModal';
 import { DatePickerSheet } from '../components/DatePickerSheet';
 import {
   getDeviceTimezone,
@@ -320,8 +329,12 @@ export default function BookCallScreen({ navigation, route }: Props) {
   const [paymentSheet, setPaymentSheet] = useState<{
     checkoutUrl: string;
     amountDisplay: string;
+    returnUrlPrefix: string | null;
   } | null>(null);
   const [topping, setTopping] = useState(false);
+  const [webViewUrl, setWebViewUrl] = useState<string | null>(null);
+  const [webViewReturnUrlPrefix, setWebViewReturnUrlPrefix] = useState<string | null>(null);
+  const autoSelectedRef = useRef(false);
   // Date the user is hovering over inside the DatePickerSheet (not yet confirmed).
   // Drives availableSlots so slots load as soon as a day is tapped in the sheet.
   const [sheetPickedDate, setSheetPickedDate] = useState<Date | null>(null);
@@ -467,6 +480,32 @@ export default function BookCallScreen({ navigation, route }: Props) {
     return false;
   }, [profile, todayMidnight, maxBookingDate, creatorTz, viewerTz]);
 
+  // ── Auto-select first available duration and date when profile loads ────────
+  useEffect(() => {
+    if (!profile || autoSelectedRef.current) return;
+    autoSelectedRef.current = true;
+
+    // Pick the first duration that has a price configured
+    const priceMap: Record<number, number | null | undefined> = {
+      5: profile.price5min, 15: profile.price10min,
+      30: profile.price30min, 60: profile.price60min,
+    };
+    const firstOpt = DURATION_OPTIONS.find(opt => (priceMap[opt.minutes] ?? null) != null);
+    if (firstOpt) setSelectedDuration(firstOpt.minutes);
+
+    // Pick the first date in the next 7 days that passes isDateAvailable
+    const base = new Date();
+    for (let i = 0; i <= 7; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+      if (isDateAvailable(d.getFullYear(), d.getMonth(), d.getDate())) {
+        setCalendarYear(d.getFullYear());
+        setCalendarMonth(d.getMonth());
+        setSelectedDay(d.getDate());
+        break;
+      }
+    }
+  }, [profile, isDateAvailable]);
+
   const canBook =
     !!selectedDuration &&
     !!selectedDate &&
@@ -494,24 +533,61 @@ export default function BookCallScreen({ navigation, route }: Props) {
     setBooking(false);
 
     if (result.ok) {
-      Alert.alert(
-        '📞 Call booked!',
-        `Your call with ${targetName} is scheduled for ${formatDate(selectedDate)} at ${fmt12(selectedTime!)} (${formatTimezoneLabel(viewerTz)}).`,
-        [{ text: 'OK', onPress: () => navigation.goBack() }],
-      );
+      const scheduledAtIso = d.toISOString();
+
+      // Schedule pre-meeting reminders (best-effort)
+      scheduleBookingNotifications({
+        bookingId: result.bookingId,
+        isHopeWish: false,
+        scheduledAt: scheduledAtIso,
+        durationMinutes: selectedDuration,
+        peerName: targetName,
+      });
+
+      // Open or create the booking chat
+      const rawChatId = result.chatThreadId
+        ? String(result.chatThreadId)
+        : await getOrCreatePeerChat(targetUserId, token);
+
+      if (rawChatId) {
+        // Persist chat→booking link so InboxScreen can restore booking context
+        // even when the user navigates to the chat from the home screen later.
+        setBookingForChat(rawChatId, result.bookingId);
+
+        // Send booking confirmation card to the chat
+        const card = formatBookingCardMessage({
+          bookingId: result.bookingId,
+          isHopeWish: false,
+          scheduledAt: scheduledAtIso,
+          durationMinutes: selectedDuration,
+          totalAmount: result.totalAmount,
+          peerName: targetName,
+        });
+        sendHopenityChatMessage(rawChatId, card, token).catch(() => {});
+
+        navigation.replace('Inbox', {
+          conversationId: rawChatId,
+          displayName: targetName,
+          avatarUrl: targetAvatar ?? null,
+          bookingId: result.bookingId,
+          messagingEnabled: true,
+          isGroupBooking: callType === 'group',
+        });
+      } else {
+        navigation.goBack();
+      }
       return;
     }
 
     // ── Insufficient balance — show top-up sheet ──────────────────────────
     if (result.insufficientBalance) {
       setTopping(true);
-      // Required amount: what the API says, or fall back to session price.
       const requiredUSD = result.requiredUSD ?? totalPriceUSD ?? 0;
-      const amountDisplay = totalPrice?.display ?? `$${requiredUSD.toFixed(2)}`;
-      const url = await createWalletTopupCheckout(requiredUSD, token);
+      const amountDisplay = convertFromUSD(requiredUSD, viewerCurrency).display;
+      const checkout = await createWalletTopupCheckout(requiredUSD, token);
       setTopping(false);
-      if (url) {
-        setPaymentSheet({ checkoutUrl: url, amountDisplay });
+      if (checkout) {
+        setPaymentSheet({ checkoutUrl: checkout.checkoutUrl, amountDisplay, returnUrlPrefix: checkout.returnUrlPrefix });
       } else {
         Toast.error('Could not open payment. Please top up your wallet from the app settings.');
       }
@@ -726,6 +802,7 @@ export default function BookCallScreen({ navigation, route }: Props) {
 
         <DatePickerSheet
           visible={dateSheetOpen}
+          initialDate={selectedDate}
           onClose={() => { setDateSheetOpen(false); setSheetPickedDate(null); }}
           onConfirm={({ date, time }) => {
             setCalendarYear(date.getFullYear());
@@ -805,6 +882,20 @@ export default function BookCallScreen({ navigation, route }: Props) {
         </TouchableOpacity>
       </View>
 
+      {/* ── In-app payment WebView ───────────────────────────────────── */}
+      <PaymentWebViewModal
+        visible={!!webViewUrl}
+        url={webViewUrl}
+        title="Top Up Wallet"
+        matchUrlPrefix={webViewReturnUrlPrefix}
+        onClose={() => { setWebViewUrl(null); setWebViewReturnUrlPrefix(null); }}
+        onPaymentComplete={() => {
+          setWebViewUrl(null);
+          setWebViewReturnUrlPrefix(null);
+          Toast.success('Payment complete! You can now retry booking.');
+        }}
+      />
+
       {/* ── Insufficient balance — top-up payment sheet ───────────────── */}
       <Modal
         transparent
@@ -841,9 +932,8 @@ export default function BookCallScreen({ navigation, route }: Props) {
               <TouchableOpacity
                 style={s.payBtn}
                 onPress={() => {
-                  Linking.openURL(paymentSheet.checkoutUrl).catch(() =>
-                    Toast.error('Could not open payment page.'),
-                  );
+                  setWebViewUrl(paymentSheet.checkoutUrl);
+                  setWebViewReturnUrlPrefix(paymentSheet.returnUrlPrefix);
                   setPaymentSheet(null);
                 }}
                 activeOpacity={0.85}

@@ -20,6 +20,7 @@ import GroupInfoScreen from '../screens/GroupInfoScreen';
 import AddGroupMembersScreen from '../screens/AddGroupMembersScreen';
 import JoinGroupScreen from '../screens/JoinGroupScreen';
 import PremiumCallSetupScreen from '../screens/PremiumCallSetupScreen';
+import MyBookingsScreen from '../screens/MyBookingsScreen';
 import BookCallScreen from '../screens/BookCallScreen';
 import HopeWishScreen from '../screens/HopeWishScreen';
 import ReadReceiptsScreen from '../screens/ReadReceiptsScreen';
@@ -89,6 +90,7 @@ const StackNavigator = () => {
       <RootStack.Screen name="AddGroupMembers" component={AddGroupMembersScreen} />
       <RootStack.Screen name="JoinGroup" component={JoinGroupScreen} options={{ headerShown: false }} />
       <RootStack.Screen name="PremiumCallSetup" component={PremiumCallSetupScreen} options={{ headerShown: false }} />
+      <RootStack.Screen name="MyBookings" component={MyBookingsScreen} options={{ headerShown: false }} />
       <RootStack.Screen name="BookCall" component={BookCallScreen} options={{ headerShown: false }} />
       <RootStack.Screen name="HopeWish" component={HopeWishScreen} options={{ headerShown: false }} />
       <RootStack.Screen name="ReadReceipts" component={ReadReceiptsScreen} />

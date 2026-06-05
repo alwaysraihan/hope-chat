@@ -31,6 +31,8 @@ import type { ConversationSummary } from '../context/ChatsContext';
 import { useChats } from '../context/ChatsContext';
 import type { ExtendedMessage } from '../components/types/chat';
 import { acceptHopenityChatRequest } from '../services/chatService';
+import { fetchMyBookings } from '../services/premiumCallService';
+import { getBookingForChat } from '../services/bookingChatMap';
 import {
   selectAuthToken,
   selectHopenityProfile,
@@ -62,6 +64,14 @@ const InboxScreenInner: React.FC<
   const [needsAcceptance, setNeedsAcceptance] = useState(
     !!conversation.needsAcceptance,
   );
+  // Booking-linked chat: track whether messaging is allowed.
+  // Re-synced on every focus so admin toggles from ConversationAction are reflected.
+  const [bookingMessagingEnabled, setBookingMessagingEnabled] = useState(
+    route.params.messagingEnabled ?? true,
+  );
+  // True when the current user is the callee (creator) on the linked booking.
+  // Only the callee can toggle messaging — caller should not see the action.
+  const [isBookingCallee, setIsBookingCallee] = useState(false);
   // True when the local user sent the initial request and the other side
   // hasn't accepted yet.  We restrict to 1 outgoing message before acceptance
   // to prevent spam and match the "single intro message" UX pattern.
@@ -70,6 +80,34 @@ const InboxScreenInner: React.FC<
   useEffect(() => {
     setNeedsAcceptance(!!conversation.needsAcceptance);
   }, [conversation.needsAcceptance]);
+
+  // Re-check booking messagingEnabled each time we return to this screen so
+  // that an admin toggle in ConversationActionScreen is reflected immediately.
+  // Also determine whether this user is the callee so we can conditionally
+  // show the messaging toggle in ConversationAction.
+  //
+  // bookingId may be absent when the user navigates here from the home screen
+  // after a session restart. Fall back to the MMKV-persisted mapping that was
+  // written when the booking was first made.
+  const resolvedBookingId = route.params.bookingId
+    ?? getBookingForChat(conversation.id);
+
+  useFocusEffect(
+    useCallback(() => {
+      const bookingId = resolvedBookingId;
+      if (!bookingId || !token) return undefined;
+      Promise.all([
+        fetchMyBookings('caller', token).catch(() => []),
+        fetchMyBookings('callee', token).catch(() => []),
+      ]).then(([booked, received]) => {
+        const asCallee = received.find(b => b.id === bookingId);
+        const booking = asCallee ?? booked.find(b => b.id === bookingId);
+        if (booking != null) setBookingMessagingEnabled(booking.messagingEnabled);
+        setIsBookingCallee(!!asCallee);
+      });
+      return undefined;
+    }, [resolvedBookingId, token]),
+  );
 
   const handleAcceptRequest = useCallback(async () => {
     if (!token || acceptBusy) return;
@@ -345,7 +383,8 @@ const InboxScreenInner: React.FC<
         // Calls are blocked on REQUESTED conversations (both directions) —
         // the chat must be accepted before voice/video calls are allowed.
         onAudioCall={needsAcceptance || isSentRequest ? undefined : () => {
-          if (conversation.isGroup) {
+          const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
+          if (isGroupDispatch) {
             if (token) {
               notifyGroupCall({
                 groupId: conversation.id,
@@ -370,11 +409,12 @@ const InboxScreenInner: React.FC<
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
             callDirection: 'outgoing',
-            isGroupCall: conversation.isGroup,
+            isGroupCall: isGroupDispatch,
           });
         }}
         onVideoCall={needsAcceptance || isSentRequest ? undefined : () => {
-          if (conversation.isGroup) {
+          const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
+          if (isGroupDispatch) {
             if (token) {
               notifyGroupCall({
                 groupId: conversation.id,
@@ -399,7 +439,7 @@ const InboxScreenInner: React.FC<
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
             callDirection: 'outgoing',
-            isGroupCall: conversation.isGroup,
+            isGroupCall: isGroupDispatch,
           });
         }}
         onMorePress={() =>
@@ -410,6 +450,9 @@ const InboxScreenInner: React.FC<
             peerUserId: conversation.peerUserId ?? undefined,
             isPinned: !!conversation.pinned,
             isMuted: !!conversation.isMuted,
+            bookingId: resolvedBookingId,
+            messagingEnabled: bookingMessagingEnabled,
+            isBookingCallee,
           })
         }
       />
@@ -462,7 +505,15 @@ const InboxScreenInner: React.FC<
           </View>
         ) : null;
 
-        const inputLocked = needsAcceptance || sentRequestLocked;
+        const messagingRestrictedBanner = !bookingMessagingEnabled ? (
+          <View style={acceptStyles.banner}>
+            <Text style={acceptStyles.bannerText}>
+              🚫 Messaging has been restricted for this booking.
+            </Text>
+          </View>
+        ) : null;
+
+        const inputLocked = needsAcceptance || sentRequestLocked || !bookingMessagingEnabled;
 
         const mainChat = (
           <GiftedChat
@@ -471,7 +522,9 @@ const InboxScreenInner: React.FC<
                 ? 'Accept the request above to reply…'
                 : sentRequestLocked
                   ? 'Waiting for acceptance…'
-                  : 'Type here…'
+                  : !bookingMessagingEnabled
+                    ? 'Messaging restricted for this booking…'
+                    : 'Type here…'
             }
             textInputProps={{ editable: !inputLocked }}
             messages={messages as unknown as IMessage[]}
@@ -522,6 +575,7 @@ const InboxScreenInner: React.FC<
             >
               {requestBanner}
               {sentRequestBanner}
+              {messagingRestrictedBanner}
               {mainChat}
             </View>
           </ImageBackground>
@@ -529,6 +583,7 @@ const InboxScreenInner: React.FC<
           <View style={{ flex: 1, backgroundColor: colorss.background }}>
             {requestBanner}
             {sentRequestBanner}
+            {messagingRestrictedBanner}
             {mainChat}
           </View>
         );

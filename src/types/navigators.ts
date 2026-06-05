@@ -37,6 +37,12 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     liveKitRoom?: string;
     /** When opened from Requests (chat not yet in ACTIVE inbox cache). */
     seedConversation?: ConversationSummary;
+    /** Present when the chat was opened from a booking — enables booking controls. */
+    bookingId?: number;
+    /** Current messagingEnabled state for the linked booking. */
+    messagingEnabled?: boolean;
+    /** True when the booking was made with callType='group' — changes call notification dispatch. */
+    isGroupBooking?: boolean;
   };
   Profile: {
     /** conversation ID (same as ConversationSummary.id) */
@@ -51,6 +57,11 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     isPinned?: boolean;
     peerUserId?: string;
     isArchived?: boolean;
+    /** When this chat was created from a booking, used for messaging toggle. */
+    bookingId?: number;
+    messagingEnabled?: boolean;
+    /** True when the current user is the callee — only they can toggle messaging. */
+    isBookingCallee?: boolean;
   };
   EditSearchHistory: undefined;
   Archive: undefined;
@@ -89,6 +100,7 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   };
   JoinGroup: { inviteCode: string };
   PremiumCallSetup: undefined;
+  MyBookings: undefined;
   BookCall: {
     targetUserId: string;
     targetName: string;

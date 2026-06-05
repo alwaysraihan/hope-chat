@@ -81,6 +81,12 @@ interface Props {
    * Parent should update the `availableSlots` prop in response.
    */
   onDayChange?: (date: Date) => void;
+  /**
+   * Pre-selected date to show when the sheet opens. If provided the sheet
+   * initialises with this day already highlighted so time slots are visible
+   * immediately without requiring the user to tap the already-selected date.
+   */
+  initialDate?: Date | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -97,6 +103,7 @@ export function DatePickerSheet({
   confirmLabel = 'Confirm',
   maxDate,
   onDayChange,
+  initialDate,
 }: Props) {
   const slideAnim = useRef(new Animated.Value(600)).current;
 
@@ -108,17 +115,20 @@ export function DatePickerSheet({
   const [pickedDay, setPickedDay]   = useState<number | null>(null);
   const [pickedTime, setPickedTime] = useState<string | null>(null);
 
-  // Reset when sheet opens
+  // Restore pre-selected date when sheet opens so time slots are visible
+  // immediately without requiring the user to tap the already-selected date.
   useEffect(() => {
     if (visible) {
-      setMonth(today.getMonth());
-      setYear(today.getFullYear());
-      setPickedDay(null);
+      const base = initialDate ?? today;
+      setMonth(base.getMonth());
+      setYear(base.getFullYear());
+      setPickedDay(initialDate ? initialDate.getDate() : null);
       setPickedTime(null);
       Animated.spring(slideAnim, { toValue: 0, tension: 65, friction: 12, useNativeDriver: true }).start();
     } else {
       Animated.timing(slideAnim, { toValue: 600, duration: 260, useNativeDriver: true }).start();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   const prevMonth = useCallback(() => {

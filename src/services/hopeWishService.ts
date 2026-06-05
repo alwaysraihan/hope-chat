@@ -11,8 +11,9 @@
  *  • The caller does NOT need to be verified — only the creator does.
  */
 
-import { API_BASE_URL } from '../config/env';
-import { createBooking, fetchUserPremiumProfile, type PremiumCallProfile } from './premiumCallService';
+import { createBooking, fetchUserPremiumProfile } from './premiumCallService';
+export { createWalletTopupCheckout } from './premiumCallService';
+export type { BookingResult } from './premiumCallService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -129,18 +130,13 @@ export async function fetchCreatorWishInfo(
 }
 
 /**
- * Submits a Hope Wish booking.
- *
- * Uses the same endpoint as premium-call bookings — the backend differentiates
- * via `isHopeWish: true` and `durationMinutes: 0`.
- *
- * The wish form data (recipient, type, tone, instructions) is encoded into
- * callerNote so the creator can read it in their booking details.
+ * Submits a Hope Wish booking. Returns a BookingResult so callers can inspect
+ * success, generic failure, or insufficient-balance to trigger top-up.
  */
 export async function submitHopeWishOrder(
   data: HopeWishFormData,
   token: string,
-): Promise<{ bookingId: number; totalAmount: number } | null> {
+) {
   return createBooking(
     {
       calleeId: data.creatorId,
