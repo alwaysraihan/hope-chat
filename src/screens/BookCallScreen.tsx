@@ -572,6 +572,16 @@ export default function BookCallScreen({ navigation, route }: Props) {
           bookingId: result.bookingId,
           messagingEnabled: true,
           isGroupBooking: callType === 'group',
+          seedConversation: {
+            id: rawChatId,
+            name: targetName,
+            preview: '',
+            time: '',
+            unreadCount: 0,
+            avatarUrl: targetAvatar ?? null,
+            peerUserId: targetUserId,
+            messages: [],
+          },
         });
       } else {
         navigation.goBack();

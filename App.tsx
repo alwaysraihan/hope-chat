@@ -77,7 +77,13 @@ function parseQs(qs: string | undefined, key: string): string | undefined {
   if (!qs) return undefined;
   const re = new RegExp(`(?:^|&)${key}=([^&]*)`);
   const m = qs.match(re);
-  return m?.[1] ? decodeURIComponent(m[1]) : undefined;
+  if (!m?.[1]) return undefined;
+  try {
+    // URLSearchParams encodes spaces as '+'; decodeURIComponent alone won't decode them.
+    return decodeURIComponent(m[1].replace(/\+/g, '%20'));
+  } catch {
+    return m[1].replace(/\+/g, ' ');
+  }
 }
 
 function handleDeepLinkUrl(url: string | null | undefined): void {

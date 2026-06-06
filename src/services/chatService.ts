@@ -259,11 +259,11 @@ export async function fetchHopenityChatDirectory(
   }
 
   // Merge v1 chats when fetching inbox (first page only).
-  // This fills the contacts list for NewGroupScreen and ensures all accepted
-  // conversations appear in the chat directory even before v2 migration.
+  // Skip merge in page mode — the page inbox must show only that page's conversations,
+  // not the personal user's v1 chats.
   const wantInbox = !params?.status || params.status === 'inbox';
   const wantRequested = params?.status === 'requested';
-  if (token && (wantInbox || wantRequested) && (params?.offset ?? 0) === 0) {
+  if (token && (wantInbox || wantRequested) && (params?.offset ?? 0) === 0 && !params?.pageId) {
     try {
       const v1Chats = await fetchV1ChatList(token);
 
@@ -493,8 +493,9 @@ export async function getOrCreatePeerChatWithInfo(
     // The API response embeds userA / userB; pick whichever matches targetUserId.
     const userA = raw?.userA;
     const userB = raw?.userB;
-    const peer = userA?.user_id === targetUserId ? userA
-               : userB?.user_id === targetUserId ? userB
+    const targetIdStr = String(targetUserId);
+    const peer = String(userA?.user_id ?? '') === targetIdStr ? userA
+               : String(userB?.user_id ?? '') === targetIdStr ? userB
                : null;
     return {
       chatId: String(id),

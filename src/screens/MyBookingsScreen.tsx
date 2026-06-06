@@ -338,13 +338,14 @@ export default function MyBookingsScreen({ navigation }: Props) {
 
   // ── Resolve or create the chat for a booking, returns chatId + peer info
   const resolveChatInfo = useCallback(async (booking: CallBooking, role: Tab) => {
-    const cached = getChatForBooking(booking.id);
-    if (cached) return { chatId: cached, peerName: undefined, peerAvatarUrl: undefined };
     const peerId = role === 'booked' ? booking.calleeId : booking.callerId;
+    const cached = getChatForBooking(booking.id);
+    // Always fetch peer info for fresh name/avatar — POST /api/v1/chats is idempotent.
     const info = await getOrCreatePeerChatWithInfo(peerId, token!);
     if (!info) return null;
-    setBookingForChat(info.chatId, booking.id);
-    return info;
+    const chatId = cached ?? info.chatId;
+    if (!cached) setBookingForChat(chatId, booking.id);
+    return { ...info, chatId };
   }, [token]);
 
   // ── Open chat

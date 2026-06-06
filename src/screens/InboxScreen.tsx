@@ -43,6 +43,7 @@ import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
 import { notifyGroupCall } from '../services/groupService';
 import { getEffectiveAppearance, getConvAppearance } from '../services/chatPrefs';
+import { Toast } from '../components/Toast';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
 import { selectActivePage } from '../redux/features/auth/authSlice';
@@ -382,7 +383,13 @@ const InboxScreenInner: React.FC<
         onBackPress={() => navigation.navigate('BottomTab', { screen: 'Home' })}
         // Calls are blocked on REQUESTED conversations (both directions) —
         // the chat must be accepted before voice/video calls are allowed.
+        // Booking callers (the person who booked) also cannot initiate calls —
+        // only the callee (expert) can call when the scheduled time arrives.
         onAudioCall={needsAcceptance || isSentRequest ? undefined : () => {
+          if (resolvedBookingId && !isBookingCallee) {
+            Toast.info("You can't call directly. The expert will call you at the scheduled time.");
+            return;
+          }
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
           if (isGroupDispatch) {
             if (token) {
@@ -413,6 +420,10 @@ const InboxScreenInner: React.FC<
           });
         }}
         onVideoCall={needsAcceptance || isSentRequest ? undefined : () => {
+          if (resolvedBookingId && !isBookingCallee) {
+            Toast.info("You can't call directly. The expert will call you at the scheduled time.");
+            return;
+          }
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
           if (isGroupDispatch) {
             if (token) {
