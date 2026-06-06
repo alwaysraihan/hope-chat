@@ -18,10 +18,14 @@ export type { BookingResult } from './premiumCallService';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type WishType =
-  | 'motivation_success'
-  | 'professional_development'
-  | 'inspirational_encouragement'
-  | 'creative_inspiration';
+  | 'happy_birthday'
+  | 'anniversary'
+  | 'graduation'
+  | 'congratulations'
+  | 'motivational_message'
+  | 'shoutout'
+  | 'holiday_greeting'
+  | 'get_well_soon';
 
 export type WishTone = 'formal' | 'friendly' | 'casual' | 'funny';
 
@@ -52,17 +56,25 @@ export type HopeWishCreatorInfo = {
 // ─── Display helpers ──────────────────────────────────────────────────────────
 
 export const WISH_TYPE_LABELS: Record<WishType, string> = {
-  motivation_success: 'Motivation & Success',
-  professional_development: 'Professional Development & Career',
-  inspirational_encouragement: 'Inspirational & Encouragement',
-  creative_inspiration: 'Creative Inspiration & Ideas',
+  happy_birthday: 'Happy Birthday',
+  anniversary: 'Anniversary',
+  graduation: 'Graduation',
+  congratulations: 'Congratulations',
+  motivational_message: 'Motivational Message',
+  shoutout: 'Shoutout / Fan Message',
+  holiday_greeting: 'Holiday Greeting',
+  get_well_soon: 'Get Well Soon',
 };
 
 export const WISH_TYPE_EMOJI: Record<WishType, string> = {
-  motivation_success: '🏆',
-  professional_development: '💼',
-  inspirational_encouragement: '💡',
-  creative_inspiration: '💭',
+  happy_birthday: '🎂',
+  anniversary: '💑',
+  graduation: '🎓',
+  congratulations: '🎉',
+  motivational_message: '💪',
+  shoutout: '📣',
+  holiday_greeting: '🎄',
+  get_well_soon: '💛',
 };
 
 export const TONE_LABELS: Record<WishTone, string> = {

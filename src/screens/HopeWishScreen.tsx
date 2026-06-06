@@ -24,7 +24,6 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,7 +32,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import FastImage from '@d11/react-native-fast-image';
 import { ArrowLeft, Calendar, CheckCircle, Clock, Globe, Lock } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -74,10 +73,14 @@ import { currencyForCountry, convertFromUSD } from '../utils/currency';
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'HopeWish'>;
 
 const WISH_TYPES: WishType[] = [
-  'motivation_success',
-  'professional_development',
-  'inspirational_encouragement',
-  'creative_inspiration',
+  'happy_birthday',
+  'anniversary',
+  'graduation',
+  'congratulations',
+  'motivational_message',
+  'shoutout',
+  'holiday_greeting',
+  'get_well_soon',
 ];
 
 const TONES: WishTone[] = ['formal', 'friendly', 'casual', 'funny'];
@@ -274,6 +277,7 @@ const dtp = StyleSheet.create({
 
 export default function HopeWishScreen({ navigation, route }: Props) {
   const { targetUserId, targetName, targetAvatar } = route.params;
+  const insets  = useSafeAreaInsets();
   const token   = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);
 
@@ -630,7 +634,7 @@ export default function HopeWishScreen({ navigation, route }: Props) {
       </ScrollView>
 
       {/* Confirm & Pay */}
-      <View style={s.footer}>
+      <View style={[s.footer, { paddingBottom: insets.bottom + 16 }]}>
         <TouchableOpacity
           style={[s.confirmBtn, (!canSubmit || submitting || topping) && s.confirmBtnDisabled]}
           onPress={handleSubmit}
@@ -672,7 +676,7 @@ export default function HopeWishScreen({ navigation, route }: Props) {
         onRequestClose={() => setPaymentSheet(null)}
       >
         <Pressable style={s.payBackdrop} onPress={() => setPaymentSheet(null)} />
-        <View style={s.paySheet}>
+        <View style={[s.paySheet, { paddingBottom: insets.bottom + 16 }]}>
           <View style={s.payHandle} />
           <Text style={s.payTitle}>Top Up Wallet</Text>
           <Text style={s.payBody}>
@@ -768,7 +772,7 @@ const s = StyleSheet.create({
   wishTypeChip: { alignSelf: 'flex-start' },
 
   footer: {
-    padding: 16, backgroundColor: colorss.white,
+    paddingTop: 16, paddingHorizontal: 16, backgroundColor: colorss.white,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colorss.border,
   },
   confirmBtn: {
@@ -783,7 +787,7 @@ const s = StyleSheet.create({
   paySheet: {
     backgroundColor: colorss.white,
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    paddingHorizontal: 20, paddingTop: 8,
     shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12, shadowRadius: 16, elevation: 16,
   },

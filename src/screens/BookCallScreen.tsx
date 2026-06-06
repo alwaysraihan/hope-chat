@@ -860,7 +860,7 @@ export default function BookCallScreen({ navigation, route }: Props) {
       </ScrollView>
 
       {/* Confirm & Pay */}
-      <View style={s.footer}>
+      <View style={[s.footer, { paddingBottom: insets.bottom + 16 }]}>
         <TouchableOpacity
           style={[s.confirmBtn, (!canBook || booking) && s.confirmBtnDisabled]}
           onPress={handleBook}
@@ -1117,7 +1117,7 @@ const s = StyleSheet.create({
   termsLink: { color: colorss.primary, textDecorationLine: 'underline' },
 
   footer: {
-    padding: 16, backgroundColor: colorss.white,
+    paddingTop: 16, paddingHorizontal: 16, backgroundColor: colorss.white,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colorss.border,
   },
   confirmBtn: {

@@ -17,7 +17,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colorss } from '../theme';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
-import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
 import {
   fetchMyBookings,
   confirmBooking,
@@ -34,6 +34,7 @@ import {
   uploadChatMedia,
   sendHopenityChatMessage,
 } from '../services/chatService';
+import { currencyForCountry, convertFromUSD } from '../utils/currency';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'MyBookings'>;
 type Tab = 'booked' | 'received';
@@ -69,6 +70,7 @@ function formatTime(iso: string): string {
 function BookingCard({
   booking,
   role,
+  viewerCurrency,
   onPress,
   isOpening,
   isAccepting,
@@ -80,6 +82,7 @@ function BookingCard({
 }: {
   booking: CallBooking;
   role: Tab;
+  viewerCurrency: string;
   onPress: () => void;
   isOpening: boolean;
   isAccepting: boolean;
@@ -148,7 +151,10 @@ function BookingCard({
             {role === 'booked' ? 'You paid' : 'Your payout'}
           </Text>
           <Text style={c.amountVal}>
-            ${(role === 'booked' ? booking.totalAmount : booking.calleePayout).toFixed(2)}
+            {convertFromUSD(
+              role === 'booked' ? booking.totalAmount : booking.calleePayout,
+              viewerCurrency,
+            ).display}
           </Text>
         </View>
       )}
@@ -279,8 +285,10 @@ const c = StyleSheet.create({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function MyBookingsScreen({ navigation }: Props) {
-  const insets = useSafeAreaInsets();
-  const token  = useAppSelector(selectAuthToken);
+  const insets   = useSafeAreaInsets();
+  const token    = useAppSelector(selectAuthToken);
+  const profile  = useAppSelector(selectHopenityProfile);
+  const viewerCurrency = currencyForCountry(profile?.country);
 
   const [activeTab, setActiveTab] = useState<Tab>('booked');
   const [bookedList,   setBookedList]   = useState<CallBooking[]>([]);
@@ -344,15 +352,34 @@ export default function MyBookingsScreen({ navigation }: Props) {
     if (!token || openingBookingId != null) return;
     setOpeningBookingId(booking.id);
     try {
+      const peerId = role === 'booked' ? booking.calleeId : booking.callerId;
       const info = await resolveChatInfo(booking, role);
       if (!info) return;
+
+      // Build a minimal seed so InboxGate can render immediately even when
+      // this chat is not yet in the cached conversations list (e.g. just created
+      // or user navigating before the list refreshed).
+      const peerName     = (info as any).peerName as string | undefined;
+      const peerAvatar   = (info as any).peerAvatarUrl as string | null | undefined;
+      const seedConversation = {
+        id:          info.chatId,
+        name:        peerName ?? '',
+        preview:     '',
+        time:        '',
+        unreadCount: 0,
+        avatarUrl:   peerAvatar ?? null,
+        peerUserId:  peerId,
+        messages:    [] as any[],
+      };
+
       navigation.navigate('Inbox', {
-        conversationId: info.chatId,
-        displayName: (info as any).peerName || undefined,
-        avatarUrl: (info as any).peerAvatarUrl ?? null,
-        bookingId: booking.id,
+        conversationId:   info.chatId,
+        displayName:      peerName,
+        avatarUrl:        peerAvatar ?? null,
+        bookingId:        booking.id,
         messagingEnabled: booking.messagingEnabled,
-        isGroupBooking: booking.callType === 'group',
+        isGroupBooking:   booking.callType === 'group',
+        seedConversation,
       });
     } finally {
       setOpeningBookingId(null);
@@ -509,6 +536,7 @@ export default function MyBookingsScreen({ navigation }: Props) {
             <BookingCard
               booking={item}
               role={activeTab}
+              viewerCurrency={viewerCurrency}
               onPress={() => openChat(item, activeTab)}
               isOpening={openingBookingId === item.id}
               isAccepting={acceptingId === item.id}
