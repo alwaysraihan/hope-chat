@@ -91,6 +91,8 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   GroupInfo: {
     groupId: string;
     conversationId: string;
+    /** Optimistic members passed back from AddGroupMembersScreen. Consumed once on focus. */
+    newMembers?: { userId: string; name?: string; image?: string | null }[];
   };
   AddGroupMembers: {
     groupId: string;

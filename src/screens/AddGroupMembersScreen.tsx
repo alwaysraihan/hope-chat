@@ -84,13 +84,13 @@ const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
     setBusy(false);
     const failed = results.filter(ok => !ok).length;
     const succeeded = selectedIds.length - failed;
+
+    const addedIds = selectedIds.filter((_, i) => results[i]);
     if (succeeded > 0) {
-      const addedNames = selectedIds
-        .filter((_, i) => results[i])
-        .map(uid => {
-          const match = conversations.find(c => c.peerUserId === uid);
-          return match?.name ?? uid;
-        });
+      const addedNames = addedIds.map(uid => {
+        const match = conversations.find(c => c.peerUserId === uid);
+        return match?.name ?? uid;
+      });
       const label = addedNames.length <= 2
         ? addedNames.join(' and ')
         : `${addedNames.slice(0, 2).join(', ')} and ${addedNames.length - 2} more`;
@@ -106,7 +106,17 @@ const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
         `${failed} member(s) could not be added. Try again.`,
       );
     }
-    navigation.goBack();
+    if (succeeded > 0) {
+      // Pass the newly added members back so GroupInfoScreen can show them immediately
+      // without waiting for the next API re-fetch.
+      const newMembers = addedIds.map(uid => {
+        const match = conversations.find(c => c.peerUserId === uid);
+        return { userId: uid, name: match?.name, image: match?.avatarUrl ?? null };
+      });
+      navigation.navigate('GroupInfo', { groupId, conversationId, newMembers });
+    } else {
+      navigation.goBack();
+    }
   };
 
   return (

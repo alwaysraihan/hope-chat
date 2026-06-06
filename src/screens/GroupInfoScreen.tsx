@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -68,6 +68,10 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
   const [nameInput, setNameInput] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Tracks member IDs removed optimistically so re-fetches don't bring them back
+  // if the server hasn't propagated the deletion yet.
+  const pendingRemovedRef = useRef<Set<string>>(new Set());
+
   const isAdmin = groupInfo?.members.some(
     m => normalizeChatUserId(m.userId) === myUserId && m.isAdmin,
   ) ?? false;
@@ -76,7 +80,14 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
     if (!token) return;
     setLoading(true);
     const info = await fetchGroupInfo(groupId, token);
-    setGroupInfo(info);
+    if (info && pendingRemovedRef.current.size > 0) {
+      setGroupInfo({
+        ...info,
+        members: info.members.filter(m => !pendingRemovedRef.current.has(m.userId)),
+      });
+    } else {
+      setGroupInfo(info);
+    }
     setLoading(false);
   }, [groupId, token]);
 
@@ -84,12 +95,23 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
     void load();
   }, [load]);
 
-  // Re-fetch whenever screen regains focus (e.g. after adding members in AddGroupMembersScreen).
-  // This gives the user immediate feedback without needing to manually pull-to-refresh.
+  // Re-fetch on focus. Also merges any members passed back from AddGroupMembersScreen
+  // for instant optimistic display before the fetch completes.
   useFocusEffect(
     useCallback(() => {
       if (!token) return;
+      const incoming = route.params.newMembers;
+      if (incoming?.length) {
+        setGroupInfo(prev => {
+          if (!prev) return prev;
+          const existingIds = new Set(prev.members.map(m => m.userId));
+          const fresh = incoming.filter(m => !existingIds.has(m.userId));
+          return fresh.length > 0 ? { ...prev, members: [...prev.members, ...fresh] } : prev;
+        });
+        navigation.setParams({ newMembers: undefined });
+      }
       void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [load, token]),
   );
 
@@ -134,6 +156,14 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
+            // Optimistic: remove immediately so there's no wait for the API round-trip.
+            // pendingRemovedRef ensures re-fetches don't bring the member back.
+            pendingRemovedRef.current.add(member.userId);
+            setGroupInfo(prev =>
+              prev
+                ? { ...prev, members: prev.members.filter(m => m.userId !== member.userId) }
+                : prev,
+            );
             const ok = await removeGroupMember(groupId, member.userId, token);
             if (ok) {
               const adminName = profile?.displayName ?? 'Admin';
@@ -141,12 +171,10 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
                 conversationId,
                 `${member.name ?? member.userId} was removed by ${adminName}.`,
               );
-              setGroupInfo(prev =>
-                prev
-                  ? { ...prev, members: prev.members.filter(m => m.userId !== member.userId) }
-                  : prev,
-              );
             } else {
+              // Revert: put them back and clear the pending guard
+              pendingRemovedRef.current.delete(member.userId);
+              void load();
               Alert.alert('Error', 'Could not remove member.');
             }
           },
