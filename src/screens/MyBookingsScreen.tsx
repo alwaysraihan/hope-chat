@@ -10,14 +10,18 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, Calendar, Clock, Star, Phone, Check, X, Video } from 'lucide-react-native';
+import { ArrowLeft, Calendar, ChevronRight, Clock, Star, Phone, Check, X, Video } from 'lucide-react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
+import FastImage from '@d11/react-native-fast-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { colorss } from '../theme';
+import { IC_PROFILE } from '../assets';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
+import { useChats } from '../context/ChatsContext';
+import { openHopenityProfile } from '../services/hopenityLinking';
 import {
   fetchMyBookings,
   confirmBooking,
@@ -35,6 +39,8 @@ import {
   sendHopenityChatMessage,
 } from '../services/chatService';
 import { currencyForCountry, convertFromUSD } from '../utils/currency';
+
+type PeerInfo = { name: string; avatarUrl: string | null };
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'MyBookings'>;
 type Tab = 'booked' | 'received';
@@ -70,8 +76,10 @@ function formatTime(iso: string): string {
 function BookingCard({
   booking,
   role,
+  peerInfo,
   viewerCurrency,
   onPress,
+  onPressPeer,
   isOpening,
   isAccepting,
   isRejecting,
@@ -82,8 +90,10 @@ function BookingCard({
 }: {
   booking: CallBooking;
   role: Tab;
+  peerInfo?: PeerInfo;
   viewerCurrency: string;
   onPress: () => void;
+  onPressPeer: () => void;
   isOpening: boolean;
   isAccepting: boolean;
   isRejecting: boolean;
@@ -135,6 +145,25 @@ function BookingCard({
           <Text style={[c.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
         </View>
       </View>
+
+      {/* Peer — whom you booked / who booked you. Tap opens their Hopenity profile. */}
+      <TouchableOpacity
+        style={c.peerRow}
+        onPress={onPressPeer}
+        activeOpacity={0.7}
+        hitSlop={{ top: 4, bottom: 4 }}
+      >
+        <FastImage
+          source={peerInfo?.avatarUrl ? { uri: peerInfo.avatarUrl } : IC_PROFILE}
+          style={c.peerAvatar}
+          resizeMode={FastImage.resizeMode.cover}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={c.peerLabel}>{role === 'booked' ? 'Booking with' : 'Booking from'}</Text>
+          <Text style={c.peerName} numberOfLines={1}>{peerInfo?.name || 'Hopenity user'}</Text>
+        </View>
+        <ChevronRight size={16} color={colorss.textSecondary} />
+      </TouchableOpacity>
 
       {/* Date/time */}
       <View style={c.infoRow}>
@@ -238,6 +267,18 @@ const c = StyleSheet.create({
     alignSelf: 'flex-start', flexShrink: 0,
   },
   badgeText: { fontSize: 11, fontWeight: '700' },
+  peerRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 6, paddingHorizontal: 8,
+    backgroundColor: colorss.background,
+    borderRadius: 10,
+  },
+  peerAvatar: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colorss.border,
+  },
+  peerLabel: { fontSize: 11, color: colorss.textSecondary, fontWeight: '500' },
+  peerName:  { fontSize: 14, color: colorss.textPrimary, fontWeight: '700', marginTop: 1 },
   infoRow:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
   infoText:  { fontSize: 13, color: colorss.textSecondary },
   amountRow: {
@@ -289,6 +330,7 @@ export default function MyBookingsScreen({ navigation }: Props) {
   const token    = useAppSelector(selectAuthToken);
   const profile  = useAppSelector(selectHopenityProfile);
   const viewerCurrency = currencyForCountry(profile?.country);
+  const { conversations } = useChats();
 
   const [activeTab, setActiveTab] = useState<Tab>('booked');
   const [bookedList,   setBookedList]   = useState<CallBooking[]>([]);
@@ -296,6 +338,10 @@ export default function MyBookingsScreen({ navigation }: Props) {
   const [loadingBooked,   setLoadingBooked]   = useState(true);
   const [loadingReceived, setLoadingReceived] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Cache of peer name/avatar by userId — fed from cached conversations first,
+  // falling back to a lookup for peers we don't have a chat with locally yet.
+  const [peerInfoMap, setPeerInfoMap] = useState<Record<string, PeerInfo>>({});
 
   // Per-card action states
   const [openingBookingId,  setOpeningBookingId]  = useState<number | null>(null);
@@ -335,6 +381,38 @@ export default function MyBookingsScreen({ navigation }: Props) {
     await Promise.all([loadBooked(), loadReceived()]);
     setRefreshing(false);
   }, [loadBooked, loadReceived]);
+
+  // ── Resolve peer name/avatar for booking cards.
+  // Prefer the cached conversation (no network call); fall back to a one-time
+  // lookup for peers we don't have a chat with locally yet (booking creation
+  // already opens/creates the chat, so this should be rare).
+  const getPeerInfo = useCallback((peerId: string): PeerInfo | undefined => {
+    const fromConvo = conversations.find(cv => cv.peerUserId === peerId);
+    if (fromConvo) return { name: fromConvo.name, avatarUrl: fromConvo.avatarUrl ?? null };
+    return peerInfoMap[peerId];
+  }, [conversations, peerInfoMap]);
+
+  useEffect(() => {
+    if (!token) return;
+    const allPeerIds = [...bookedList.map(b => b.calleeId), ...receivedList.map(b => b.callerId)];
+    const missing = Array.from(new Set(
+      allPeerIds.filter(id => !!id && !getPeerInfo(id)),
+    ));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    Promise.all(missing.map(id => getOrCreatePeerChatWithInfo(id, token))).then(results => {
+      if (cancelled) return;
+      setPeerInfoMap(prev => {
+        const next = { ...prev };
+        missing.forEach((id, i) => {
+          const info = results[i];
+          if (info) next[id] = { name: info.peerName, avatarUrl: info.peerAvatarUrl };
+        });
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [token, bookedList, receivedList, getPeerInfo]);
 
   // ── Resolve or create the chat for a booking, returns chatId + peer info
   const resolveChatInfo = useCallback(async (booking: CallBooking, role: Tab) => {
@@ -533,21 +611,26 @@ export default function MyBookingsScreen({ navigation }: Props) {
         <FlatList
           data={currentList}
           keyExtractor={item => String(item.id)}
-          renderItem={({ item }) => (
-            <BookingCard
-              booking={item}
-              role={activeTab}
-              viewerCurrency={viewerCurrency}
-              onPress={() => openChat(item, activeTab)}
-              isOpening={openingBookingId === item.id}
-              isAccepting={acceptingId === item.id}
-              isRejecting={rejectingId === item.id}
-              isUploading={uploadingBookingId === item.id}
-              onAccept={activeTab === 'received' ? () => handleAccept(item) : undefined}
-              onReject={activeTab === 'received' ? () => handleReject(item) : undefined}
-              onSendVideo={activeTab === 'received' ? () => handleSendVideoResponse(item) : undefined}
-            />
-          )}
+          renderItem={({ item }) => {
+            const peerId = activeTab === 'booked' ? item.calleeId : item.callerId;
+            return (
+              <BookingCard
+                booking={item}
+                role={activeTab}
+                peerInfo={getPeerInfo(peerId)}
+                viewerCurrency={viewerCurrency}
+                onPress={() => openChat(item, activeTab)}
+                onPressPeer={() => openHopenityProfile(peerId)}
+                isOpening={openingBookingId === item.id}
+                isAccepting={acceptingId === item.id}
+                isRejecting={rejectingId === item.id}
+                isUploading={uploadingBookingId === item.id}
+                onAccept={activeTab === 'received' ? () => handleAccept(item) : undefined}
+                onReject={activeTab === 'received' ? () => handleReject(item) : undefined}
+                onSendVideo={activeTab === 'received' ? () => handleSendVideoResponse(item) : undefined}
+              />
+            );
+          }}
           contentContainerStyle={s.list}
           showsVerticalScrollIndicator={false}
           refreshControl={

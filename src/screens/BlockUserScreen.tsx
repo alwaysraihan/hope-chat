@@ -22,7 +22,7 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'BlockedUser'>;
 
 const BlockUserScreen = ({ navigation, route }: Props) => {
   const colorss = useColors();
-  const { chatId, peerName, isBlocked } = route.params;
+  const { chatId, peerName, isBlocked, useV2 } = route.params;
   const token = useAppSelector(selectAuthToken);
   const [busy, setBusy] = useState(false);
 
@@ -68,9 +68,9 @@ const BlockUserScreen = ({ navigation, route }: Props) => {
     setBusy(true);
     try {
       if (isBlocked) {
-        await unblockHopeChatUser(chatId, token);
+        await unblockHopeChatUser(chatId, token, useV2);
       } else {
-        await blockHopeChatUser(chatId, token);
+        await blockHopeChatUser(chatId, token, useV2);
       }
       navigation.goBack();
     } catch {

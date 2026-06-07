@@ -282,6 +282,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             conversationId: item.id,
             conversationName: item.name,
             isGroup: !!item.isGroup,
+            isV1Chat: item.isV1Chat,
             isMuted: false,
             isPinned: !!item.pinned,
             peerUserId: item.peerUserId ?? undefined,

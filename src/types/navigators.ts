@@ -53,6 +53,8 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     conversationId: string;
     conversationName: string;
     isGroup?: boolean;
+    /** True when this conversation came from the v1 API (has conversationKey) — used to pick the block API version. */
+    isV1Chat?: boolean;
     isMuted?: boolean;
     isPinned?: boolean;
     peerUserId?: string;
@@ -119,6 +121,8 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     chatId: string;
     peerName: string;
     isBlocked: boolean;
+    /** True for groups and v2-native DMs — block/unblock must hit the v2 endpoint. */
+    useV2?: boolean;
   };
   ReadReceipts: undefined;
   Theme: { conversationId?: string } | undefined;

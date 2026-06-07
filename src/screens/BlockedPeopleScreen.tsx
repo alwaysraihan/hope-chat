@@ -84,7 +84,7 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
           onPress: async () => {
             setUnblockingId(item.id);
             try {
-              await unblockHopeChatUser(item.id, token);
+              await unblockHopeChatUser(item.id, token, !!item.isGroup || !item.isV1Chat);
               setBlocked(prev => prev.filter(b => b.id !== item.id));
             } catch {
               Alert.alert('Error', 'Could not unblock. Please try again.');

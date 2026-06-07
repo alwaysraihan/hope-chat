@@ -564,28 +564,11 @@ export default function BookCallScreen({ navigation, route }: Props) {
           peerName: targetName,
         });
         sendHopenityChatMessage(rawChatId, card, token).catch(() => {});
-
-        navigation.replace('Inbox', {
-          conversationId: rawChatId,
-          displayName: targetName,
-          avatarUrl: targetAvatar ?? null,
-          bookingId: result.bookingId,
-          messagingEnabled: true,
-          isGroupBooking: callType === 'group',
-          seedConversation: {
-            id: rawChatId,
-            name: targetName,
-            preview: '',
-            time: '',
-            unreadCount: 0,
-            avatarUrl: targetAvatar ?? null,
-            peerUserId: targetUserId,
-            messages: [],
-          },
-        });
-      } else {
-        navigation.goBack();
       }
+
+      // Land on the bookings list so the user sees their new booking, instead
+      // of dropping them into the chat thread.
+      navigation.replace('MyBookings');
       return;
     }
 

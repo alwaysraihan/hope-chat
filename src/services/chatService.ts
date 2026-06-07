@@ -263,7 +263,10 @@ export async function fetchHopenityChatDirectory(
   // not the personal user's v1 chats.
   const wantInbox = !params?.status || params.status === 'inbox';
   const wantRequested = params?.status === 'requested';
-  if (token && (wantInbox || wantRequested) && (params?.offset ?? 0) === 0 && !params?.pageId) {
+  // v1-native DMs blocked via the v1 endpoint live in the v1 `Chat` table —
+  // without this merge, the Blocked People list would only show v2 ChatThread blocks.
+  const wantBlocked = params?.status === 'blocked';
+  if (token && (wantInbox || wantRequested || wantBlocked) && (params?.offset ?? 0) === 0 && !params?.pageId) {
     try {
       const v1Chats = await fetchV1ChatList(token);
 
@@ -296,18 +299,22 @@ export async function fetchHopenityChatDirectory(
       });
 
       const v1Only = v1Chats.filter(c => {
-        const matchesStatus = wantRequested ? c.status === 'REQUESTED' : c.status === 'ACTIVE';
+        const matchesStatus = wantRequested
+          ? c.status === 'REQUESTED'
+          : wantBlocked
+          ? c.status === 'BLOCKED'
+          : c.status === 'ACTIVE';
         if (!matchesStatus) return false;
         // Always deduplicate by chat ID
         if (v2ChatIds.has(String(c.id ?? ''))) return false;
         const peerA = c.userAId;
         const peerB = c.userBId;
         if (!peerA || !peerB) return false;
-        // For REQUESTED mode: skip peer-ID dedup — v2PeerIds includes the local
+        // For REQUESTED/BLOCKED modes: skip peer-ID dedup — v2PeerIds includes the local
         // user's ID (they appear in every v2 chat), which would incorrectly filter
         // out all v1 chats. ID-based dedup above is sufficient since v1/v2 use
         // different ID spaces.
-        if (wantRequested) return true;
+        if (wantRequested || wantBlocked) return true;
         return !v2PeerIds.has(peerA) && !v2PeerIds.has(peerB);
       });
 
@@ -695,9 +702,13 @@ export async function uploadChatMedia(
 export async function blockHopeChatUser(
   chatId: string | number,
   token?: string | null,
+  useV2?: boolean,
 ): Promise<boolean> {
   if (!token) return false;
-  const url = `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(String(chatId))}/block`;
+  // Groups and v2-native DMs (no conversationKey) are enforced via ChatThread —
+  // blocking through v1 would set status on an unrelated/missing v1 Chat row.
+  const apiVersion = useV2 ? 'v2' : 'v1';
+  const url = `${API_BASE_URL}/api/${apiVersion}/chats/${encodeURIComponent(String(chatId))}/block`;
   const response = await fetch(url, {
     method: 'PATCH',
     headers: {
@@ -711,9 +722,11 @@ export async function blockHopeChatUser(
 export async function unblockHopeChatUser(
   chatId: string | number,
   token?: string | null,
+  useV2?: boolean,
 ): Promise<boolean> {
   if (!token) return false;
-  const url = `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(String(chatId))}/unblock`;
+  const apiVersion = useV2 ? 'v2' : 'v1';
+  const url = `${API_BASE_URL}/api/${apiVersion}/chats/${encodeURIComponent(String(chatId))}/unblock`;
   const response = await fetch(url, {
     method: 'PATCH',
     headers: {

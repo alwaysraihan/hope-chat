@@ -198,7 +198,14 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
             ? <Unlock size={22} color={colorss.error} />
             : <Ban size={22} color={colorss.error} />,
           type: 'switch',
-          onPress: () => navigation.navigate('BlockedUser', { chatId, peerName, isBlocked }),
+          onPress: () => navigation.navigate('BlockedUser', {
+            chatId,
+            peerName,
+            isBlocked,
+            // Groups and v2-native DMs (no conversationKey) must block via the v2 endpoint —
+            // mirrors the useV2Messages selection used for sending messages.
+            useV2: !!conversation && (!!conversation.isGroup || !conversation.isV1Chat),
+          }),
         },
         { id: 6, title: 'Report a problem', image: <AlertTriangle size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('ReportProblem') },
         { id: 7, title: 'Typing indicator', image: <TypeIcon size={22} color={colorss.primary} />,      type: 'switch', onPress: () => navigation.navigate('TypingIndicator') },

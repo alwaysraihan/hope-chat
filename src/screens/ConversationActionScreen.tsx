@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import {
   Archive,
+  Ban,
   Bell,
   BellOff,
   LogOut,
@@ -18,6 +19,7 @@ import {
   PinOff,
   Tag,
   Trash,
+  Unlock,
   UserPlus,
 } from 'lucide-react-native';
 import Animated from 'react-native-reanimated';
@@ -33,6 +35,7 @@ import {
   patchConversationMute,
   patchConversationPin,
 } from '../services/userSettingsService';
+import { fetchHopenityChatDirectory } from '../services/chatService';
 import { toggleBookingMessaging } from '../services/premiumCallService';
 import { leaveGroup } from '../services/groupService';
 import { useChats } from '../context/ChatsContext';
@@ -72,6 +75,7 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
     conversationId,
     conversationName,
     isGroup,
+    isV1Chat,
     isMuted: initialMuted = false,
     isPinned: initialPinned = false,
     bookingId,
@@ -86,6 +90,24 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
   const [muted, setMuted] = useState(initialMuted);
   const [pinned, setPinned] = useState(initialPinned);
   const [messagingEnabled, setMessagingEnabled] = useState(initialMessagingEnabled);
+
+  // Groups and v2-native DMs (no conversationKey) must block via the v2 endpoint —
+  // mirrors the useV2Messages selection used for sending messages.
+  const useV2Block = !!isGroup || !isV1Chat;
+
+  const [isBlocked, setIsBlocked] = useState(false);
+  useEffect(() => {
+    if (!token || isGroup) return;
+    let cancelled = false;
+    fetchHopenityChatDirectory(token, { status: 'blocked', limit: 100 })
+      .then(dir => {
+        if (!cancelled) {
+          setIsBlocked(dir.chats.some(c => String(c.id) === String(conversationId)));
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token, conversationId, isGroup]);
 
   const removeConversationLocally = () => {
     // Add to persistent hidden list so it never re-appears from cache or server reload.
@@ -202,6 +224,15 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
+  const handleBlock = () => {
+    navigation.navigate('BlockedUser', {
+      chatId: conversationId,
+      peerName: conversationName,
+      isBlocked,
+      useV2: useV2Block,
+    });
+  };
+
   const handleDelete = () => {
     if (!token) return;
     Alert.alert(
@@ -294,6 +325,16 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
           : <MessageSquare size={22} color={colorss.primary} />,
       onPress: handleToggleMessaging,
       show: !!bookingId && isBookingCallee,
+    },
+    {
+      id: 'block',
+      title: isBlocked ? `Unblock ${conversationName}` : `Block ${conversationName}`,
+      icon: isBlocked
+        ? <Unlock size={22} color={colorss.error} />
+        : <Ban size={22} color={colorss.error} />,
+      onPress: handleBlock,
+      destructive: true,
+      show: !isGroup,
     },
     {
       id: 'delete',

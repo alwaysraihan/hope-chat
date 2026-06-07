@@ -401,17 +401,11 @@ export default function HopeWishScreen({ navigation, route }: Props) {
           peerName: targetName,
         });
         sendHopenityChatMessage(rawChatId, card, token).catch(() => {});
-
-        navigation.replace('Inbox', {
-          conversationId: rawChatId,
-          displayName: targetName,
-          avatarUrl: targetAvatar ?? null,
-          bookingId: result.bookingId,
-          messagingEnabled: true,
-        });
-      } else {
-        navigation.goBack();
       }
+
+      // Land on the bookings list so the user sees their new Hope Wish, instead
+      // of dropping them into the chat thread.
+      navigation.replace('MyBookings');
       return;
     }
 

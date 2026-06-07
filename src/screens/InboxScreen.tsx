@@ -458,6 +458,7 @@ const InboxScreenInner: React.FC<
             conversationId: conversation.id,
             conversationName: peerName,
             isGroup: conversation.isGroup,
+            isV1Chat: conversation.isV1Chat,
             peerUserId: conversation.peerUserId ?? undefined,
             isPinned: !!conversation.pinned,
             isMuted: !!conversation.isMuted,
