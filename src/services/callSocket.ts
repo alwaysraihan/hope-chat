@@ -17,13 +17,16 @@ type CallSocketListener = (data: Record<string, string>) => void;
 class CallSocketService {
   private socket: any = null;
   private token: string | null = null;
+  private userId: string | null = null;
   private incomingCallListeners: Set<CallSocketListener> = new Set();
   private cancelledListeners: Set<CallSocketListener> = new Set();
+  private ringingListeners: Set<CallSocketListener> = new Set();
 
-  connect(authToken: string): void {
+  connect(authToken: string, userId?: string): void {
     if (this.socket?.connected && this.token === authToken) return;
     this.disconnect();
     this.token = authToken;
+    this.userId = userId ?? null;
 
     // Lazy-load socket.io-client ONLY when connect() is called (inside a useEffect).
     // Loading it at module-evaluation time causes Android crashes because
@@ -51,6 +54,11 @@ class CallSocketService {
 
       this.socket.on('connect', () => {
         if (__DEV__) console.log('[CallSocket] connected', this.socket?.id);
+        // Join the user-specific room so the server can deliver personal events
+        // (incoming_call, call_cancelled, call_ringing) via io.to(`user_${userId}`).
+        if (this.userId) {
+          try { this.socket?.emit('join_user', this.userId); } catch { /* */ }
+        }
       });
       this.socket.on('disconnect', (reason: string) => {
         if (__DEV__) console.log('[CallSocket] disconnected', reason);
@@ -65,6 +73,11 @@ class CallSocketService {
         if (!normalized) return;
         this.cancelledListeners.forEach(l => { try { l(normalized); } catch { /* */ } });
       });
+      this.socket.on('call_ringing', (data: unknown) => {
+        const normalized = normalizeSocketData(data);
+        if (!normalized) return;
+        this.ringingListeners.forEach(l => { try { l(normalized); } catch { /* */ } });
+      });
     } catch (e) {
       if (__DEV__) console.warn('[CallSocket] connect error', e);
       this.socket = null;
@@ -78,6 +91,7 @@ class CallSocketService {
       this.socket = null;
     }
     this.token = null;
+    this.userId = null;
   }
 
   onIncomingCall(listener: CallSocketListener): () => void {
@@ -88,6 +102,23 @@ class CallSocketService {
   onCallCancelled(listener: CallSocketListener): () => void {
     this.cancelledListeners.add(listener);
     return () => this.cancelledListeners.delete(listener);
+  }
+
+  /** Caller subscribes: fires when callee's device receives the ring. */
+  onCallRinging(listener: CallSocketListener): () => void {
+    this.ringingListeners.add(listener);
+    return () => this.ringingListeners.delete(listener);
+  }
+
+  /**
+   * Callee emits this immediately on receiving incoming_call so the caller's UI
+   * can switch from "Calling…" to "Ringing…" only when the device is actually ringing.
+   */
+  emitCallRinging(liveKitRoom: string, callerId: string): void {
+    if (!this.socket?.connected || !liveKitRoom || !callerId) return;
+    try {
+      this.socket.emit('call_ringing', { liveKitRoom, callerId });
+    } catch { /* */ }
   }
 
   isConnected(): boolean {

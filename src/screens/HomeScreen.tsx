@@ -14,7 +14,8 @@ import Header from '../components/home/Header';
 import StoryItem from '../components/home/StoryItem';
 import ConversationItem from '../components/home/ConversationItem';
 import SearchBar from '../components/home/SearchBar';
-import { colors, spacing, fonts, colorss } from '../theme';
+import { colors, spacing, fonts } from '../theme';
+import { useColors } from '../hooks/useColors';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import {
   BottomTabNavigatorParamList,
@@ -55,6 +56,7 @@ type Props = CompositeScreenProps<
 >;
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
+  const colorss = useColors();
   const t = useT();
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const token = useAppSelector(s => s.auth.token);
@@ -406,6 +408,142 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     ],
   );
 
+  const styles = useMemo(() => StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colorss.white,
+    },
+    container: {
+      flex: 1,
+      backgroundColor: colorss.white,
+    },
+    bookingBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginHorizontal: 16,
+      marginTop: 10,
+      marginBottom: 6,
+      backgroundColor: `${colorss.primary}0E`,
+      borderWidth: 1,
+      borderColor: `${colorss.primary}30`,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    bookingLogo: {
+      width: 36,
+      height: 36,
+      borderRadius: 8,
+    },
+    bookingBannerText: {
+      flex: 1,
+    },
+    bookingBannerTitle: {
+      fontSize: 14,
+      fontWeight: '700' as const,
+      color: colorss.textPrimary,
+    },
+    bookingBannerSub: {
+      fontSize: 12,
+      color: colorss.textSecondary,
+      marginTop: 2,
+    },
+    storySection: {
+      paddingBottom: 4,
+    },
+    stripSectionLabel: {
+      fontSize: 13,
+      fontWeight: fonts.semibold,
+      color: colorss.textSecondary,
+      paddingHorizontal: spacing.xl,
+      paddingTop: 6,
+      paddingBottom: 6,
+    },
+    storyStripRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      paddingLeft: spacing.xl,
+      paddingRight: 8,
+      gap: 8,
+    },
+    storyStripFlex: {
+      flexGrow: 1,
+      flexShrink: 1,
+      minWidth: 0,
+    },
+    storiesListInner: {
+      paddingVertical: 10,
+      paddingRight: 8,
+      gap: 12,
+    },
+    storyViewerTile: {
+      width: 64,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingTop: 10,
+      paddingBottom: 4,
+      gap: 4,
+    },
+    storyViewerLabel: {
+      fontSize: 10,
+      fontWeight: fonts.semibold,
+      color: colorss.primary,
+      textAlign: 'center',
+    },
+    messagesHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingBottom: 8,
+    },
+    messagesHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    requestsPillRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    requestsLabel: {
+      color: colorss.primary,
+    },
+    sectionLabel: {
+      fontSize: 14,
+      fontWeight: fonts.semibold,
+      color: colorss.textPrimary,
+      letterSpacing: 0.08 * 11,
+    },
+    listContent: {
+      flexGrow: 1,
+      paddingBottom: 8,
+    },
+    emptyState: {
+      alignItems: 'center',
+      paddingTop: 40,
+    },
+    emptyText: {
+      color: colors.textMuted,
+      fontSize: 14,
+    },
+    requestBadge: {
+      minWidth: 20,
+      height: 20,
+      borderRadius: 10,
+      paddingHorizontal: 6,
+      backgroundColor: colorss.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    requestBadgeText: {
+      color: '#fff',
+      fontSize: 11,
+      fontWeight: '700' as const,
+    },
+  }), [colorss]);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
@@ -438,143 +576,5 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colorss.white,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: colorss.white,
-  },
-  // Booking banner
-  bookingBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginHorizontal: 16,
-    marginTop: 10,
-    marginBottom: 6,
-    backgroundColor: `${colorss.primary}0E`,
-    borderWidth: 1,
-    borderColor: `${colorss.primary}30`,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  bookingLogo: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-  },
-  bookingBannerText: {
-    flex: 1,
-  },
-  bookingBannerTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colorss.textPrimary,
-  },
-  bookingBannerSub: {
-    fontSize: 12,
-    color: colorss.textSecondary,
-    marginTop: 2,
-  },
-
-  storySection: {
-    paddingBottom: 4,
-  },
-  stripSectionLabel: {
-    fontSize: 13,
-    fontWeight: fonts.semibold,
-    color: colorss.textSecondary,
-    paddingHorizontal: spacing.xl,
-    paddingTop: 6,
-    paddingBottom: 6,
-  },
-  storyStripRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingLeft: spacing.xl,
-    paddingRight: 8,
-    gap: 8,
-  },
-  storyStripFlex: {
-    flexGrow: 1,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  storiesListInner: {
-    paddingVertical: 10,
-    paddingRight: 8,
-    gap: 12,
-  },
-  storyViewerTile: {
-    width: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 10,
-    paddingBottom: 4,
-    gap: 4,
-  },
-  storyViewerLabel: {
-    fontSize: 10,
-    fontWeight: fonts.semibold,
-    color: colorss.primary,
-    textAlign: 'center',
-  },
-  messagesHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  messagesHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  requestsPillRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  requestsLabel: {
-    color: colorss.primary,
-  },
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: fonts.semibold,
-    color: colorss.textPrimary,
-    letterSpacing: 0.08 * 11,
-  },
-  listContent: {
-    flexGrow: 1,
-    paddingBottom: 8,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingTop: 40,
-  },
-  emptyText: {
-    color: colors.textMuted,
-    fontSize: 14,
-  },
-  requestBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    backgroundColor: colorss.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  requestBadgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-});
 
 export default HomeScreen;

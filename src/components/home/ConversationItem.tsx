@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors, radius, fonts, spacing, colorss } from '../../theme';
+import { colors, radius, fonts, spacing } from '../../theme';
+import { useColors } from '../../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 import { Pin } from 'lucide-react-native';
 
@@ -26,6 +27,91 @@ const ConversationItem = ({
   onPress?: () => void;
   onLongPress?: () => void;
 }) => {
+  const colorss = useColors();
+  const styles = useMemo(() => StyleSheet.create({
+    container: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.sm,
+      gap: spacing.md,
+    },
+    avatarWrap: {
+      position: 'relative',
+    },
+    avatar: {
+      width: 52,
+      height: 52,
+      borderRadius: radius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarInitialWrap: {
+      backgroundColor: colorss.primary,
+    },
+    avatarInitial: {
+      color: '#FFFFFF',
+      fontSize: 18,
+      fontWeight: fonts.bold,
+    },
+    body: {
+      flex: 1,
+      minWidth: 0,
+    },
+    topRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 3,
+    },
+    name: {
+      fontSize: 15,
+      fontWeight: fonts.semibold,
+      color: colorss.textPrimary,
+      flex: 1,
+      marginRight: spacing.sm,
+    },
+    metaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    pinIcon: {
+      opacity: 0.6,
+    },
+    time: {
+      fontSize: 11,
+      color: colorss.textSecondary,
+    },
+    preview: {
+      fontSize: 13,
+      color: colorss.textSecondary,
+    },
+    previewUnread: {
+      color: colorss.textPrimary,
+      fontWeight: fonts.medium,
+    },
+    typingText: {
+      color: colors.purpleLight,
+      fontStyle: 'italic',
+      fontSize: 13,
+    },
+    badge: {
+      backgroundColor: colorss.primary,
+      minWidth: 20,
+      height: 20,
+      borderRadius: radius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 5,
+    },
+    badgeText: {
+      color: '#FFFFFF',
+      fontSize: 10,
+      fontWeight: fonts.bold,
+    },
+  }), [colorss]);
+
   return (
     <TouchableOpacity
       style={styles.container}
@@ -79,89 +165,5 @@ const ConversationItem = ({
     </TouchableOpacity>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    gap: spacing.md,
-  },
-  avatarWrap: {
-    position: 'relative',
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitialWrap: {
-    backgroundColor: colorss.primary,
-  },
-  avatarInitial: {
-    color: colors.white,
-    fontSize: 18,
-    fontWeight: fonts.bold,
-  },
-  body: {
-    flex: 1,
-    minWidth: 0,
-  },
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 3,
-  },
-  name: {
-    fontSize: 15,
-    fontWeight: fonts.semibold,
-    color: colorss.textPrimary,
-    flex: 1,
-    marginRight: spacing.sm,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  pinIcon: {
-    opacity: 0.6,
-  },
-  time: {
-    fontSize: 11,
-    color: colors.textMuted,
-  },
-  preview: {
-    fontSize: 13,
-    color: colorss.textSecondary,
-  },
-  previewUnread: {
-    color: colorss.textPrimary,
-    fontWeight: fonts.medium,
-  },
-  typingText: {
-    color: colors.purpleLight,
-    fontStyle: 'italic',
-    fontSize: 13,
-  },
-  badge: {
-    backgroundColor: colorss.primary,
-    minWidth: 20,
-    height: 20,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 5,
-  },
-  badgeText: {
-    color: colors.white,
-    fontSize: 10,
-    fontWeight: fonts.bold,
-  },
-});
 
 export default ConversationItem;

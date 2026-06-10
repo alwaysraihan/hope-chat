@@ -11,11 +11,13 @@ import {
   isDarkModeExplicitlySet,
   setDarkMode,
 } from '../services/chatPrefs';
+import { applyThemePalette } from '../theme';
 
 // ─── Color palettes ────────────────────────────────────────────────────────────
 // Both palettes mirror the full shape of the static `colorss` export in
 // src/theme/index.tsx so that components can shadow `colorss` with useColors()
 // without any TypeScript errors.
+// These are re-exported as the source-of-truth; `theme/index.tsx` derives from them.
 
 export type AppColors = {
   // Primary brand
@@ -102,12 +104,15 @@ type ThemeContextValue = {
   isDark: boolean;
   colors: AppColors;
   toggleDarkMode: () => void;
+  /** Increments on every theme switch — use as key/dep to force re-computation of module-level StyleSheets. */
+  themeVersion: number;
 };
 
 const ThemeContext = createContext<ThemeContextValue>({
   isDark: false,
   colors: lightColors,
   toggleDarkMode: () => {},
+  themeVersion: 0,
 });
 
 /**
@@ -124,12 +129,20 @@ function resolveInitialDark(): boolean {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [isDark, setIsDark] = useState<boolean>(resolveInitialDark);
+  const [themeVersion, setThemeVersion] = useState(0);
+
+  // Keep the mutable colorss export in sync with current theme so that
+  // components reading it at render time (inline styles, useMemo) stay correct.
+  useEffect(() => {
+    applyThemePalette(isDark);
+  }, [isDark]);
 
   // Follow OS colour scheme changes when the user has NOT set an explicit pref.
   useEffect(() => {
     const sub = Appearance.addChangeListener(({ colorScheme }) => {
       if (isDarkModeExplicitlySet()) return; // user has a saved preference — don't override
       setIsDark(colorScheme === 'dark');
+      setThemeVersion(v => v + 1);
     });
     return () => sub.remove();
   }, []);
@@ -138,6 +151,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setIsDark(prev => {
       const next = !prev;
       setDarkMode(next);
+      applyThemePalette(next);
+      setThemeVersion(v => v + 1);
       return next;
     });
   }, []);
@@ -145,7 +160,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const colors = isDark ? darkColors : lightColors;
 
   return (
-    <ThemeContext.Provider value={{ isDark, colors, toggleDarkMode }}>
+    <ThemeContext.Provider value={{ isDark, colors, toggleDarkMode, themeVersion }}>
       {children}
     </ThemeContext.Provider>
   );

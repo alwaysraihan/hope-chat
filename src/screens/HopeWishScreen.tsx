@@ -328,8 +328,6 @@ export default function HopeWishScreen({ navigation, route }: Props) {
             [{ text: 'OK', onPress: () => navigation.goBack() }],
           );
         }
-        // Default delivery date to 7 days from now
-        setDeliveryAt(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
       })
       .finally(() => setLoading(false));
   }, [targetUserId, targetName]);

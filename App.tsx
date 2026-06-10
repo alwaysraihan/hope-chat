@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Linking } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import RootNavigator from './src/navigation/RootNavigator';
 import { SystemBars } from 'react-native-edge-to-edge';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -12,7 +12,7 @@ import PublicStackNavigator from './src/navigation/PublicStackNavigator';
 import { useAppSelector } from './src/hooks/redux';
 import { selectHopeChatLoggedIn } from './src/redux/features/auth/authSlice';
 import { ChatsProvider } from './src/context/ChatsContext';
-import { ThemeProvider } from './src/context/ThemeContext';
+import { ThemeProvider, useAppTheme } from './src/context/ThemeContext';
 import { LanguageProvider } from './src/context/LanguageContext';
 import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
@@ -309,6 +309,10 @@ const AppInner = () => {
 /** Remount navigation when auth flips so stacks do not keep stale guest routes. */
 const NavigationWithAuthKey = () => {
   const loggedIn = useAppSelector(selectHopeChatLoggedIn);
+  const { isDark, colors } = useAppTheme();
+  const navTheme = isDark
+    ? { ...DarkTheme, colors: { ...DarkTheme.colors, background: colors.background, card: colors.surface, text: colors.textPrimary, border: colors.border } }
+    : { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.background, card: colors.surface, text: colors.textPrimary, border: colors.border } };
 
   // Handle deep links — cold-start and runtime.
   //
@@ -343,6 +347,7 @@ const NavigationWithAuthKey = () => {
     <NavigationContainer
       key={loggedIn ? 'hopechat-session' : 'hopechat-guest'}
       ref={navigationRef}
+      theme={navTheme}
       onReady={() => {
         consumePendingIncomingCall();
         // Flush any screen nav that arrived while the bundle was still loading
@@ -351,7 +356,7 @@ const NavigationWithAuthKey = () => {
         BootSplash.hide({ fade: true });
       }}
     >
-      <SystemBars style={'dark'} />
+      <SystemBars style={isDark ? 'light' : 'dark'} />
       <AppInner />
       <ToastContainer />
     </NavigationContainer>

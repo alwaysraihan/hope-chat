@@ -192,11 +192,22 @@ const IncomingCallListener = () => {
     const token = store.getState().auth.token;
     if (!token) return;
 
-    callSocket.connect(token);
+    // Pass userId so the socket joins `user_${userId}` and receives personal events
+    // (call_cancelled, call_ringing) emitted by the server via io.to(`user_${id}`).
+    const authState = store.getState().auth;
+    const userId = authState.profile?.userId || String(authState.giftedChatUser?._id ?? '');
+    callSocket.connect(token, userId || undefined);
 
     const unsubIncoming = callSocket.onIncomingCall(data => {
       const parsed = parseIncomingCallPayload(data);
       if (!parsed) return;
+
+      // Acknowledge to the caller that this device received the call and is ringing.
+      // This lets the caller's UI switch from "Calling…" to "Ringing…" accurately.
+      if (parsed.callerId && parsed.liveKitRoom) {
+        callSocket.emitCallRinging(parsed.liveKitRoom, parsed.callerId);
+      }
+
       // Socket path: tear down any existing call BEFORE navigating so the user
       // never sees two call screens simultaneously. await ensures the old room
       // is disconnected and its audio session released before the ringing UI appears.

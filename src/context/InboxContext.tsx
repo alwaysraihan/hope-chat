@@ -122,6 +122,8 @@ interface InboxContextValue {
   clearReply: () => void;
   handleDelete: (message: IMessage) => void;
   handleForward: (message: IMessage) => void;
+  forwardingMessage: ExtendedMessage | null;
+  clearForwarding: () => void;
   handlePressReplyPreview: (messageId: string | number) => void;
   handleLongPress: HandleLongPress;
 
@@ -287,6 +289,10 @@ export function InboxProvider({
     state => state.inbox.replayTo,
   ) as ExtendedMessage | null;
 
+  // ── Forward state
+  const [forwardingMessage, setForwardingMessage] = useState<ExtendedMessage | null>(null);
+  const clearForwarding = useCallback(() => setForwardingMessage(null), []);
+
   // ── Message state
   const [messages, setMessages] = useState<ExtendedMessage[]>([]);
   const [allMessages, setAllMessages] = useState<ExtendedMessage[]>([]);
@@ -316,6 +322,9 @@ export function InboxProvider({
   const mapHopenityMessage = useCallback(
     (raw: any): ExtendedMessage => {
       const sender = raw.sender ?? {};
+      // senderPage is present when the message was sent by a page account
+      const senderPage: Record<string, unknown> | null =
+        raw.senderPage ?? raw.sender_page ?? null;
       const rawDict = raw as Record<string, unknown>;
       const extracted = extractMessageSenderId(rawDict);
       const rawSid =
@@ -338,11 +347,16 @@ export function InboxProvider({
         rawSid != null && String(rawSid).trim() !== ''
           ? String(rawSid).trim()
           : '';
+      // Page name takes priority over user name for page-sent messages
       const senderName =
-        sender.name ??
-        raw.senderName ??
-        raw.sender_name ??
-        'Unknown';
+        (senderPage?.name ? String(senderPage.name) : null) ??
+        (sender.name ? String(sender.name) : null) ??
+        String(raw.senderName ?? raw.sender_name ?? 'Unknown');
+      const senderAvatar: string | undefined =
+        (senderPage?.image ? String(senderPage.image) : null) ??
+        (sender.image ? String(sender.image) : null) ??
+        (sender.avatar ? String(sender.avatar) : undefined) ??
+        undefined;
       const createdAtRaw = raw.createdAt ?? raw.created_at;
       const id = String(raw.id ?? `${_conversationId ?? 'chat'}_${Date.now()}`);
 
@@ -435,6 +449,33 @@ export function InboxProvider({
         }
       }
 
+      const rawReplyTo = raw.replyTo ?? raw.reply_to;
+      const replyToSenderPage: Record<string, unknown> | null =
+        rawReplyTo?.senderPage ?? rawReplyTo?.sender_page ?? null;
+      const replyToMapped = rawReplyTo
+        ? {
+            _id: String(rawReplyTo.id ?? rawReplyTo._id ?? ''),
+            text: String(rawReplyTo.content ?? rawReplyTo.text ?? ''),
+            media: undefined,
+            user: (() => {
+              const uid = String(
+                rawReplyTo.sender?.user_id ?? rawReplyTo.senderUserId ?? rawReplyTo.senderId ?? '',
+              );
+              const name = replyToSenderPage?.name
+                ? String(replyToSenderPage.name)
+                : rawReplyTo.sender?.name
+                  ? String(rawReplyTo.sender.name)
+                  : '';
+              const avatar = replyToSenderPage?.image
+                ? String(replyToSenderPage.image)
+                : rawReplyTo.sender?.image
+                  ? String(rawReplyTo.sender.image)
+                  : undefined;
+              return { _id: uid, name, avatar };
+            })(),
+          }
+        : undefined;
+
       return {
         _id: id,
         text: parsed.text,
@@ -442,12 +483,14 @@ export function InboxProvider({
         user: {
           _id: resolvedUid,
           name: senderName,
+          avatar: senderAvatar,
         },
         media,
         messageKind: parsed.messageKind,
         donationRequest: parsed.donationRequest,
         delivery: parsed.delivery,
         outgoingHint: hint,
+        replyTo: replyToMapped,
       };
     },
     [_conversationId, dmCryptoKey, localUserIdStr, peerUserId, isGroup],
@@ -803,7 +846,7 @@ export function InboxProvider({
           if (shouldEncryptOutgoing && plain.length > 0) {
             wire = encryptMessagePayload(plain, dmCryptoKey!);
           }
-          sendHopenityChatMessage(_conversationId, wire, token, activePage?.id ?? null, useV2Messages)
+          sendHopenityChatMessage(_conversationId, wire, token, activePage?.id ?? null, useV2Messages, currentReplyTo?._id ?? null)
             .then(res => {
               if (!res) {
                 updateMessage(stamped._id, { pending: false, failed: true });
@@ -1139,8 +1182,7 @@ export function InboxProvider({
   // ─── Forward ───────────────────────────────────────────────────────────────
 
   const handleForward = useCallback((message: IMessage) => {
-    // TODO: navigate to contact picker and forward message
-    console.log('[InboxProvider] forward message:', message._id);
+    setForwardingMessage(message as ExtendedMessage);
   }, []);
 
   // ─── Scroll to reply ───────────────────────────────────────────────────────
@@ -1267,6 +1309,8 @@ export function InboxProvider({
     clearReply,
     handleDelete,
     handleForward,
+    forwardingMessage,
+    clearForwarding,
     handlePressReplyPreview,
     handleLongPress,
 

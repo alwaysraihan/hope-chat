@@ -23,14 +23,15 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { InboxProvider, useInbox } from '../context/InboxContext';
 import ChatMessageBox from '../components/message/ChatMessageBox';
+import ForwardModal from '../components/message/ForwardModal';
 import MessageHeader from '../components/message/MessageHeader';
 import CustomInputToolbar from '../components/message/CustomInputToolbar';
-import { colorss } from '../theme';
+import { useColors } from '../hooks/useColors';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import type { ConversationSummary } from '../context/ChatsContext';
 import { useChats } from '../context/ChatsContext';
 import type { ExtendedMessage } from '../components/types/chat';
-import { acceptHopenityChatRequest } from '../services/chatService';
+import { acceptHopenityChatRequest, fetchHopenityChatDirectory } from '../services/chatService';
 import { fetchMyBookings } from '../services/premiumCallService';
 import { getBookingForChat } from '../services/bookingChatMap';
 import {
@@ -57,6 +58,42 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 const InboxScreenInner: React.FC<
   Props & { conversation: ConversationSummary }
 > = ({ navigation, route, conversation }) => {
+  const colorss = useColors();
+  const acceptStyles = useMemo(() => StyleSheet.create({
+    banner: {
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      backgroundColor: '#fef3c7',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: '#fcd34d',
+      gap: 8,
+    },
+    bannerText: {
+      fontSize: 13,
+      color: '#92400e',
+      lineHeight: 18,
+    },
+    acceptBtn: {
+      alignSelf: 'flex-start' as const,
+      backgroundColor: colorss.primary,
+      paddingHorizontal: 18,
+      paddingVertical: 8,
+      borderRadius: 8,
+    },
+    acceptLabel: { color: '#fff', fontWeight: '600' as const, fontSize: 14 },
+    pageBanner: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      backgroundColor: `${colorss.primary}15`,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: `${colorss.primary}40`,
+      alignItems: 'center' as const,
+    },
+    pageBannerText: {
+      fontSize: 12,
+      color: colorss.primary,
+    },
+  }), [colorss]);
   const token = useAppSelector(selectAuthToken);
   const hopenityProfile = useAppSelector(selectHopenityProfile);
   const activePage = useAppSelector(selectActivePage);
@@ -81,6 +118,21 @@ const InboxScreenInner: React.FC<
   useEffect(() => {
     setNeedsAcceptance(!!conversation.needsAcceptance);
   }, [conversation.needsAcceptance]);
+
+  // Block means no text AND no call — re-checked on every focus so an
+  // in-session block/unblock (from Profile or the conversation menu) is reflected.
+  const [isBlocked, setIsBlocked] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || conversation.isGroup) return undefined;
+      fetchHopenityChatDirectory(token, { status: 'blocked', limit: 100 })
+        .then(dir => {
+          setIsBlocked(dir.chats.some(c => String(c.id) === String(conversation.id)));
+        })
+        .catch(() => {});
+      return undefined;
+    }, [token, conversation.id, conversation.isGroup]),
+  );
 
   // Re-check booking messagingEnabled each time we return to this screen so
   // that an admin toggle in ConversationActionScreen is reflected immediately.
@@ -152,6 +204,8 @@ const InboxScreenInner: React.FC<
     hasMore,
     onSend,
     loadEarlier,
+    forwardingMessage,
+    clearForwarding,
   } = useInbox();
 
   useEffect(() => {
@@ -344,6 +398,7 @@ const InboxScreenInner: React.FC<
         <ChatMessageBox
           {...props}
           position={position}
+          isGroup={conversation.isGroup}
           refreshTrigger={refreshTrigger}
           onPressReactions={() => navigation.navigate('Reactions')}
         />
@@ -386,6 +441,10 @@ const InboxScreenInner: React.FC<
         // Booking callers (the person who booked) also cannot initiate calls —
         // only the callee (expert) can call when the scheduled time arrives.
         onAudioCall={needsAcceptance || isSentRequest ? undefined : () => {
+          if (isBlocked) {
+            Toast.info("You can't call this user — you've blocked them.");
+            return;
+          }
           if (resolvedBookingId && !isBookingCallee) {
             Toast.info("You can't call directly. The expert will call you at the scheduled time.");
             return;
@@ -420,6 +479,10 @@ const InboxScreenInner: React.FC<
           });
         }}
         onVideoCall={needsAcceptance || isSentRequest ? undefined : () => {
+          if (isBlocked) {
+            Toast.info("You can't call this user — you've blocked them.");
+            return;
+          }
           if (resolvedBookingId && !isBookingCallee) {
             Toast.info("You can't call directly. The expert will call you at the scheduled time.");
             return;
@@ -600,47 +663,16 @@ const InboxScreenInner: React.FC<
           </View>
         );
       })()}
+      {forwardingMessage && (
+        <ForwardModal message={forwardingMessage} onClose={clearForwarding} />
+      )}
     </SafeAreaView>
   );
 };
 
-const acceptStyles = StyleSheet.create({
-  banner: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#fef3c7',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#fcd34d',
-    gap: 8,
-  },
-  bannerText: {
-    fontSize: 13,
-    color: '#92400e',
-    lineHeight: 18,
-  },
-  acceptBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: colorss.primary,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  acceptLabel: { color: '#fff', fontWeight: '600', fontSize: 14 },
-  pageBanner: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    backgroundColor: `${colorss.primary}15`,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: `${colorss.primary}40`,
-    alignItems: 'center',
-  },
-  pageBannerText: {
-    fontSize: 12,
-    color: colorss.primary,
-  },
-});
 
 const InboxGate: React.FC<Props> = props => {
+  const colorss = useColors();
   const { conversations } = useChats();
   const id = props.route.params.conversationId;
   const seed = props.route.params.seedConversation;

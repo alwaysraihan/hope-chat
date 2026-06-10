@@ -38,6 +38,7 @@ const MIN_BUBBLE_WIDTH_WITH_REPLY = SCREEN_WIDTH * 0.58;
 type ChatMessageBoxProps = {
   onPressReactions?: () => void;
   refreshTrigger?: number;
+  isGroup?: boolean;
 } & MessageProps<IMessage>;
 
 // ─── Download helper ──────────────────────────────────────────────────────────
@@ -125,7 +126,7 @@ const sheet = StyleSheet.create({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ChatMessageBox(props: ChatMessageBoxProps) {
-  const { currentMessage, position, onPressReactions } = props;
+  const { currentMessage, position, onPressReactions, isGroup } = props;
   const { handlePressReplyPreview } = useInbox();
   const msg = currentMessage as ExtendedMessage;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -164,6 +165,26 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const replyTo = msg?.replyTo;
   const hasReply = !!replyTo;
 
+  const isGroupIncoming = !!isGroup && !isOwn;
+  const senderName = isGroupIncoming ? (msg.user?.name ?? '') : '';
+  const senderAvatar = isGroupIncoming && typeof msg.user?.avatar === 'string'
+    ? msg.user.avatar as string
+    : null;
+  const SenderHeader = isGroupIncoming && senderName ? (
+    <View style={styles.senderRow}>
+      {senderAvatar ? (
+        <FastImage source={{ uri: senderAvatar }} style={styles.senderAvatar} />
+      ) : (
+        <View style={styles.senderAvatarPlaceholder}>
+          <Text style={styles.senderAvatarInitial}>
+            {senderName.charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <Text style={styles.senderName} numberOfLines={1}>{senderName}</Text>
+    </View>
+  ) : null;
+
   const reactionProps = {
     currentMessage: msg,
     position: position as 'left' | 'right',
@@ -201,6 +222,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     return (
       <Reaction {...reactionProps}>
         <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
+          {SenderHeader}
           {ReplySnippet && (
             <View style={[styles.replyWrap, isOwn ? styles.replyOwn : styles.replyOther]}>
               {ReplySnippet}
@@ -230,6 +252,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     return (
       <Reaction {...reactionProps}>
         <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
+          {SenderHeader}
           {ReplySnippet && (
             <View style={[styles.replyWrap, isOwn ? styles.replyOwn : styles.replyOther]}>
               {ReplySnippet}
@@ -276,8 +299,10 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     const thumbUri = media.thumbnail ?? undefined;
     return (
       <Reaction {...reactionProps}>
+        <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
+        {SenderHeader}
         <TouchableOpacity
-          style={[styles.mediaWrapper, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={styles.mediaWrapper}
           onPress={() => !media.uploading && videoUri && openPreview(videoUri, 'video')}
           onLongPress={() => !media.uploading && videoUri && openSheet(videoUri, 'video')}
           activeOpacity={0.92}
@@ -315,6 +340,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           onClose={() => setPreviewUrl(null)}
         />
         <MediaActionSheet url={sheetUrl} type={sheetType} onClose={() => setSheetUrl(null)} />
+        </View>
       </Reaction>
     );
   }
@@ -323,6 +349,8 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 
   return (
     <Reaction {...reactionProps}>
+      <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
+        {SenderHeader}
       <View
         style={[
           styles.textBubble,
@@ -341,6 +369,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           {msg?.text ?? ''}
         </Text>
       </View>
+      </View>
     </Reaction>
   );
 }
@@ -350,7 +379,38 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 const styles = StyleSheet.create({
   alignLeft: { alignSelf: 'flex-start', marginLeft: 12 },
   alignRight: { alignSelf: 'flex-end', marginRight: 12 },
-  mediaWrapper: { maxWidth: '90%', marginVertical: 2 },
+  mediaWrapper: { maxWidth: MAX_BUBBLE_WIDTH, marginVertical: 2 },
+  senderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  senderAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+  senderAvatarPlaceholder: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colorss.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  senderAvatarInitial: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  senderName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colorss.textSecondary,
+    maxWidth: MAX_BUBBLE_WIDTH - 30,
+  },
   column: {
     maxWidth: MAX_BUBBLE_WIDTH,
     marginVertical: 2,
@@ -371,13 +431,11 @@ const styles = StyleSheet.create({
   },
   textBubbleLeft: {
     alignSelf: 'flex-start',
-    marginLeft: 12,
     backgroundColor: '#eaeef3',
     borderTopLeftRadius: 4,
   },
   textBubbleRight: {
     alignSelf: 'flex-end',
-    marginRight: 12,
     backgroundColor: colorss.primary,
     borderTopRightRadius: 4,
   },

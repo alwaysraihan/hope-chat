@@ -407,6 +407,12 @@ export type HopenityChatMessage = {
   callKind?: 'audio' | 'video' | string;
   metadata?: Record<string, unknown>;
   deletedAt?: string | null;
+  replyTo?: {
+    id?: number | string;
+    content?: string;
+    senderId?: string;
+    sender?: { user_id?: string; name?: string; image?: string | null };
+  } | null;
 };
 
 export type HopenityChatMessagesPage = {
@@ -618,6 +624,7 @@ export async function sendHopenityChatMessage(
   token?: string | null,
   senderPageId?: string | null,
   isGroup?: boolean,
+  replyToId?: string | number | null,
 ): Promise<HopenityChatMessage | null> {
   if (!content || !token) return null;
 
@@ -630,6 +637,7 @@ export async function sendHopenityChatMessage(
   };
   const body: Record<string, unknown> = { content };
   if (senderPageId) body.senderPageId = senderPageId;
+  if (replyToId != null) body.replyToId = replyToId;
 
   const response = await fetch(url, {
     method: 'POST',

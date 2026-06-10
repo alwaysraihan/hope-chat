@@ -6,11 +6,13 @@ import React, {
   useState,
 } from 'react';
 import {
+  Dimensions,
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Pressable,
+  ScrollView,
   ActivityIndicator,
   Platform,
   Alert,
@@ -98,6 +100,7 @@ import {
   beginCallTransition,
   isCallTransitioning,
 } from '../services/callTransitionGuard';
+import { callSocket } from '../services/callSocket';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
 
@@ -274,6 +277,18 @@ function VideoCallGate({
   countRef.current = remotes.length;
   csRef.current = cs;
   const outgoing = outcomeOpts.callDirection === 'outgoing';
+  const isGroupCallRoute = !!routeParams?.isGroupCall;
+
+  // Track whether callee acknowledged the ring so "Calling…" → "Ringing…" only fires
+  // when the callee's device is actually ringing, not just when LiveKit has connected.
+  const [peerIsRinging, setPeerIsRinging] = useState(false);
+  const liveKitRoomName = routeParams?.liveKitRoom ?? '';
+  useEffect(() => {
+    if (!outgoing || !liveKitRoomName) return;
+    return callSocket.onCallRinging(data => {
+      if (data.liveKitRoom === liveKitRoomName) setPeerIsRinging(true);
+    });
+  }, [outgoing, liveKitRoomName]);
 
   const prevRemoteCountRef = useRef(0);
   useEffect(() => {
@@ -281,13 +296,17 @@ function VideoCallGate({
     const nowGone = remotes.length === 0;
     prevRemoteCountRef.current = remotes.length;
     if (!wasConnected || !nowGone || cs !== ConnectionState.Connected) return;
+    // 1:1 calls: 3 s grace — if the peer explicitly hung up they sent a data-channel
+    // hangup signal already; this only fires for unexpected disconnects.
+    // Group calls: 30 s so a participant can rejoin without disrupting others.
+    const gracePeriodMs = isGroupCallRoute ? 30_000 : 3_000;
     const t = setTimeout(() => {
       if (countRef.current > 0) return;
       try { Alert.alert('Call ended', 'The other person has left the call.'); } catch { /* */ }
       void leaveRef.current();
-    }, 30_000);
+    }, gracePeriodMs);
     return () => clearTimeout(t);
-  }, [remotes.length, cs]);
+  }, [remotes.length, cs, isGroupCallRoute]);
 
   const playOutgoingRingback =
     outgoing &&
@@ -297,6 +316,10 @@ function VideoCallGate({
       (cs === ConnectionState.Connected && remotes.length === 0));
 
   useOutgoingCallRingback(playOutgoingRingback);
+
+  // Derive the waiting-room label once here so both the connecting overlay and
+  // VideoStage show the same text.
+  const waitingLabel = outgoing && !peerIsRinging ? 'Calling…' : 'Ringing… waiting for them to answer';
 
   useEffect(() => {
     if (!outgoing) {
@@ -380,6 +403,7 @@ function VideoCallGate({
       onSwitchToAudio={handleSwitchToAudio}
       onMinimize={onMinimize}
       onAddPeople={onAddPeople}
+      waitingLabel={waitingLabel}
     />
   ) : (
     <VideoStage
@@ -391,6 +415,7 @@ function VideoCallGate({
       onSwitchToAudio={handleSwitchToAudio}
       onMinimize={onMinimize}
       onAddPeople={onAddPeople}
+      waitingLabel={waitingLabel}
     />
   );
 }
@@ -403,6 +428,7 @@ function AndroidConnectedCallStage({
   onSwitchToAudio,
   onMinimize,
   onAddPeople,
+  waitingLabel,
 }: {
   navigation: Props['navigation'];
   safePop: () => void;
@@ -412,6 +438,7 @@ function AndroidConnectedCallStage({
   onSwitchToAudio: () => void;
   onMinimize: () => void;
   onAddPeople?: () => void;
+  waitingLabel?: string;
 }) {
   const room = useRoomContext();
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
@@ -547,7 +574,7 @@ function AndroidConnectedCallStage({
         ) : null}
         <Text style={styles.emptyText}>
           {isRinging
-            ? 'Ringing... waiting for them to answer'
+            ? (waitingLabel ?? 'Ringing… waiting for them to answer')
             : 'Connected on audio'}
         </Text>
         <Text style={styles.netHint}>
@@ -637,6 +664,7 @@ function VideoStage({
   onSwitchToAudio,
   onMinimize,
   onAddPeople,
+  waitingLabel,
 }: {
   safePop: () => void;
   displayName: string;
@@ -646,6 +674,7 @@ function VideoStage({
   onSwitchToAudio: () => void;
   onMinimize: () => void;
   onAddPeople?: () => void;
+  waitingLabel?: string;
 }) {
   const room = useRoomContext();
   const {
@@ -792,6 +821,12 @@ function VideoStage({
   /** Below top bar row; SafeAreaView `edges` already offsets from the status bar. */
   const pipTop = 56;
 
+  const isGroupMode = remotes.length > 1;
+  const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+  const gridRows = Math.ceil((remotes.length + 1) / 2);
+  const tileWidth = (SCREEN_W - 3) / 2;
+  const tileHeight = Math.max(80, (SCREEN_H - 230 - (gridRows + 1)) / gridRows);
+
   const keyForTrack = useCallback(
     (item: NonNullable<typeof primaryRemoteVisual>, idx: number) =>
       isTrackReference(item)
@@ -899,7 +934,7 @@ function VideoStage({
         ) : null}
         <Text style={styles.emptyText}>
           {isRinging
-            ? 'Ringing… waiting for them to answer'
+            ? (waitingLabel ?? 'Ringing… waiting for them to answer')
             : 'Waiting for video…'}
         </Text>
       </View>
@@ -950,9 +985,72 @@ function VideoStage({
   return (
     <SafeAreaView style={styles.videoStageRoot} edges={['top', 'bottom']}>
       <View style={styles.videoStageInner}>
-        <View style={styles.mainVideoLayer} collapsable={false}>
-          {renderMainLayer()}
-        </View>
+        {isGroupMode ? (
+          <ScrollView
+            style={StyleSheet.absoluteFill}
+            contentContainerStyle={[styles.groupGrid, { minHeight: SCREEN_H - 180 }]}
+          >
+            {remotes.map(participant => {
+              const camRef = remoteVisualRefs.find(
+                r =>
+                  isTrackReference(r) &&
+                  r.participant.identity === participant.identity &&
+                  r.publication?.source === Track.Source.Camera,
+              );
+              const hasCam =
+                !!camRef &&
+                isTrackReference(camRef) &&
+                !!camRef.publication?.track &&
+                !camRef.publication?.isMuted;
+              return (
+                <View
+                  key={participant.identity}
+                  style={[styles.gridTile, { width: tileWidth, height: tileHeight }]}
+                >
+                  {hasCam && camRef ? (
+                    <VideoTrack trackRef={camRef} style={StyleSheet.absoluteFill} zOrder={0} />
+                  ) : (
+                    <View style={styles.gridTilePlaceholder}>
+                      <View style={styles.gridInitialCircle}>
+                        <Text style={styles.gridInitialText}>
+                          {(participant.name ?? participant.identity ?? '?').charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                  <View style={styles.gridTileLabel} pointerEvents="none">
+                    <Text style={styles.gridTileLabelText} numberOfLines={1}>
+                      {participant.name ?? participant.identity ?? 'Guest'}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+            <View style={[styles.gridTile, { width: tileWidth, height: tileHeight }]}>
+              {hasLocalVideo && localCameraTrack && isTrackReference(localCameraTrack) ? (
+                <VideoTrack
+                  trackRef={localCameraTrack}
+                  style={StyleSheet.absoluteFill}
+                  mirror
+                  zOrder={0}
+                />
+              ) : (
+                <View style={styles.gridTilePlaceholder}>
+                  <View style={styles.gridInitialCircle}>
+                    <Text style={styles.gridInitialText}>Y</Text>
+                  </View>
+                </View>
+              )}
+              <View style={styles.gridTileLabel} pointerEvents="none">
+                <Text style={styles.gridTileLabelText} numberOfLines={1}>You</Text>
+              </View>
+            </View>
+          </ScrollView>
+        ) : (
+          <View style={styles.mainVideoLayer} collapsable={false}>
+            {renderMainLayer()}
+          </View>
+        )}
 
         <View style={styles.topBarAbs}>
           {Platform.OS === 'android' ? (
@@ -1000,7 +1098,7 @@ function VideoStage({
           )}
         </View>
 
-        {showPip ? (
+        {!isGroupMode && showPip ? (
           <Pressable
             style={[styles.pipWrap, { top: pipTop }]}
             onPress={() => setMainIsLocal(v => !v)}
@@ -1513,6 +1611,52 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.error,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  groupGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignContent: 'flex-start',
+    padding: 1,
+    gap: 1,
+    backgroundColor: '#000',
+  },
+  gridTile: {
+    backgroundColor: '#1a1a1a',
+    overflow: 'hidden',
+    borderRadius: 8,
+  },
+  gridTilePlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1c2033',
+  },
+  gridInitialCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gridInitialText: {
+    color: '#fff',
+    fontSize: 26,
+    fontWeight: '700',
+  },
+  gridTileLabel: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  gridTileLabelText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   empty: {
     paddingTop: 40,

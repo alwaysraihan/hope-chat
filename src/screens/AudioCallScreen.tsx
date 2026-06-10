@@ -82,6 +82,7 @@ import {
   beginCallTransition,
   isCallTransitioning,
 } from '../services/callTransitionGuard';
+import { callSocket } from '../services/callSocket';
 import { AddPeopleModal } from '../components/AddPeopleModal';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'AudioCall'>;
@@ -234,22 +235,36 @@ function AudioCallGate({
   countRef.current = remotes.length;
   csRef.current = cs;
   const outgoing = outcomeOpts.callDirection === 'outgoing';
+  const isGroupCallRoute = !!routeParams?.isGroupCall;
 
-  // If the remote peer drops off mid-call (force-quit, network loss), give them
-  // 30 s to reconnect before ending the call on our side too.
+  // Track whether the callee's device acknowledged the ring — lets caller show
+  // "Calling…" → "Ringing…" only when the callee is actually ringing.
+  const [peerIsRinging, setPeerIsRinging] = useState(false);
+  const liveKitRoomName = routeParams?.liveKitRoom ?? '';
+  useEffect(() => {
+    if (!outgoing || !liveKitRoomName) return;
+    return callSocket.onCallRinging(data => {
+      if (data.liveKitRoom === liveKitRoomName) setPeerIsRinging(true);
+    });
+  }, [outgoing, liveKitRoomName]);
+
+  // If the remote peer drops off mid-call (force-quit, network loss), give a grace
+  // period before ending. 1:1 calls use 3 s (brief network hiccup is unlikely to last
+  // longer). Group calls use 30 s so a participant can rejoin without dropping everyone.
   const prevRemoteCountRef = useRef(0);
   useEffect(() => {
     const wasConnected = prevRemoteCountRef.current > 0;
     const nowGone = remotes.length === 0;
     prevRemoteCountRef.current = remotes.length;
     if (!wasConnected || !nowGone || cs !== ConnectionState.Connected) return;
+    const gracePeriodMs = isGroupCallRoute ? 30_000 : 3_000;
     const t = setTimeout(() => {
       if (countRef.current > 0) return;
       try { Alert.alert('Call ended', 'The other person has left the call.'); } catch { /* */ }
       void leaveRef.current();
-    }, 30_000);
+    }, gracePeriodMs);
     return () => clearTimeout(t);
-  }, [remotes.length, cs]);
+  }, [remotes.length, cs, isGroupCallRoute]);
 
   const playOutgoingRingback =
     outgoing &&
@@ -342,6 +357,8 @@ function AudioCallGate({
       onMinimize={onMinimize}
       onAddPeople={onAddPeople}
       liveKitRoom={routeParams?.liveKitRoom ?? ''}
+      isOutgoing={outgoing}
+      peerIsRinging={peerIsRinging}
     />
   );
 }
@@ -355,6 +372,8 @@ function AudioStage({
   onMinimize,
   onAddPeople,
   liveKitRoom: _liveKitRoom,
+  isOutgoing,
+  peerIsRinging,
 }: {
   safePop: () => void;
   displayName: string;
@@ -364,6 +383,8 @@ function AudioStage({
   onMinimize: () => void;
   onAddPeople?: () => void;
   liveKitRoom?: string;
+  isOutgoing?: boolean;
+  peerIsRinging?: boolean;
 }) {
   const room = useRoomContext();
   const participants = useParticipants();
@@ -513,7 +534,7 @@ function AudioStage({
           {hint === 'reconnecting' || hint === 'poor_network'
             ? detail || 'Adjusting for your network…'
             : isRinging
-            ? 'Ringing…'
+            ? (isOutgoing && !peerIsRinging ? 'Calling…' : 'Ringing…')
             : isGroupCall
             ? `${remotes.length + 1} participants · ${timer || 'Connected'}`
             : timer || 'Connected'}
