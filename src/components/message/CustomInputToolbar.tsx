@@ -30,7 +30,7 @@ import VoiceRecorder from './VoiceRecorder';
 import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
+import useKeyboardVisible from '../../hooks/useKeyboardVisible';
 
 const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const {
@@ -47,14 +47,69 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const { bottom } = useSafeAreaInsets();
+  const isKeyboardVisible = useKeyboardVisible();
 
   const COMMON_EMOJIS = [
-    '😀','😂','😍','😊','🥰','😎','😭','😅','🤣','😢',
-    '❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💕',
-    '👍','👎','👋','🙌','👏','🤝','🙏','💪','✌️','🤞',
-    '🎉','🎊','🔥','⭐','✨','💫','🌟','🎵','🎶','💯',
-    '😴','🤔','😤','😱','🤯','🥳','🤩','😏','😒','🙄',
-    '🐶','🐱','🦁','🐸','🐧','🦋','🌹','🌺','🍕','🍔',
+    '😀',
+    '😂',
+    '😍',
+    '😊',
+    '🥰',
+    '😎',
+    '😭',
+    '😅',
+    '🤣',
+    '😢',
+    '❤️',
+    '🧡',
+    '💛',
+    '💚',
+    '💙',
+    '💜',
+    '🖤',
+    '🤍',
+    '💔',
+    '💕',
+    '👍',
+    '👎',
+    '👋',
+    '🙌',
+    '👏',
+    '🤝',
+    '🙏',
+    '💪',
+    '✌️',
+    '🤞',
+    '🎉',
+    '🎊',
+    '🔥',
+    '⭐',
+    '✨',
+    '💫',
+    '🌟',
+    '🎵',
+    '🎶',
+    '💯',
+    '😴',
+    '🤔',
+    '😤',
+    '😱',
+    '🤯',
+    '🥳',
+    '🤩',
+    '😏',
+    '😒',
+    '🙄',
+    '🐶',
+    '🐱',
+    '🦁',
+    '🐸',
+    '🐧',
+    '🦋',
+    '🌹',
+    '🌺',
+    '🍕',
+    '🍔',
   ];
 
   const appendEmoji = (emoji: string) => {
@@ -118,9 +173,11 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   };
 
   const hasText = Boolean(props.text?.trim());
-
+  const bottomPadding = isKeyboardVisible ? 10 : bottom;
   return (
-    <View style={[styles.container, { paddingBottom: bottom }]}>
+    <View
+      style={[styles.container, { paddingBottom: Math.max(10, bottomPadding) }]}
+    >
       {/* Reply Preview Bar */}
       <Animated.View
         style={[
@@ -169,7 +226,11 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
       {/* Emoji Picker Panel */}
       {showEmojiPicker && (
         <View style={styles.emojiPanel}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.emojiScroll}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.emojiScroll}
+          >
             {COMMON_EMOJIS.map(emoji => (
               <TouchableOpacity
                 key={emoji}
@@ -244,7 +305,10 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
             style={styles.emojiBtn}
             onPress={() => setShowEmojiPicker(v => !v)}
           >
-            <Smile size={20} color={showEmojiPicker ? colorss.primary : colorss.placeholder} />
+            <Smile
+              size={20}
+              color={showEmojiPicker ? colorss.primary : colorss.placeholder}
+            />
           </TouchableOpacity>
         </View>
 
@@ -268,7 +332,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
 
 export default React.memo(CustomInputToolbar);
 
-// ─── Styles 
+// ─── Styles
 
 const styles = StyleSheet.create({
   container: {
