@@ -4,6 +4,7 @@ import FastImage from '@d11/react-native-fast-image';
 
 import { IC_PROFILE } from '../../assets';
 import { colorss } from '../../theme';
+import { useAppTheme } from '../../context/ThemeContext';
 
 type Props = {
   peerName: string;
@@ -23,6 +24,7 @@ export default function ChatThreadIntroCard({
   avatarUrl,
   messagesExist,
 }: Props) {
+  const { colors, isDark } = useAppTheme();
   return (
     <View style={styles.wrap}>
       <View style={styles.avatarRing}>
@@ -33,8 +35,19 @@ export default function ChatThreadIntroCard({
         )}
       </View>
 
-      <Text style={styles.peerName}>{peerName}</Text>
-      <Text style={styles.subtitle}>{subtitle}</Text>
+      <Text
+        style={[
+          styles.peerName,
+          {
+            color: colors.textPrimary,
+          },
+        ]}
+      >
+        {peerName}
+      </Text>
+      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+        {subtitle}
+      </Text>
 
       {messagesExist ? null : (
         <>
@@ -72,12 +85,10 @@ const styles = StyleSheet.create({
   peerName: {
     fontSize: 17,
     fontWeight: '700',
-    color: colorss.textPrimary,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 13,
-    color: colorss.textSecondary,
     marginBottom: 10,
   },
   mutualRow: {

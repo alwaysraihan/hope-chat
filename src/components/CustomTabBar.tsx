@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../theme';
+// import { colors } from '../theme';
 import {
   Bell,
   FileText,
@@ -13,15 +13,16 @@ import {
   LucideMessageCircle,
 } from 'lucide-react-native';
 import { useLanguage } from '../context/LanguageContext';
+import { useAppTheme, useColors } from '../context/ThemeContext';
 
 const TAB_LABELS: Record<string, { en: string; bn: string }> = {
-  Home:          { en: 'Chats',         bn: 'চ্যাট' },
-  Story:         { en: 'Stories',       bn: 'স্টোরি' },
+  Home: { en: 'Chats', bn: 'চ্যাট' },
+  Story: { en: 'Stories', bn: 'স্টোরি' },
   Notifications: { en: 'Notifications', bn: 'বিজ্ঞপ্তি' },
-  Menu:          { en: 'Menu',          bn: 'মেনু' },
-  Media:         { en: 'Media',         bn: 'মিডিয়া' },
-  Files:         { en: 'Files',         bn: 'ফাইল' },
-  Links:         { en: 'Links',         bn: 'লিংক' },
+  Menu: { en: 'Menu', bn: 'মেনু' },
+  Media: { en: 'Media', bn: 'মিডিয়া' },
+  Files: { en: 'Files', bn: 'ফাইল' },
+  Links: { en: 'Links', bn: 'লিংক' },
 };
 
 const CustomTabBar: React.FC<BottomTabBarProps> = ({
@@ -30,7 +31,8 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
   navigation,
 }) => {
   const { lang } = useLanguage();
-
+  const colors = useColors();
+  const { isDark } = useAppTheme();
   const getLabel = (routeName: string): string => {
     const entry = TAB_LABELS[routeName];
     if (!entry) return routeName;
@@ -38,7 +40,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
   };
 
   const getIcon = (routeName: string, isFocused: boolean) => {
-    const iconColor = isFocused ? colors.pink : '#3D3B3B';
+    const iconColor = isFocused ? colors.primary : '#3D3B3B';
 
     switch (routeName) {
       case 'Home':
@@ -68,6 +70,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
         styles.container,
         {
           paddingBottom: bottom - 6,
+          backgroundColor: isDark ? '#121212' : colors.background,
         },
       ]}
     >
@@ -118,7 +121,6 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
     borderTopWidth: 0,
     borderTopColor: '#E5E5EA',
     justifyContent: 'space-between',

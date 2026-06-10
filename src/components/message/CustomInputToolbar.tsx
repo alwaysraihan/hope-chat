@@ -31,6 +31,7 @@ import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useKeyboardVisible from '../../hooks/useKeyboardVisible';
+import { useAppTheme } from '../../context/ThemeContext';
 
 const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const {
@@ -43,7 +44,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
     handleVoiceRecordingCancel,
     clearReply,
   } = useInbox();
-
+  const { isDark, colors } = useAppTheme();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const { bottom } = useSafeAreaInsets();
@@ -176,7 +177,13 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const bottomPadding = isKeyboardVisible ? 10 : bottom;
   return (
     <View
-      style={[styles.container, { paddingBottom: Math.max(10, bottomPadding) }]}
+      style={[
+        styles.container,
+        {
+          paddingBottom: Math.max(10, bottomPadding),
+          backgroundColor: isDark ? colors.backgroundDeep : colors.white,
+        },
+      ]}
     >
       {/* Reply Preview Bar */}
       <Animated.View
@@ -288,7 +295,12 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
         )}
 
         {/* Text Composer */}
-        <View style={styles.inputWrapper}>
+        <View
+          style={[
+            styles.inputWrapper,
+            { backgroundColor: colors.surface },
+          ]}
+        >
           <Composer
             {...props}
             text={props.text}
@@ -339,8 +351,6 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.white,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colorss.border,
   },
   replyBar: { marginBottom: 4 },
   replyInner: {
@@ -365,7 +375,6 @@ const styles = StyleSheet.create({
   replyThumb: { width: 38, height: 38, borderRadius: 6 },
   replyVoiceEmoji: { fontSize: 22 },
   replyClose: { padding: 2 },
-
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   leftIcons: { flexDirection: 'row', alignItems: 'center' },
   iconBtn: { marginRight: 4, padding: 5 },
@@ -374,7 +383,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colorss.surface,
     borderRadius: 24,
     paddingHorizontal: 14,
     minHeight: 42,

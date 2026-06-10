@@ -15,14 +15,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { ArrowLeft, SearchIcon, X } from 'lucide-react-native';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import FastImage from '@d11/react-native-fast-image';
 
-import { colors, colorss, radius } from '../theme';
+import { radius } from '../theme';
 import { IC_PROFILE } from '../assets';
 import type {
   BottomTabNavigatorParamList,
@@ -43,6 +46,7 @@ import {
   removeFromSearchHistory,
   type SearchHistoryEntry,
 } from '../services/searchHistoryService';
+import { AppColors, useAppTheme } from '../context/ThemeContext';
 
 type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackNavigatorParamList, 'Search'>,
@@ -79,17 +83,31 @@ function SkeletonBox({
   useEffect(() => {
     const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.4,
+          duration: 700,
+          useNativeDriver: true,
+        }),
       ]),
     );
     anim.start();
     return () => anim.stop();
   }, [opacity]);
+  const { colors } = useAppTheme();
   return (
     <Animated.View
       style={[
-        { width, height, borderRadius, backgroundColor: colorss.backgroundDeep },
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: colors.backgroundDeep,
+        },
         { opacity },
         style,
       ]}
@@ -143,7 +161,8 @@ async function fetchUsers(
 // --- Screen -------------------------------------------------------------------
 
 const SearchScreen: React.FC<Props> = ({ navigation }) => {
-  const colorss = useColors();
+  const { colors } = useAppTheme();
+  const styles = stylesFunc(colors);
   const t = useT();
   const token = useAppSelector(s => s.auth.token);
   const profile = useAppSelector(selectHopenityProfile);
@@ -157,7 +176,9 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   const { bottom } = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('All');
-  const [history, setHistory] = useState<SearchHistoryEntry[]>(() => getSearchHistory());
+  const [history, setHistory] = useState<SearchHistoryEntry[]>(() =>
+    getSearchHistory(),
+  );
 
   const [results, setResults] = useState<UserResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -202,8 +223,8 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   const openChat = useCallback(
     async (user: UserResult | SearchHistoryEntry) => {
       const peerId = String(
-      (user as SearchHistoryEntry).userId ?? (user as UserResult).user_id,
-    );
+        (user as SearchHistoryEntry).userId ?? (user as UserResult).user_id,
+      );
 
       // Persist to history
       addToSearchHistory({
@@ -283,10 +304,13 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.userName} numberOfLines={1}>
-            {item.name}{item.isVerified ? '  ✓' : ''}
+            {item.name}
+            {item.isVerified ? '  ✓' : ''}
           </Text>
           {item.username ? (
-            <Text style={styles.userSub} numberOfLines={1}>@{item.username}</Text>
+            <Text style={styles.userSub} numberOfLines={1}>
+              @{item.username}
+            </Text>
           ) : null}
         </View>
       </TouchableOpacity>
@@ -298,22 +322,34 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   if (query.trim()) {
     return (
       <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
-        <Header query={query} onChangeQuery={setQuery} onBack={() => navigation.goBack()} />
+        <Header
+          query={query}
+          onChangeQuery={setQuery}
+          onBack={() => navigation.goBack()}
+        />
 
         <View style={styles.tabRow}>
           {TABS.map(tab => {
             const tabLabel =
-              tab === 'All' ? t.tab_all :
-              tab === 'People' ? t.tab_people :
-              tab === 'Messages' ? t.tab_messages_label :
-              t.tab_groups;
+              tab === 'All'
+                ? t.tab_all
+                : tab === 'People'
+                ? t.tab_people
+                : tab === 'Messages'
+                ? t.tab_messages_label
+                : t.tab_groups;
             return (
               <TouchableOpacity
                 key={tab}
                 onPress={() => setActiveTab(tab)}
                 style={[styles.tab, activeTab === tab && styles.tabActive]}
               >
-                <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                <Text
+                  style={[
+                    styles.tabText,
+                    activeTab === tab && styles.tabTextActive,
+                  ]}
+                >
                   {tabLabel}
                 </Text>
               </TouchableOpacity>
@@ -323,11 +359,15 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
 
         {searchLoading ? (
           <View style={styles.listPad}>
-            {[...Array(8)].map((_, i) => <SkeletonRow key={i} />)}
+            {[...Array(8)].map((_, i) => (
+              <SkeletonRow key={i} />
+            ))}
           </View>
         ) : results.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>{t.no_results} "{query}"</Text>
+            <Text style={styles.emptyText}>
+              {t.no_results} "{query}"
+            </Text>
           </View>
         ) : (
           <FlatList
@@ -335,7 +375,10 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
             keyExtractor={u => u.user_id}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={[styles.listPad, { paddingBottom: bottom + 20 }]}
+            contentContainerStyle={[
+              styles.listPad,
+              { paddingBottom: bottom + 20 },
+            ]}
             renderItem={renderUser}
           />
         )}
@@ -346,7 +389,11 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
   // -- Default / home view --
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
-      <Header query={query} onChangeQuery={setQuery} onBack={() => navigation.goBack()} />
+      <Header
+        query={query}
+        onChangeQuery={setQuery}
+        onBack={() => navigation.goBack()}
+      />
 
       <FlatList
         data={[]}
@@ -360,7 +407,9 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>{t.recent_searches}</Text>
-                <TouchableOpacity onPress={() => navigation.navigate('EditSearchHistory')}>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('EditSearchHistory')}
+                >
                   <Text style={styles.editText}>{t.edit}</Text>
                 </TouchableOpacity>
               </View>
@@ -377,7 +426,9 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
                       >
                         <View style={styles.avatarWrap}>
                           <FastImage
-                            source={entry.image ? { uri: entry.image } : IC_PROFILE}
+                            source={
+                              entry.image ? { uri: entry.image } : IC_PROFILE
+                            }
                             style={styles.recentAvatar}
                           />
                         </View>
@@ -390,7 +441,7 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
                         onPress={() => handleRemoveHistory(entry.userId)}
                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
-                        <X size={11} color={colorss.textSecondary} />
+                        <X size={11} color={colors.textSecondary} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -398,7 +449,10 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
               )}
 
               {history.length > 0 && (
-                <TouchableOpacity onPress={handleClearHistory} style={styles.clearBtn}>
+                <TouchableOpacity
+                  onPress={handleClearHistory}
+                  style={styles.clearBtn}
+                >
                   <Text style={styles.clearText}>Clear all</Text>
                 </TouchableOpacity>
               )}
@@ -409,7 +463,9 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.sectionSub}>People you chat with</Text>
 
             {friends.length === 0 ? (
-              <Text style={styles.emptySection}>Start a conversation to see suggestions.</Text>
+              <Text style={styles.emptySection}>
+                Start a conversation to see suggestions.
+              </Text>
             ) : (
               friends.map(user => (
                 <TouchableOpacity
@@ -426,7 +482,9 @@ const SearchScreen: React.FC<Props> = ({ navigation }) => {
                     {user.isOnline && <View style={styles.onlineDot} />}
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.userName} numberOfLines={1}>{user.name}</Text>
+                    <Text style={styles.userName} numberOfLines={1}>
+                      {user.name}
+                    </Text>
                   </View>
                 </TouchableOpacity>
               ))
@@ -451,17 +509,19 @@ function Header({
   onBack: () => void;
 }) {
   const t = useT();
+  const { colors } = useAppTheme();
+  const styles = stylesFunc(colors);
   return (
     <View style={styles.header}>
       <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-        <ArrowLeft color={colorss.textPrimary} />
+        <ArrowLeft color={colors.textPrimary} />
       </TouchableOpacity>
       <View style={styles.searchBox}>
-        <SearchIcon size={18} color={colorss.textSecondary} />
+        <SearchIcon size={18} color={colors.textSecondary} />
         <TextInput
           style={styles.input}
           placeholder={t.search_placeholder}
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.textSecondary}
           value={query}
           onChangeText={onChangeQuery}
           returnKeyType="search"
@@ -469,8 +529,11 @@ function Header({
           autoCapitalize="none"
         />
         {query.length > 0 && (
-          <TouchableOpacity onPress={() => onChangeQuery('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-            <X size={16} color={colorss.textSecondary} />
+          <TouchableOpacity
+            onPress={() => onChangeQuery('')}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <X size={16} color={colors.textSecondary} />
           </TouchableOpacity>
         )}
       </View>
@@ -482,63 +545,126 @@ export default SearchScreen;
 
 // --- Styles -------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colorss.surface, paddingTop: 10 },
-  header: {
-    flexDirection: 'row', alignItems: 'center',
-    borderBottomWidth: 1, borderBottomColor: colorss.placeholder,
-    paddingHorizontal: 10, paddingBottom: 6, gap: 8,
-  },
-  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  searchBox: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colorss.background, flex: 1,
-    borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 8, gap: 8,
-  },
-  input: { flex: 1, fontSize: 14, color: colorss.textSecondary, padding: 0 },
-  tabRow: { flexDirection: 'row', paddingHorizontal: 10, paddingTop: 12, paddingBottom: 4, gap: 6 },
-  tab: { borderRadius: 16, paddingVertical: 5, paddingHorizontal: 14 },
-  tabActive: { backgroundColor: colorss.background },
-  tabText: { fontSize: 14, color: colorss.textSecondary },
-  tabTextActive: { color: colorss.textPrimary, fontWeight: '600' },
-  listPad: { paddingHorizontal: 14, paddingTop: 10 },
-  section: { marginVertical: 16 },
-  sectionHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 12,
-  },
-  sectionTitle: { fontSize: 14, color: colorss.textSecondary, fontWeight: '600' },
-  sectionSub: { fontSize: 12, color: colorss.placeholder, marginTop: 2, marginBottom: 8 },
-  editText: { fontSize: 13, color: colorss.accent, fontWeight: '600' },
-  emptySection: { fontSize: 13, color: colorss.placeholder, marginBottom: 12 },
-  recentGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  recentItemWrap: { width: '17%', alignItems: 'center' },
-  recentItem: { alignItems: 'center' },
-  recentAvatar: { width: 52, height: 52, borderRadius: 26 },
-  recentName: { fontSize: 12, color: colorss.textPrimary, marginTop: 4, textAlign: 'center' },
-  removeBtn: {
-    position: 'absolute', top: -4, right: -4,
-    width: 18, height: 18, borderRadius: 9,
-    backgroundColor: colorss.backgroundDeep,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  clearBtn: { alignSelf: 'flex-end', marginTop: 8, padding: 4 },
-  clearText: { fontSize: 13, color: colorss.accent },
-  avatarWrap: { position: 'relative' },
-  avatar: { width: 48, height: 48, borderRadius: 24 },
-  onlineDot: {
-    position: 'absolute', bottom: 1, right: 1,
-    width: 12, height: 12, borderRadius: 6,
-    backgroundColor: colors.online, borderWidth: 2, borderColor: colorss.surface,
-  },
-  userRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
-  userName: { fontSize: 15, fontWeight: '600', color: colorss.textPrimary },
-  userSub: { fontSize: 13, color: colorss.textSecondary, marginTop: 2 },
-  empty: { flex: 1, alignItems: 'center', paddingTop: 60 },
-  emptyText: { color: colorss.textSecondary, fontSize: 15 },
-});
+const stylesFunc = (colorss: AppColors) => {
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colorss.surface, paddingTop: 10 },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: colorss.placeholder,
+      paddingHorizontal: 10,
+      paddingBottom: 6,
+      gap: 8,
+    },
+    backBtn: {
+      width: 40,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    searchBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colorss.background,
+      flex: 1,
+      borderRadius: radius.md,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      gap: 8,
+    },
+    input: { flex: 1, fontSize: 14, color: colorss.textSecondary, padding: 0 },
+    tabRow: {
+      flexDirection: 'row',
+      paddingHorizontal: 10,
+      paddingTop: 12,
+      paddingBottom: 4,
+      gap: 6,
+    },
+    tab: { borderRadius: 16, paddingVertical: 5, paddingHorizontal: 14 },
+    tabActive: { backgroundColor: colorss.background },
+    tabText: { fontSize: 14, color: colorss.textSecondary },
+    tabTextActive: { color: colorss.textPrimary, fontWeight: '600' },
+    listPad: { paddingHorizontal: 14, paddingTop: 10 },
+    section: { marginVertical: 16 },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    sectionTitle: {
+      fontSize: 14,
+      color: colorss.textSecondary,
+      fontWeight: '600',
+    },
+    sectionSub: {
+      fontSize: 12,
+      color: colorss.placeholder,
+      marginTop: 2,
+      marginBottom: 8,
+    },
+    editText: { fontSize: 13, color: colorss.accent, fontWeight: '600' },
+    emptySection: {
+      fontSize: 13,
+      color: colorss.placeholder,
+      marginBottom: 12,
+    },
+    recentGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    recentItemWrap: { width: '17%', alignItems: 'center' },
+    recentItem: { alignItems: 'center' },
+    recentAvatar: { width: 52, height: 52, borderRadius: 26 },
+    recentName: {
+      fontSize: 12,
+      color: colorss.textPrimary,
+      marginTop: 4,
+      textAlign: 'center',
+    },
+    removeBtn: {
+      position: 'absolute',
+      top: -4,
+      right: -4,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: colorss.backgroundDeep,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    clearBtn: { alignSelf: 'flex-end', marginTop: 8, padding: 4 },
+    clearText: { fontSize: 13, color: colorss.accent },
+    avatarWrap: { position: 'relative' },
+    avatar: { width: 48, height: 48, borderRadius: 24 },
+    onlineDot: {
+      position: 'absolute',
+      bottom: 1,
+      right: 1,
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: colorss.success,
+      borderWidth: 2,
+      borderColor: colorss.surface,
+    },
+    userRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 8,
+    },
+    userName: { fontSize: 15, fontWeight: '600', color: colorss.textPrimary },
+    userSub: { fontSize: 13, color: colorss.textSecondary, marginTop: 2 },
+    empty: { flex: 1, alignItems: 'center', paddingTop: 60 },
+    emptyText: { color: colorss.textSecondary, fontSize: 15 },
+  });
+};
 
 const skStyles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
   gridItem: { width: '17%', alignItems: 'center' },
 });

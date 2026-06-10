@@ -26,6 +26,7 @@ import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { getAutoSavePhotos } from '../../services/chatPrefs';
 import { Toast } from '../Toast';
+import { useAppTheme } from '../../context/ThemeContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -50,9 +51,13 @@ async function downloadMediaToGallery(
   Toast.loading('Saving to gallery…');
   try {
     const ext = type === 'video' ? 'mp4' : 'jpg';
-    const destPath = `${RNFS.CachesDirectoryPath}/hopechat_dl_${Date.now()}.${ext}`;
+    const destPath = `${
+      RNFS.CachesDirectoryPath
+    }/hopechat_dl_${Date.now()}.${ext}`;
     await RNFS.downloadFile({ fromUrl: remoteUrl, toFile: destPath }).promise;
-    await CameraRoll.saveAsset(destPath, { type: type === 'video' ? 'video' : 'photo' });
+    await CameraRoll.saveAsset(destPath, {
+      type: type === 'video' ? 'video' : 'photo',
+    });
     Toast.success('Saved to gallery!');
   } catch {
     Toast.error('Could not save. Please try again.');
@@ -75,20 +80,32 @@ function MediaActionSheet({
   if (!url) return null;
   const label = type === 'video' ? 'video' : 'photo';
   return (
-    <Modal transparent animationType="slide" visible={!!url} onRequestClose={onClose}>
+    <Modal
+      transparent
+      animationType="slide"
+      visible={!!url}
+      onRequestClose={onClose}
+    >
       <Pressable style={sheet.backdrop} onPress={onClose} />
       <View style={sheet.container}>
         <View style={sheet.handle} />
         <TouchableOpacity
           style={sheet.action}
-          onPress={() => { onClose(); downloadMediaToGallery(url, type); }}
+          onPress={() => {
+            onClose();
+            downloadMediaToGallery(url, type);
+          }}
           activeOpacity={0.7}
         >
           <Text style={sheet.actionIcon}>{type === 'video' ? '🎬' : '🖼️'}</Text>
           <Text style={sheet.actionText}>Save {label} to gallery</Text>
         </TouchableOpacity>
         <View style={sheet.divider} />
-        <TouchableOpacity style={sheet.action} onPress={onClose} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={sheet.action}
+          onPress={onClose}
+          activeOpacity={0.7}
+        >
           <Text style={sheet.cancelText}>Cancel</Text>
         </TouchableOpacity>
       </View>
@@ -106,20 +123,34 @@ const sheet = StyleSheet.create({
     paddingHorizontal: 0,
   },
   handle: {
-    width: 36, height: 4, borderRadius: 2,
+    width: 36,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: colorss.border,
-    alignSelf: 'center', marginTop: 10, marginBottom: 8,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 8,
   },
   action: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    paddingHorizontal: 20, paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   actionIcon: { fontSize: 22 },
   actionText: { fontSize: 16, fontWeight: '500', color: colorss.textPrimary },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colorss.border, marginHorizontal: 0 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colorss.border,
+    marginHorizontal: 0,
+  },
   cancelText: {
-    fontSize: 16, fontWeight: '600', color: colorss.error,
-    textAlign: 'center', flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colorss.error,
+    textAlign: 'center',
+    flex: 1,
   },
 });
 
@@ -133,7 +164,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const [sheetType, setSheetType] = useState<'image' | 'video'>('image');
-
+  const { isDark, colors } = useAppTheme();
   const openPreview = useCallback((url: string, type: 'image' | 'video') => {
     setPreviewType(type);
     setPreviewUrl(url);
@@ -148,13 +179,17 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     const introFirst =
       (msg.threadIntro.peerName ?? '').trim().split(/\s+/)[0] || 'Friend';
     return (
-      <View style={{ width: SCREEN_WIDTH, alignSelf: 'center', marginBottom: 6 }}>
+      <View
+        style={{ width: SCREEN_WIDTH, alignSelf: 'center', marginBottom: 6 }}
+      >
         <ChatThreadIntroCard
           messagesExist={props.nextMessage != null}
           peerName={msg.threadIntro.peerName}
           subtitle={msg.threadIntro.subtitle}
           avatarUrl={msg.threadIntro.avatarUrl}
-          prompt={msg.text || `Say hi to your new Hopenity friend, ${introFirst}.`}
+          prompt={
+            msg.text || `Say hi to your new Hopenity friend, ${introFirst}.`
+          }
         />
       </View>
     );
@@ -166,24 +201,31 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const hasReply = !!replyTo;
 
   const isGroupIncoming = !!isGroup && !isOwn;
-  const senderName = isGroupIncoming ? (msg.user?.name ?? '') : '';
-  const senderAvatar = isGroupIncoming && typeof msg.user?.avatar === 'string'
-    ? msg.user.avatar as string
-    : null;
-  const SenderHeader = isGroupIncoming && senderName ? (
-    <View style={styles.senderRow}>
-      {senderAvatar ? (
-        <FastImage source={{ uri: senderAvatar }} style={styles.senderAvatar} />
-      ) : (
-        <View style={styles.senderAvatarPlaceholder}>
-          <Text style={styles.senderAvatarInitial}>
-            {senderName.charAt(0).toUpperCase()}
-          </Text>
-        </View>
-      )}
-      <Text style={styles.senderName} numberOfLines={1}>{senderName}</Text>
-    </View>
-  ) : null;
+  const senderName = isGroupIncoming ? msg.user?.name ?? '' : '';
+  const senderAvatar =
+    isGroupIncoming && typeof msg.user?.avatar === 'string'
+      ? (msg.user.avatar as string)
+      : null;
+  const SenderHeader =
+    isGroupIncoming && senderName ? (
+      <View style={styles.senderRow}>
+        {senderAvatar ? (
+          <FastImage
+            source={{ uri: senderAvatar }}
+            style={styles.senderAvatar}
+          />
+        ) : (
+          <View style={styles.senderAvatarPlaceholder}>
+            <Text style={styles.senderAvatarInitial}>
+              {senderName.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.senderName} numberOfLines={1}>
+          {senderName}
+        </Text>
+      </View>
+    ) : null;
 
   const reactionProps = {
     currentMessage: msg,
@@ -221,10 +263,17 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     const audioUri = media.remoteUri ?? media.url ?? media.localUri ?? '';
     return (
       <Reaction {...reactionProps}>
-        <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
+        <View
+          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+        >
           {SenderHeader}
           {ReplySnippet && (
-            <View style={[styles.replyWrap, isOwn ? styles.replyOwn : styles.replyOther]}>
+            <View
+              style={[
+                styles.replyWrap,
+                isOwn ? styles.replyOwn : styles.replyOther,
+              ]}
+            >
               {ReplySnippet}
             </View>
           )}
@@ -251,16 +300,27 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     }
     return (
       <Reaction {...reactionProps}>
-        <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
+        <View
+          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+        >
           {SenderHeader}
           {ReplySnippet && (
-            <View style={[styles.replyWrap, isOwn ? styles.replyOwn : styles.replyOther]}>
+            <View
+              style={[
+                styles.replyWrap,
+                isOwn ? styles.replyOwn : styles.replyOther,
+              ]}
+            >
               {ReplySnippet}
             </View>
           )}
           <TouchableOpacity
-            onPress={() => !media.uploading && imageUri && openPreview(imageUri, 'image')}
-            onLongPress={() => !media.uploading && imageUri && openSheet(imageUri, 'image')}
+            onPress={() =>
+              !media.uploading && imageUri && openPreview(imageUri, 'image')
+            }
+            onLongPress={() =>
+              !media.uploading && imageUri && openSheet(imageUri, 'image')
+            }
             activeOpacity={0.92}
             delayLongPress={350}
           >
@@ -287,7 +347,11 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           mediaType="image"
           onClose={() => setPreviewUrl(null)}
         />
-        <MediaActionSheet url={sheetUrl} type={sheetType} onClose={() => setSheetUrl(null)} />
+        <MediaActionSheet
+          url={sheetUrl}
+          type={sheetType}
+          onClose={() => setSheetUrl(null)}
+        />
       </Reaction>
     );
   }
@@ -299,76 +363,106 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     const thumbUri = media.thumbnail ?? undefined;
     return (
       <Reaction {...reactionProps}>
-        <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
-        {SenderHeader}
-        <TouchableOpacity
-          style={styles.mediaWrapper}
-          onPress={() => !media.uploading && videoUri && openPreview(videoUri, 'video')}
-          onLongPress={() => !media.uploading && videoUri && openSheet(videoUri, 'video')}
-          activeOpacity={0.92}
-          delayLongPress={350}
+        <View
+          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
         >
-          {thumbUri ? (
-            <FastImage
-              source={{ uri: thumbUri }}
-              style={styles.mediaBubble}
-              resizeMode={FastImage.resizeMode.cover}
-            />
-          ) : (
-            <Video
-              source={{ uri: videoUri }}
-              style={styles.mediaBubble}
-              paused
-              resizeMode="cover"
-            />
-          )}
-          <View style={styles.videoPlayOverlay}>
-            <View style={styles.playCircle}>
-              <Text style={styles.playTriangle}>▶</Text>
+          {SenderHeader}
+          <TouchableOpacity
+            style={styles.mediaWrapper}
+            onPress={() =>
+              !media.uploading && videoUri && openPreview(videoUri, 'video')
+            }
+            onLongPress={() =>
+              !media.uploading && videoUri && openSheet(videoUri, 'video')
+            }
+            activeOpacity={0.92}
+            delayLongPress={350}
+          >
+            {thumbUri ? (
+              <FastImage
+                source={{ uri: thumbUri }}
+                style={styles.mediaBubble}
+                resizeMode={FastImage.resizeMode.cover}
+              />
+            ) : (
+              <Video
+                source={{ uri: videoUri }}
+                style={styles.mediaBubble}
+                paused
+                resizeMode="cover"
+              />
+            )}
+            <View style={styles.videoPlayOverlay}>
+              <View style={styles.playCircle}>
+                <Text style={styles.playTriangle}>▶</Text>
+              </View>
             </View>
-          </View>
-          {media.uploading && (
-            <View style={styles.overlay}>
-              <Text style={styles.overlayText}>Uploading…</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-        <MediaPreviewModal
-          visible={previewUrl !== null && previewType === 'video'}
-          mediaUrl={previewUrl}
-          mediaType="video"
-          onClose={() => setPreviewUrl(null)}
-        />
-        <MediaActionSheet url={sheetUrl} type={sheetType} onClose={() => setSheetUrl(null)} />
+            {media.uploading && (
+              <View style={styles.overlay}>
+                <Text style={styles.overlayText}>Uploading…</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <MediaPreviewModal
+            visible={previewUrl !== null && previewType === 'video'}
+            mediaUrl={previewUrl}
+            mediaType="video"
+            onClose={() => setPreviewUrl(null)}
+          />
+          <MediaActionSheet
+            url={sheetUrl}
+            type={sheetType}
+            onClose={() => setSheetUrl(null)}
+          />
         </View>
       </Reaction>
     );
   }
 
   // ── Text ───────────────────────────────────────────────────────────────────
+  let textBg = colors.primary;
+
+  if (!isOwn && isDark) {
+    textBg = colors.cardBg;
+  } else if (!isOwn && !isDark) {
+    textBg = colors.bubbleIn;
+  }
+
+  let textColor = '#fff';
+
+  if (!isOwn && isDark) {
+    textColor = '#fff';
+  } else if (!isOwn && !isDark) {
+    textColor = '#000';
+  }
 
   return (
     <Reaction {...reactionProps}>
-      <View style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}>
-        {SenderHeader}
       <View
-        style={[
-          styles.textBubble,
-          isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
-          hasReply && styles.textBubbleWithReply,
-        ]}
+        style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
       >
-        {ReplySnippet}
-        <Text
+        {SenderHeader}
+        <View
           style={[
-            styles.messageText,
-            isOwn ? styles.messageTextOutgoing : styles.messageTextIncoming,
-            msg.messageKind === 'call_log' ? styles.callLogText : null,
+            styles.textBubble,
+            isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
+            hasReply && styles.textBubbleWithReply,
+            { backgroundColor: textBg },
           ]}
         >
-          {msg?.text ?? ''}
-        </Text>
-      </View>
+          {ReplySnippet}
+          <Text
+            style={[
+              styles.messageText,
+              {
+                color: textColor,
+              },
+              msg.messageKind === 'call_log' ? styles.callLogText : null,
+            ]}
+          >
+            {msg?.text ?? ''}
+          </Text>
+        </View>
       </View>
     </Reaction>
   );
@@ -431,18 +525,19 @@ const styles = StyleSheet.create({
   },
   textBubbleLeft: {
     alignSelf: 'flex-start',
-    backgroundColor: '#eaeef3',
     borderTopLeftRadius: 4,
   },
   textBubbleRight: {
     alignSelf: 'flex-end',
-    backgroundColor: colorss.primary,
     borderTopRightRadius: 4,
   },
   textBubbleWithReply: { minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY },
-  messageText: { fontSize: 14.5, lineHeight: 20, letterSpacing: 0.1, flexShrink: 1 },
-  messageTextOutgoing: { color: colorss.white },
-  messageTextIncoming: { color: colorss.textPrimary },
+  messageText: {
+    fontSize: 14.5,
+    lineHeight: 20,
+    letterSpacing: 0.1,
+    flexShrink: 1,
+  },
   callLogText: { fontStyle: 'italic', fontSize: 14 },
   mediaBubble: {
     width: 210,
@@ -458,7 +553,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   overlayError: { backgroundColor: `${colorss.error}B3` },
-  overlayText: { color: colorss.white, fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
+  overlayText: {
+    color: colorss.white,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
   videoPlayOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
