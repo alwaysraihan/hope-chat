@@ -1,13 +1,20 @@
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import React, { useMemo } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, colorss, fonts, radius, spacing } from '../theme';
+import { fonts, radius, spacing } from '../theme';
 import { useT } from '../hooks/useT';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { ArrowLeft, EllipsisVertical, X } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import type { ConversationSummary } from '../context/ChatsContext';
+import { AppColors, useAppTheme } from '../context/ThemeContext';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Archive'>;
 
@@ -15,7 +22,8 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Archive'>;
 const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
   const archived: ConversationSummary[] = useMemo(() => [], []);
-
+  const { colors } = useAppTheme();
+  const styles = stylesFunc(colors);
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
@@ -23,12 +31,12 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
           style={styles.headerLeft}
           onPress={() => navigation.goBack()}
         >
-          <ArrowLeft size={22} color={colorss.textPrimary} />
+          <ArrowLeft size={22} color={colors.textPrimary} />
           <Text style={styles.headerTitle}>{t.archive}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity>
-          <EllipsisVertical size={22} color={colorss.textPrimary} />
+          <EllipsisVertical size={22} color={colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
@@ -46,7 +54,10 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
           <TouchableOpacity style={styles.container} activeOpacity={0.7}>
             <View style={styles.avatarWrap}>
               {item.avatarUrl ? (
-                <FastImage source={{ uri: item.avatarUrl }} style={styles.avatar} />
+                <FastImage
+                  source={{ uri: item.avatarUrl }}
+                  style={styles.avatar}
+                />
               ) : (
                 <View style={[styles.avatar, styles.avatarPh]} />
               )}
@@ -79,7 +90,7 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
 
             <View style={styles.rightAction}>
               <TouchableOpacity style={styles.closeBtn}>
-                <X size={18} color={colorss.textPrimary} />
+                <X size={18} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -91,138 +102,139 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
 
 export default ArchiveScreen;
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colorss.background,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
+const stylesFunc = (colorss: AppColors) =>
+  StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colorss.background,
+      paddingHorizontal: 20,
+      paddingTop: 10,
+    },
 
-  /* HEADER */
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
+    /* HEADER */
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 20,
+    },
 
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
+    headerLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
 
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colorss.textPrimary,
-  },
+    headerTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: colorss.textPrimary,
+    },
 
-  emptyWrap: {
-    paddingTop: 48,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-  },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: fonts.semibold,
-    color: colorss.textPrimary,
-    marginBottom: 8,
-  },
-  emptyBody: {
-    fontSize: 14,
-    color: colorss.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  /* LIST */
-  listContent: {
-    gap: 10,
-    flexGrow: 1,
-  },
+    emptyWrap: {
+      paddingTop: 48,
+      paddingHorizontal: 12,
+      alignItems: 'center',
+    },
+    emptyTitle: {
+      fontSize: 17,
+      fontWeight: fonts.semibold,
+      color: colorss.textPrimary,
+      marginBottom: 8,
+    },
+    emptyBody: {
+      fontSize: 14,
+      color: colorss.textSecondary,
+      textAlign: 'center',
+      lineHeight: 20,
+    },
+    /* LIST */
+    listContent: {
+      gap: 10,
+      flexGrow: 1,
+    },
 
-  /* ITEM */
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+    /* ITEM */
+    container: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
 
-  avatarWrap: {
-    position: 'relative',
-  },
+    avatarWrap: {
+      position: 'relative',
+    },
 
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.full,
-  },
-  avatarPh: {
-    backgroundColor: colorss.border,
-  },
+    avatar: {
+      width: 52,
+      height: 52,
+      borderRadius: radius.full,
+    },
+    avatarPh: {
+      backgroundColor: colorss.border,
+    },
 
-  onlineDot: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 12,
-    height: 12,
-    borderRadius: radius.full,
-    backgroundColor: colors.online,
-    borderWidth: 2,
-    borderColor: colors.background,
-  },
+    onlineDot: {
+      position: 'absolute',
+      bottom: 2,
+      right: 2,
+      width: 12,
+      height: 12,
+      borderRadius: radius.full,
+      backgroundColor: colorss.success,
+      borderWidth: 2,
+      borderColor: colorss.background,
+    },
 
-  body: {
-    flex: 1,
-    marginHorizontal: spacing.md,
-    justifyContent: 'center',
-  },
+    body: {
+      flex: 1,
+      marginHorizontal: spacing.md,
+      justifyContent: 'center',
+    },
 
-  name: {
-    fontSize: 15,
-    fontWeight: fonts.semibold,
-    color: colorss.textPrimary,
-  },
+    name: {
+      fontSize: 15,
+      fontWeight: fonts.semibold,
+      color: colorss.textPrimary,
+    },
 
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center', // FIXED alignment
-    marginTop: 2,
-  },
+    topRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center', // FIXED alignment
+      marginTop: 2,
+    },
 
-  preview: {
-    flex: 1,
-    fontSize: 13,
-    color: colorss.textSecondary,
-    marginRight: 8,
-  },
+    preview: {
+      flex: 1,
+      fontSize: 13,
+      color: colorss.textSecondary,
+      marginRight: 8,
+    },
 
-  previewUnread: {
-    color: colorss.textPrimary,
-    fontWeight: fonts.medium,
-  },
+    previewUnread: {
+      color: colorss.textPrimary,
+      fontWeight: fonts.medium,
+    },
 
-  typingText: {
-    color: colors.purpleLight,
-    fontStyle: 'italic',
-    fontSize: 13,
-  },
+    typingText: {
+      color: colorss.textSecondary,
+      fontStyle: 'italic',
+      fontSize: 13,
+    },
 
-  time: {
-    fontSize: 11,
-    color: colors.textMuted,
-    marginLeft: 6,
-  },
+    time: {
+      fontSize: 11,
+      color: colorss.textSecondary,
+      marginLeft: 6,
+    },
 
-  rightAction: {
-    justifyContent: 'center',
-  },
+    rightAction: {
+      justifyContent: 'center',
+    },
 
-  closeBtn: {
-    padding: 6,
-    backgroundColor: colorss.backgroundDeep,
-    borderRadius: 99,
-  },
-});
+    closeBtn: {
+      padding: 6,
+      backgroundColor: colorss.backgroundDeep,
+      borderRadius: 99,
+    },
+  });

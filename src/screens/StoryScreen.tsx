@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
@@ -22,9 +28,16 @@ import { storyRingsFromConversations } from '../services/story/buildStoryRings';
 import { fetchStoryFeed } from '../services/story/storyApi';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
-import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
-import { readStoryFeedCache, writeStoryFeedCache } from '../services/offlineCache';
+import {
+  selectAuthToken,
+  selectHopenityProfile,
+} from '../redux/features/auth/authSlice';
+import {
+  readStoryFeedCache,
+  writeStoryFeedCache,
+} from '../services/offlineCache';
 import { useT } from '../hooks/useT';
+import { AppColors, useAppTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 const GAP = 12;
@@ -43,14 +56,15 @@ type Tile = {
 
 const StoriesScreen = () => {
   const t = useT();
+  const { colors } = useAppTheme();
+  const styles = stylesFunc(colors);
   const navigation = useNavigation();
   const { conversations } = useChats();
   const token = useAppSelector(selectAuthToken);
   const userId = useAppSelector(selectHopenityProfile)?.userId ?? 'me';
-  const stackNav =
-    navigation.getParent() as
-      | NativeStackNavigationProp<RootStackNavigatorParamList>
-      | undefined;
+  const stackNav = navigation.getParent() as
+    | NativeStackNavigationProp<RootStackNavigatorParamList>
+    | undefined;
 
   const [apiRings, setApiRings] = useState<StoryRing[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,12 +86,16 @@ const StoriesScreen = () => {
         setApiRings(fetched);
         writeStoryFeedCache(userId, fetched);
       }
-    } catch { /* keep existing */ } finally {
+    } catch {
+      /* keep existing */
+    } finally {
       setRefreshing(false);
     }
   }, [token, userId]);
 
-  useEffect(() => { void loadStories(); }, [loadStories]);
+  useEffect(() => {
+    loadStories();
+  }, [loadStories]);
 
   // Re-fetch when the screen gains focus so a freshly created story appears
   // immediately after the user navigates back from CreateStory.
@@ -159,10 +177,16 @@ const StoriesScreen = () => {
         accessibilityLabel={`Story ${item.name}`}
       >
         <FastImage source={{ uri: item.cover }} style={styles.cover} />
-        <LinearGradient colors={['rgba(0,0,0,0.06)', '#000']} style={styles.shade}>
+        <LinearGradient
+          colors={['rgba(0,0,0,0.06)', '#000']}
+          style={styles.shade}
+        >
           <View style={styles.avatarRing}>
             {item.avatar ? (
-              <FastImage source={{ uri: item.avatar }} style={styles.avatarImg} />
+              <FastImage
+                source={{ uri: item.avatar }}
+                style={styles.avatarImg}
+              />
             ) : (
               <View style={[styles.avatarImg, styles.avatarFall]}>
                 <Text style={styles.avatarChr}>
@@ -206,99 +230,100 @@ const StoriesScreen = () => {
 
 export default StoriesScreen;
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colorss.surface },
-  head: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: colorss.border,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: colorss.textPrimary,
-  },
-  sub: {
-    marginTop: 4,
-    color: colorss.textSecondary,
-    fontSize: 13,
-  },
-  bold: { fontWeight: '800', color: colorss.primary },
-  column: {
-    justifyContent: 'space-between',
-    marginBottom: GAP,
-    gap: GAP,
-  },
-  tile: {
-    width: TILE,
-    height: TILE_H,
-    borderRadius: 18,
-    overflow: 'hidden',
-    backgroundColor: '#141414',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  addOuter: { padding: 0 },
-  addGrad: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  plus: {
-    fontSize: 44,
-    color: '#fff',
-    marginBottom: -4,
-    fontWeight: '800',
-  },
-  addLabel: {
-    marginTop: 6,
-    color: 'rgba(255,255,255,0.78)',
-    fontWeight: '700',
-  },
-  cover: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  shade: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    padding: 12,
-    paddingTop: 40,
-  },
-  avatarRing: {
-    alignSelf: 'flex-start',
-    marginBottom: 8,
-    borderRadius: 30,
-    borderWidth: 2.5,
-    borderColor: colorss.white,
-    padding: 2,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-  },
-  avatarImg: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  avatarFall: {
-    backgroundColor: colorss.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarChr: {
-    fontWeight: '800',
-    color: '#fff',
-    fontSize: 14,
-  },
-  caption: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowRadius: 4,
-    textShadowOffset: { width: 0, height: 1 },
-  },
-});
+const stylesFunc = (colorss: AppColors) =>
+  StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colorss.surface },
+    head: {
+      paddingHorizontal: 16,
+      paddingTop: 4,
+      paddingBottom: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: colorss.border,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '800',
+      color: colorss.textPrimary,
+    },
+    sub: {
+      marginTop: 4,
+      color: colorss.textSecondary,
+      fontSize: 13,
+    },
+    bold: { fontWeight: '800', color: colorss.primary },
+    column: {
+      justifyContent: 'space-between',
+      marginBottom: GAP,
+      gap: GAP,
+    },
+    tile: {
+      width: TILE,
+      height: TILE_H,
+      borderRadius: 18,
+      overflow: 'hidden',
+      backgroundColor: '#141414',
+      elevation: 2,
+      shadowColor: '#000',
+      shadowOpacity: 0.12,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+    },
+    addOuter: { padding: 0 },
+    addGrad: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    plus: {
+      fontSize: 44,
+      color: '#fff',
+      marginBottom: -4,
+      fontWeight: '800',
+    },
+    addLabel: {
+      marginTop: 6,
+      color: 'rgba(255,255,255,0.78)',
+      fontWeight: '700',
+    },
+    cover: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    shade: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'flex-end',
+      padding: 12,
+      paddingTop: 40,
+    },
+    avatarRing: {
+      alignSelf: 'flex-start',
+      marginBottom: 8,
+      borderRadius: 30,
+      borderWidth: 2.5,
+      borderColor: colorss.white,
+      padding: 2,
+      backgroundColor: 'rgba(0,0,0,0.2)',
+    },
+    avatarImg: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+    },
+    avatarFall: {
+      backgroundColor: colorss.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarChr: {
+      fontWeight: '800',
+      color: '#fff',
+      fontSize: 14,
+    },
+    caption: {
+      color: '#fff',
+      fontWeight: '700',
+      fontSize: 13,
+      textShadowColor: 'rgba(0,0,0,0.5)',
+      textShadowRadius: 4,
+      textShadowOffset: { width: 0, height: 1 },
+    },
+  });

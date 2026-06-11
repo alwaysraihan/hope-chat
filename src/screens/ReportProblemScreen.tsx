@@ -12,14 +12,12 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colorss } from '../theme';
-import { useColors } from '../hooks/useColors';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
-
 
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import { submitReport } from '../services/userSettingsService';
+import { AppColors, useAppTheme } from '../context/ThemeContext';
 
 const CATEGORIES = [
   'App crash or technical issue',
@@ -35,7 +33,8 @@ const CATEGORIES = [
 type Stage = 'category' | 'detail';
 
 const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
-  const colorss = useColors();
+  const { colors } = useAppTheme();
+  const styles = stylesFunc(colors);
   const token = useAppSelector(selectAuthToken);
   const [stage, setStage] = useState<Stage>('category');
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -49,7 +48,10 @@ const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
 
   const handleSubmit = async () => {
     if (!description.trim()) {
-      Alert.alert('Description required', 'Please describe the issue before submitting.');
+      Alert.alert(
+        'Description required',
+        'Please describe the issue before submitting.',
+      );
       return;
     }
     if (!token) return;
@@ -88,7 +90,7 @@ const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
           }}
           hitSlop={10}
         >
-          <ChevronLeft size={24} color={colorss.textPrimary} />
+          <ChevronLeft size={24} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
           {stage === 'category' ? 'Report a problem' : selectedCategory}
@@ -99,7 +101,8 @@ const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
       {stage === 'category' ? (
         <ScrollView style={styles.container}>
           <Text style={styles.subtitle}>
-            We won't share your identity with anyone. Select the issue that best describes your problem.
+            We won't share your identity with anyone. Select the issue that best
+            describes your problem.
           </Text>
           <View style={styles.list}>
             {CATEGORIES.map((cat, index) => (
@@ -110,9 +113,11 @@ const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
                   onPress={() => handleCategorySelect(cat)}
                 >
                   <Text style={styles.itemText}>{cat}</Text>
-                  <ChevronRight size={18} color={colorss.textSecondary} />
+                  <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
-                {index < CATEGORIES.length - 1 && <View style={styles.divider} />}
+                {index < CATEGORIES.length - 1 && (
+                  <View style={styles.divider} />
+                )}
               </React.Fragment>
             ))}
           </View>
@@ -127,14 +132,15 @@ const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
             keyboardShouldPersistTaps="handled"
           >
             <Text style={styles.subtitle}>
-              Describe the problem in detail. Include steps to reproduce if it is a technical issue.
+              Describe the problem in detail. Include steps to reproduce if it
+              is a technical issue.
             </Text>
 
             <View style={styles.inputCard}>
               <TextInput
                 style={styles.textArea}
                 placeholder="Describe your issue here…"
-                placeholderTextColor={colorss.placeholder}
+                placeholderTextColor={colors.placeholder}
                 value={description}
                 onChangeText={setDescription}
                 multiline
@@ -152,14 +158,15 @@ const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator color={colorss.white} />
+                <ActivityIndicator color={colors.white} />
               ) : (
                 <Text style={styles.submitText}>Submit Report</Text>
               )}
             </TouchableOpacity>
 
             <Text style={styles.disclaimer}>
-              Your report will be sent as: "HopeChat App Report: {description.trim() || '…'}"
+              Your report will be sent as: "HopeChat App Report:{' '}
+              {description.trim() || '…'}"
             </Text>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -170,78 +177,83 @@ const ReportProblemScreen = ({ navigation }: { navigation: any }) => {
 
 export default ReportProblemScreen;
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colorss.white },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colorss.border,
-  },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: colorss.textPrimary },
-  container: { flex: 1 },
-  subtitle: {
-    color: colorss.textSecondary,
-    fontSize: 13,
-    lineHeight: 19,
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 12,
-  },
-  list: {
-    borderTopWidth: 1,
-    borderTopColor: colorss.border,
-    backgroundColor: colorss.white,
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  itemText: { color: colorss.textPrimary, fontSize: 15 },
-  divider: { height: 1, backgroundColor: colorss.border, marginLeft: 20 },
-  inputCard: {
-    marginHorizontal: 16,
-    borderWidth: 1,
-    borderColor: colorss.border,
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  textArea: {
-    color: colorss.textPrimary,
-    fontSize: 15,
-    lineHeight: 22,
-    padding: 14,
-    minHeight: 140,
-  },
-  charCount: {
-    color: colorss.placeholder,
-    fontSize: 12,
-    textAlign: 'right',
-    paddingRight: 12,
-    paddingBottom: 8,
-  },
-  submitBtn: {
-    backgroundColor: colorss.accent,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  submitBtnBusy: { opacity: 0.6 },
-  submitText: { color: colorss.white, fontWeight: '700', fontSize: 16 },
-  disclaimer: {
-    color: colorss.placeholder,
-    fontSize: 12,
-    marginHorizontal: 16,
-    marginBottom: 32,
-    lineHeight: 18,
-  },
-});
+const stylesFunc = (colorss: AppColors) =>
+  StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colorss.white },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colorss.border,
+    },
+    headerTitle: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: colorss.textPrimary,
+    },
+    container: { flex: 1 },
+    subtitle: {
+      color: colorss.textSecondary,
+      fontSize: 13,
+      lineHeight: 19,
+      paddingHorizontal: 20,
+      paddingTop: 14,
+      paddingBottom: 12,
+    },
+    list: {
+      borderTopWidth: 1,
+      borderTopColor: colorss.border,
+      backgroundColor: colorss.white,
+    },
+    item: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+    },
+    itemText: { color: colorss.textPrimary, fontSize: 15 },
+    divider: { height: 1, backgroundColor: colorss.border, marginLeft: 20 },
+    inputCard: {
+      marginHorizontal: 16,
+      borderWidth: 1,
+      borderColor: colorss.border,
+      borderRadius: 12,
+      overflow: 'hidden',
+      marginBottom: 16,
+    },
+    textArea: {
+      color: colorss.textPrimary,
+      fontSize: 15,
+      lineHeight: 22,
+      padding: 14,
+      minHeight: 140,
+    },
+    charCount: {
+      color: colorss.placeholder,
+      fontSize: 12,
+      textAlign: 'right',
+      paddingRight: 12,
+      paddingBottom: 8,
+    },
+    submitBtn: {
+      backgroundColor: colorss.accent,
+      marginHorizontal: 16,
+      borderRadius: 12,
+      paddingVertical: 14,
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    submitBtnBusy: { opacity: 0.6 },
+    submitText: { color: colorss.white, fontWeight: '700', fontSize: 16 },
+    disclaimer: {
+      color: colorss.placeholder,
+      fontSize: 12,
+      marginHorizontal: 16,
+      marginBottom: 32,
+      lineHeight: 18,
+    },
+  });

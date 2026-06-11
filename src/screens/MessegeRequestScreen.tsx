@@ -13,8 +13,6 @@ import { ArrowLeft, MoreVertical } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import FastImage from '@d11/react-native-fast-image';
-
-import { colorss as C } from '../theme';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useT } from '../hooks/useT';
 import {
@@ -32,17 +30,25 @@ import {
 import { mapChatItemToSummary, useChats } from '../context/ChatsContext';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
+import { AppColors, useAppTheme } from '../context/ThemeContext';
 
-type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'MessageRequests'>;
+type Props = NativeStackScreenProps<
+  RootStackNavigatorParamList,
+  'MessageRequests'
+>;
 
 function isIncoming(chat: HopenityChatItem, localUserId: string): boolean {
   if (!chat.requestedById) return true;
-  const rid = normalizeChatUserId(String(chat.requestedById).trim()) || String(chat.requestedById).trim();
+  const rid =
+    normalizeChatUserId(String(chat.requestedById).trim()) ||
+    String(chat.requestedById).trim();
   const lid = normalizeChatUserId(localUserId) || localUserId;
   return rid !== lid;
 }
 
 const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
+  const { colors } = useAppTheme();
+  const styles = stylesFunc(colors);
   const t = useT();
   const dispatch = useAppDispatch();
   const token = useAppSelector(selectAuthToken);
@@ -56,8 +62,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
         normalizeChatUserId(giftedChatUser?._id) ||
         normalizeChatUserId(profile?.userId) ||
         'me',
-      name:
-        giftedChatUser?.name ?? profile?.displayName ?? 'You',
+      name: giftedChatUser?.name ?? profile?.displayName ?? 'You',
     }),
     [giftedChatUser, profile],
   );
@@ -129,7 +134,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.navBar}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <ArrowLeft size={22} color={C.textPrimary} />
+          <ArrowLeft size={22} color={colors.textPrimary} />
         </TouchableOpacity>
 
         <Text style={styles.navTitle}>{t.message_requests}</Text>
@@ -143,7 +148,11 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                 onPress: () => {
                   Alert.alert(t.delete_all_requests, t.delete_all_confirm, [
                     { text: t.cancel, style: 'cancel' },
-                    { text: t.delete, style: 'destructive', onPress: () => setRequested([]) },
+                    {
+                      text: t.delete,
+                      style: 'destructive',
+                      onPress: () => setRequested([]),
+                    },
                   ]);
                 },
               },
@@ -157,8 +166,17 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
 
       <View style={styles.tabBar}>
         {(['know', 'spam'] as const).map(tab => (
-          <TouchableOpacity key={tab} style={styles.tab} onPress={() => setActiveTab(tab)}>
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+          <TouchableOpacity
+            key={tab}
+            style={styles.tab}
+            onPress={() => setActiveTab(tab)}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === tab && styles.tabTextActive,
+              ]}
+            >
               {tab === 'know' ? t.tab_you_may_know : t.tab_spam}
             </Text>
             {activeTab === tab && <View style={styles.tabIndicator} />}
@@ -168,7 +186,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
 
       {loading && activeTab === 'know' ? (
         <View style={styles.loading}>
-          <ActivityIndicator size="small" color={C.primary} />
+          <ActivityIndicator size="small" color={colors.primary} />
         </View>
       ) : null}
 
@@ -199,9 +217,12 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
               row.raw.messages?.[0]?.createdAt ??
               row.raw.messages?.[0]?.created_at;
             const secondaryTime = formatChatTime(lastTs);
-            const previewText = row.summary.preview ||
+            const previewText =
+              row.summary.preview ||
               row.raw.messages?.[0]?.content ||
-              (incoming ? 'Sent you a message request' : 'Your request is pending');
+              (incoming
+                ? 'Sent you a message request'
+                : 'Your request is pending');
             return (
               <React.Fragment key={row.summary.id}>
                 <View style={styles.item}>
@@ -213,7 +234,10 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                   ) : (
                     <View style={[styles.avatar, styles.avatarInitialWrap]}>
                       <Text style={styles.avatarInitial}>
-                        {(row.summary.name ?? '?').trim().charAt(0).toUpperCase() || '?'}
+                        {(row.summary.name ?? '?')
+                          .trim()
+                          .charAt(0)
+                          .toUpperCase() || '?'}
                       </Text>
                     </View>
                   )}
@@ -222,8 +246,22 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                     style={styles.itemContent}
                     onLongPress={() => {
                       Alert.alert(row.summary.name, '', [
-                        ...(incoming ? [{ text: t.accept, onPress: () => onAccept(row.summary.id) }] : []),
-                        { text: t.delete_request, style: 'destructive' as const, onPress: () => setRequested(prev => prev.filter(c => String(c.id) !== row.summary.id)) },
+                        ...(incoming
+                          ? [
+                              {
+                                text: t.accept,
+                                onPress: () => onAccept(row.summary.id),
+                              },
+                            ]
+                          : []),
+                        {
+                          text: t.delete_request,
+                          style: 'destructive' as const,
+                          onPress: () =>
+                            setRequested(prev =>
+                              prev.filter(c => String(c.id) !== row.summary.id),
+                            ),
+                        },
                         { text: t.cancel, style: 'cancel' as const },
                       ]);
                     }}
@@ -245,13 +283,18 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                     <Text style={styles.itemName}>{row.summary.name}</Text>
                     <Text style={styles.itemMsg}>
                       {previewText}{' '}
-                      {secondaryTime ? <Text style={styles.itemTime}>· {secondaryTime}</Text> : null}
+                      {secondaryTime ? (
+                        <Text style={styles.itemTime}>· {secondaryTime}</Text>
+                      ) : null}
                     </Text>
                   </TouchableOpacity>
 
                   {incoming ? (
                     <TouchableOpacity
-                      style={[styles.acceptPill, busy && styles.acceptPillDisabled]}
+                      style={[
+                        styles.acceptPill,
+                        busy && styles.acceptPillDisabled,
+                      ]}
                       onPress={() => onAccept(row.summary.id)}
                       disabled={busy}
                     >
@@ -268,7 +311,9 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
                   )}
                 </View>
 
-                {index < rows.length - 1 ? <View style={styles.divider} /> : null}
+                {index < rows.length - 1 ? (
+                  <View style={styles.divider} />
+                ) : null}
               </React.Fragment>
             );
           })}
@@ -282,127 +327,128 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
 
 export default MessageRequestsScreen;
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: C.background },
-  loading: { paddingVertical: 12 },
-  emptyWrap: { paddingHorizontal: 24, paddingVertical: 24 },
-  emptyText: { color: C.textSecondary, fontSize: 14, textAlign: 'center' },
+const stylesFunc = (C: AppColors) =>
+  StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: C.background },
+    loading: { paddingVertical: 12 },
+    emptyWrap: { paddingHorizontal: 24, paddingVertical: 24 },
+    emptyText: { color: C.textSecondary, fontSize: 14, textAlign: 'center' },
 
-  navBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  navTitle: {
-    color: C.textPrimary,
-    fontSize: 18,
-    fontWeight: '600',
-  },
+    navBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: C.border,
+    },
+    navTitle: {
+      color: C.textPrimary,
+      fontSize: 18,
+      fontWeight: '600',
+    },
 
-  tabBar: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 13,
-  },
-  tabText: {
-    color: C.textSecondary,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  tabTextActive: {
-    color: C.textPrimary,
-    fontWeight: '700',
-  },
-  tabIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    left: 16,
-    right: 16,
-    height: 2.5,
-    backgroundColor: C.textPrimary,
-  },
+    tabBar: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      borderBottomColor: C.border,
+    },
+    tab: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 13,
+    },
+    tabText: {
+      color: C.textSecondary,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    tabTextActive: {
+      color: C.textPrimary,
+      fontWeight: '700',
+    },
+    tabIndicator: {
+      position: 'absolute',
+      bottom: 0,
+      left: 16,
+      right: 16,
+      height: 2.5,
+      backgroundColor: C.textPrimary,
+    },
 
-  infoBanner: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  infoText: {
-    color: C.textSecondary,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  link: {
-    color: C.primary,
-    fontWeight: '500',
-  },
+    infoBanner: {
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: C.border,
+    },
+    infoText: {
+      color: C.textSecondary,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+    link: {
+      color: C.primary,
+      fontWeight: '500',
+    },
 
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 10,
-  },
-  avatar: { width: 52, height: 52, borderRadius: 26 },
-  itemContent: { flex: 1 },
-  itemName: {
-    color: C.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  itemMsg: {
-    color: C.textSecondary,
-    fontSize: 13,
-  },
-  itemTime: {
-    color: C.textSecondary,
-    fontSize: 13,
-  },
+    item: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      gap: 10,
+    },
+    avatar: { width: 52, height: 52, borderRadius: 26 },
+    itemContent: { flex: 1 },
+    itemName: {
+      color: C.textPrimary,
+      fontSize: 15,
+      fontWeight: '600',
+    },
+    itemMsg: {
+      color: C.textSecondary,
+      fontSize: 13,
+    },
+    itemTime: {
+      color: C.textSecondary,
+      fontSize: 13,
+    },
 
-  divider: {
-    height: 1,
-    backgroundColor: C.border,
-    marginLeft: 88,
-  },
+    divider: {
+      height: 1,
+      backgroundColor: C.border,
+      marginLeft: 88,
+    },
 
-  acceptPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 16,
-    backgroundColor: C.primary,
-    minWidth: 72,
-    alignItems: 'center',
-  },
-  acceptPillDisabled: { opacity: 0.65 },
-  acceptPillLabel: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  pendingPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F9',
-    minWidth: 72,
-    alignItems: 'center',
-  },
-  pendingPillLabel: { color: '#64748B', fontWeight: '600', fontSize: 13 },
-  avatarInitialWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: C.primary,
-  },
-  avatarInitial: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-});
+    acceptPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 16,
+      backgroundColor: C.primary,
+      minWidth: 72,
+      alignItems: 'center',
+    },
+    acceptPillDisabled: { opacity: 0.65 },
+    acceptPillLabel: { color: '#fff', fontWeight: '700', fontSize: 13 },
+    pendingPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 16,
+      backgroundColor: '#F1F5F9',
+      minWidth: 72,
+      alignItems: 'center',
+    },
+    pendingPillLabel: { color: '#64748B', fontWeight: '600', fontSize: 13 },
+    avatarInitialWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: C.primary,
+    },
+    avatarInitial: {
+      color: '#fff',
+      fontSize: 18,
+      fontWeight: '700',
+    },
+  });

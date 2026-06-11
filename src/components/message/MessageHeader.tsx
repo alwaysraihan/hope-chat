@@ -1,6 +1,11 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
-import { LucideVideo, Phone, ChevronLeft, MoreVertical } from 'lucide-react-native';
+import {
+  LucideVideo,
+  Phone,
+  ChevronLeft,
+  MoreVertical,
+} from 'lucide-react-native';
 import { colorss } from '../../theme';
 import FastImage from '@d11/react-native-fast-image';
 
@@ -42,16 +47,22 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
 }) => {
   // Both call actions are hidden when undefined (REQUESTED / unaccepted chats)
   const callActions = [
-    ...(onAudioCall ? [{ Icon: Phone, label: 'Audio Call', onPress: onAudioCall }] : []),
-    ...(onVideoCall ? [{ Icon: LucideVideo, label: 'Video Call', onPress: onVideoCall }] : []),
+    ...(onAudioCall
+      ? [{ Icon: Phone, label: 'Audio Call', onPress: onAudioCall }]
+      : []),
+    ...(onVideoCall
+      ? [{ Icon: LucideVideo, label: 'Video Call', onPress: onVideoCall }]
+      : []),
   ];
+  const white = '#fff';
+
   return (
     <View style={styles.container}>
       <TouchableOpacity
         onPress={onBackPress}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <ChevronLeft color={colorss.white} size={22} />
+        <ChevronLeft color={white} size={22} />
       </TouchableOpacity>
 
       <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
@@ -59,11 +70,13 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
           <FastImage source={{ uri: avatarUri }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarInitials}>{initialsFromName(name)}</Text>
+            <Text style={[styles.avatarInitials, { color: white }]}>
+              {initialsFromName(name)}
+            </Text>
           </View>
         )}
         <View style={styles.nameBlock}>
-          <Text style={styles.name} numberOfLines={1}>
+          <Text style={[styles.name, { color: white }]} numberOfLines={1}>
             {name || 'Chat'}
           </Text>
           {status ? (
@@ -76,13 +89,17 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
 
       <View style={styles.actions}>
         {callActions.map(({ Icon, onPress }, index) => (
-          <TouchableOpacity key={index} onPress={onPress} style={styles.actionBtn}>
-            <Icon size={18} color={colorss.white} />
+          <TouchableOpacity
+            key={index}
+            onPress={onPress}
+            style={styles.actionBtn}
+          >
+            <Icon size={18} color={white} />
           </TouchableOpacity>
         ))}
         {onMorePress && (
           <TouchableOpacity onPress={onMorePress} style={styles.actionBtn}>
-            <MoreVertical size={18} color={colorss.white} />
+            <MoreVertical size={18} color={white} />
           </TouchableOpacity>
         )}
       </View>
@@ -125,7 +142,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarInitials: {
-    color: colorss.white,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -134,7 +150,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   name: {
-    color: colorss.white,
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.1,

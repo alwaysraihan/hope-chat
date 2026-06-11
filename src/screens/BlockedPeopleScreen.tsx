@@ -15,7 +15,6 @@ import { ArrowLeft, Unlock, UserX } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-
 import { IC_PROFILE } from '../assets';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
@@ -30,11 +29,16 @@ import {
 import { mapChatItemToSummary } from '../context/ChatsContext';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { useT } from '../hooks/useT';
+import { AppColors, useAppTheme } from '../context/ThemeContext';
 
-type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'BlockedPeople'>;
+type Props = NativeStackScreenProps<
+  RootStackNavigatorParamList,
+  'BlockedPeople'
+>;
 
 const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
-  const colorss = useColors();
+  const { colors } = useAppTheme();
+  const styles = stylesFunc(colors);
   const t = useT();
   const token = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);
@@ -51,12 +55,17 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
     [giftedChatUser, profile],
   );
 
-  const [blocked, setBlocked] = useState<ReturnType<typeof mapChatItemToSummary>[]>([]);
+  const [blocked, setBlocked] = useState<
+    ReturnType<typeof mapChatItemToSummary>[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [unblockingId, setUnblockingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!token) { setLoading(false); return; }
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const { chats } = await fetchHopenityChatDirectory(token, {
@@ -71,37 +80,49 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [token, localUser]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const handleUnblock = useCallback((item: ReturnType<typeof mapChatItemToSummary>) => {
-    Alert.alert(
-      `${t.unblock} ${item.name}?`,
-      `${item.name} will be able to message and call you again.`,
-      [
-        { text: t.cancel, style: 'cancel' },
-        {
-          text: t.unblock,
-          onPress: async () => {
-            setUnblockingId(item.id);
-            try {
-              await unblockHopeChatUser(item.id, token, !!item.isGroup || !item.isV1Chat);
-              setBlocked(prev => prev.filter(b => b.id !== item.id));
-            } catch {
-              Alert.alert('Error', 'Could not unblock. Please try again.');
-            } finally {
-              setUnblockingId(null);
-            }
+  const handleUnblock = useCallback(
+    (item: ReturnType<typeof mapChatItemToSummary>) => {
+      Alert.alert(
+        `${t.unblock} ${item.name}?`,
+        `${item.name} will be able to message and call you again.`,
+        [
+          { text: t.cancel, style: 'cancel' },
+          {
+            text: t.unblock,
+            onPress: async () => {
+              setUnblockingId(item.id);
+              try {
+                await unblockHopeChatUser(
+                  item.id,
+                  token,
+                  !!item.isGroup || !item.isV1Chat,
+                );
+                setBlocked(prev => prev.filter(b => b.id !== item.id));
+              } catch {
+                Alert.alert('Error', 'Could not unblock. Please try again.');
+              } finally {
+                setUnblockingId(null);
+              }
+            },
           },
-        },
-      ],
-    );
-  }, [token]);
+        ],
+      );
+    },
+    [token],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backBtn}
+        >
           <ArrowLeft size={24} color={colorss.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>{t.blocked_people_title}</Text>
@@ -121,7 +142,8 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
       ) : (
         <>
           <Text style={styles.count}>
-            {blocked.length} {blocked.length === 1 ? t.blocked_count_one : t.blocked_count_many}
+            {blocked.length}{' '}
+            {blocked.length === 1 ? t.blocked_count_one : t.blocked_count_many}
           </Text>
           <FlatList
             data={blocked}
@@ -134,7 +156,9 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
               return (
                 <View style={styles.row}>
                   <FastImage
-                    source={item.avatarUrl ? { uri: item.avatarUrl } : IC_PROFILE}
+                    source={
+                      item.avatarUrl ? { uri: item.avatarUrl } : IC_PROFILE
+                    }
                     style={styles.avatar}
                   />
                   <View style={styles.nameCol}>
@@ -172,76 +196,77 @@ const BlockedPeopleScreen: React.FC<Props> = ({ navigation }) => {
 
 export default BlockedPeopleScreen;
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colorss.white },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colorss.border,
-  },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: colorss.textPrimary },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colorss.textPrimary,
-    textAlign: 'center',
-  },
-  emptyBody: {
-    fontSize: 14,
-    color: colorss.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  count: {
-    fontSize: 13,
-    color: colorss.textSecondary,
-    fontWeight: '600',
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  avatar: { width: 50, height: 50, borderRadius: 25 },
-  nameCol: { flex: 1 },
-  name: { fontSize: 15, fontWeight: '600', color: colorss.textPrimary },
-  sub: { fontSize: 12, color: colorss.textSecondary, marginTop: 2 },
-  divider: { height: 1, backgroundColor: colorss.border, marginLeft: 78 },
-  unblockBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderWidth: 1.5,
-    borderColor: colorss.primary,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    minWidth: 90,
-    justifyContent: 'center',
-  },
-  unblockBtnBusy: { opacity: 0.6 },
-  unblockLabel: {
-    color: colorss.primary,
-    fontWeight: '700',
-    fontSize: 13,
-  },
-});
+const stylesFunc = (colorss: AppColors) =>
+  StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colorss.white },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colorss.border,
+    },
+    backBtn: { padding: 4 },
+    title: { fontSize: 18, fontWeight: '700', color: colorss.textPrimary },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 12,
+      paddingHorizontal: 32,
+    },
+    emptyTitle: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: colorss.textPrimary,
+      textAlign: 'center',
+    },
+    emptyBody: {
+      fontSize: 14,
+      color: colorss.textSecondary,
+      textAlign: 'center',
+      lineHeight: 20,
+    },
+    count: {
+      fontSize: 13,
+      color: colorss.textSecondary,
+      fontWeight: '600',
+      paddingHorizontal: 16,
+      paddingTop: 14,
+      paddingBottom: 8,
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 12,
+    },
+    avatar: { width: 50, height: 50, borderRadius: 25 },
+    nameCol: { flex: 1 },
+    name: { fontSize: 15, fontWeight: '600', color: colorss.textPrimary },
+    sub: { fontSize: 12, color: colorss.textSecondary, marginTop: 2 },
+    divider: { height: 1, backgroundColor: colorss.border, marginLeft: 78 },
+    unblockBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      borderWidth: 1.5,
+      borderColor: colorss.primary,
+      borderRadius: 20,
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      minWidth: 90,
+      justifyContent: 'center',
+    },
+    unblockBtnBusy: { opacity: 0.6 },
+    unblockLabel: {
+      color: colorss.primary,
+      fontWeight: '700',
+      fontSize: 13,
+    },
+  });

@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
-import { spacing, radius, colorss } from '../../theme';
+import { spacing, radius } from '../../theme';
 import { Camera, PenSquare } from 'lucide-react-native';
 import Hopenity from '../../assets/hopenity-logo.png';
 import FastImage from '@d11/react-native-fast-image';
+import { useAppTheme } from '../../context/ThemeContext';
 
 type HeaderProps = {
   onCamera?: () => void;
@@ -11,6 +12,31 @@ type HeaderProps = {
 };
 
 const Header = ({ onCamera, onNewGroup }: HeaderProps) => {
+  const { colors: colorss } = useAppTheme();
+  const styles = useMemo(() => {
+    return StyleSheet.create({
+      container: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: spacing.xl,
+        paddingVertical: spacing.md,
+      },
+      actions: {
+        flexDirection: 'row',
+        gap: 10,
+        alignItems: 'center',
+      },
+      iconBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: radius.full,
+        backgroundColor: colorss.background,
+        alignItems: 'center',
+        justifyContent: 'center',
+      },
+    });
+  }, [colorss.background]);
   return (
     <View style={styles.container}>
       <FastImage
@@ -40,28 +66,5 @@ const Header = ({ onCamera, onNewGroup }: HeaderProps) => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
-  },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.full,
-    backgroundColor: colorss.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
 
 export default Header;

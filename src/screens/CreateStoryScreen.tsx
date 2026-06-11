@@ -13,7 +13,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import {
   Camera,
   ChevronDown,
@@ -33,8 +36,12 @@ import { colorss } from '../theme';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { useT } from '../hooks/useT';
-import { selectAuthToken, selectHopenityProfile } from '../redux/features/auth/authSlice';
+import {
+  selectAuthToken,
+  selectHopenityProfile,
+} from '../redux/features/auth/authSlice';
 import { API_BASE_URL } from '../config/env';
+import { AppColors, useAppTheme } from '../context/ThemeContext';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'CreateStory'>;
 
@@ -99,8 +106,15 @@ async function fetchMusicTracks(
   limit = 20,
 ): Promise<{ tracks: MusicTrack[]; hasMore: boolean }> {
   const base = API_BASE_URL.replace(/\/+$/, '');
-  const endpoints = ['/api/v1/music/list', '/api/v1/music/tracks', '/api/v1/music'];
-  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  const endpoints = [
+    '/api/v1/music/list',
+    '/api/v1/music/tracks',
+    '/api/v1/music',
+  ];
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
   if (search?.trim()) params.set('search', search.trim());
 
   for (const ep of endpoints) {
@@ -127,7 +141,9 @@ async function fetchMusicTracks(
           timeFrame: m.timeFrame ?? m.duration_label ?? '',
         }));
       return { tracks, hasMore: json?.hasMore ?? tracks.length >= limit };
-    } catch { continue; }
+    } catch {
+      continue;
+    }
   }
   return { tracks: [], hasMore: false };
 }
@@ -159,7 +175,10 @@ async function uploadStory(
       if (payload.musicId != null) body.musicId = String(payload.musicId);
       const res = await fetch(`${base}/api/v1/stories`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(body),
       });
       return res.ok;
@@ -168,10 +187,13 @@ async function uploadStory(
     const form = new FormData();
     form.append('type', payload.type);
     form.append('privacy', privacy);
-    if (payload.musicId != null) form.append('musicId', String(payload.musicId));
+    if (payload.musicId != null)
+      form.append('musicId', String(payload.musicId));
     form.append('media', {
       uri: payload.uri,
-      type: payload.mimeType ?? (payload.type === 'VIDEO' ? 'video/mp4' : 'image/jpeg'),
+      type:
+        payload.mimeType ??
+        (payload.type === 'VIDEO' ? 'video/mp4' : 'image/jpeg'),
       name: payload.fileName ?? `story_${Date.now()}`,
     } as any);
     const res = await fetch(`${base}/api/v1/stories`, {
@@ -212,29 +234,48 @@ function MusicSheet({
   const [hasMore, setHasMore] = useState(true);
   const offsetRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { colors } = useAppTheme();
+
+  const mStyles = mStylesFunc(colors);
 
   useEffect(() => {
     if (visible) {
-      Animated.spring(slideAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 10 }).start();
+      Animated.spring(slideAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 80,
+        friction: 10,
+      }).start();
       loadTracks(false, '');
     } else {
-      Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const loadTracks = useCallback(async (append: boolean, q: string) => {
-    if (append && !hasMore) return;
-    const offset = append ? offsetRef.current : 0;
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-    const { tracks: t, hasMore: more } = await fetchMusicTracks(token, q, offset);
-    setHasMore(more);
-    offsetRef.current = append ? offset + t.length : t.length;
-    setTracks(prev => append ? [...prev, ...t] : t);
-    setLoading(false);
-    setLoadingMore(false);
-  }, [token, hasMore]);
+  const loadTracks = useCallback(
+    async (append: boolean, q: string) => {
+      if (append && !hasMore) return;
+      const offset = append ? offsetRef.current : 0;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      const { tracks: t, hasMore: more } = await fetchMusicTracks(
+        token,
+        q,
+        offset,
+      );
+      setHasMore(more);
+      offsetRef.current = append ? offset + t.length : t.length;
+      setTracks(prev => (append ? [...prev, ...t] : t));
+      setLoading(false);
+      setLoadingMore(false);
+    },
+    [token, hasMore],
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -244,8 +285,10 @@ function MusicSheet({
       setHasMore(true);
       loadTracks(false, search);
     }, 300);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, visible]);
 
   const sheetTranslateY = slideAnim.interpolate({
@@ -254,13 +297,21 @@ function MusicSheet({
   });
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+    >
       <View style={mStyles.overlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} />
         <Animated.View
           style={[
             mStyles.sheet,
-            { paddingBottom: insets.bottom + 8, transform: [{ translateY: sheetTranslateY }] },
+            {
+              paddingBottom: insets.bottom + 8,
+              transform: [{ translateY: sheetTranslateY }],
+            },
           ]}
         >
           {/* Sheet header */}
@@ -283,7 +334,10 @@ function MusicSheet({
               returnKeyType="search"
             />
             {search.length > 0 && (
-              <TouchableOpacity onPress={() => setSearch('')} style={{ padding: 4 }}>
+              <TouchableOpacity
+                onPress={() => setSearch('')}
+                style={{ padding: 4 }}
+              >
                 <X size={16} color={colorss.placeholder} />
               </TouchableOpacity>
             )}
@@ -302,38 +356,70 @@ function MusicSheet({
               contentContainerStyle={{ paddingBottom: 16 }}
               ListEmptyComponent={
                 <View style={mStyles.loadingWrap}>
-                  <Text style={{ color: colorss.textSecondary }}>{t.no_music}</Text>
+                  <Text style={{ color: colorss.textSecondary }}>
+                    {t.no_music}
+                  </Text>
                 </View>
               }
               ListFooterComponent={
-                loadingMore ? <ActivityIndicator color={colorss.primary} style={{ marginVertical: 12 }} /> : null
+                loadingMore ? (
+                  <ActivityIndicator
+                    color={colorss.primary}
+                    style={{ marginVertical: 12 }}
+                  />
+                ) : null
               }
               onEndReachedThreshold={0.3}
-              onEndReached={() => { if (hasMore) loadTracks(true, search); }}
+              onEndReached={() => {
+                if (hasMore) loadTracks(true, search);
+              }}
               renderItem={({ item }) => {
                 const isSelected = selected?.id === item.id;
                 return (
                   <TouchableOpacity
-                    style={[mStyles.trackRow, isSelected && mStyles.trackRowSelected]}
-                    onPress={() => { onSelect(item); onClose(); }}
+                    style={[
+                      mStyles.trackRow,
+                      isSelected && mStyles.trackRowSelected,
+                    ]}
+                    onPress={() => {
+                      onSelect(item);
+                      onClose();
+                    }}
                     activeOpacity={0.75}
                   >
                     {item.cover ? (
-                      <FastImage source={{ uri: item.cover }} style={mStyles.trackCover} />
+                      <FastImage
+                        source={{ uri: item.cover }}
+                        style={mStyles.trackCover}
+                      />
                     ) : (
-                      <View style={[mStyles.trackCover, mStyles.trackCoverFall]}>
+                      <View
+                        style={[mStyles.trackCover, mStyles.trackCoverFall]}
+                      >
                         <Music2 size={18} color={colorss.primary} />
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={mStyles.trackTitle} numberOfLines={1}>{item.title}</Text>
+                      <Text style={mStyles.trackTitle} numberOfLines={1}>
+                        {item.title}
+                      </Text>
                       {item.timeFrame ? (
-                        <Text style={mStyles.trackDuration}>{item.timeFrame}</Text>
+                        <Text style={mStyles.trackDuration}>
+                          {item.timeFrame}
+                        </Text>
                       ) : null}
                     </View>
                     {isSelected && (
                       <View style={mStyles.selectedDot}>
-                        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>✓</Text>
+                        <Text
+                          style={{
+                            color: '#fff',
+                            fontSize: 10,
+                            fontWeight: '700',
+                          }}
+                        >
+                          ✓
+                        </Text>
                       </View>
                     )}
                   </TouchableOpacity>
@@ -344,7 +430,13 @@ function MusicSheet({
 
           {/* Remove button if something is selected */}
           {selected && (
-            <TouchableOpacity style={mStyles.removeMusic} onPress={() => { onRemove(); onClose(); }}>
+            <TouchableOpacity
+              style={mStyles.removeMusic}
+              onPress={() => {
+                onRemove();
+                onClose();
+              }}
+            >
               <Text style={mStyles.removeMusicText}>{t.remove_music}</Text>
             </TouchableOpacity>
           )}
@@ -360,7 +452,8 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
   const token = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);
-
+  const { colors } = useAppTheme();
+  const styles = stylesFunc(colors);
   const [activeTab, setActiveTab] = useState<TabType>('gallery');
   const [media, setMedia] = useState<MediaPick | null>(null);
   const [bgMode, setBgMode] = useState(false);
@@ -373,14 +466,16 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
   const [videoPaused, setVideoPaused] = useState(false);
 
   const hasMedia = !!media;
-  const canPost =
-    hasMedia ||
-    (bgMode && caption.trim().length > 0);
+  const canPost = hasMedia || (bgMode && caption.trim().length > 0);
 
   // -- Pickers --
 
   const handleGallery = useCallback(async () => {
-    const res = await launchImageLibrary({ mediaType: 'mixed', selectionLimit: 1, includeExtra: true });
+    const res = await launchImageLibrary({
+      mediaType: 'mixed',
+      selectionLimit: 1,
+      includeExtra: true,
+    });
     if (res.didCancel || !res.assets?.[0]?.uri) return;
     const asset = res.assets[0];
     setMedia({
@@ -396,20 +491,28 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
     const res = await launchCamera({ mediaType: 'photo', saveToPhotos: false });
     if (res.didCancel || !res.assets?.[0]?.uri) return;
     const asset = res.assets[0];
-    setMedia({ uri: asset.uri!, type: 'image', mimeType: asset.type, fileName: asset.fileName ?? undefined });
+    setMedia({
+      uri: asset.uri!,
+      type: 'image',
+      mimeType: asset.type,
+      fileName: asset.fileName ?? undefined,
+    });
     setBgMode(false);
   }, []);
 
-  const handleTabAction = useCallback((tab: TabType) => {
-    setActiveTab(tab);
-    if (tab === 'gallery') handleGallery();
-    else if (tab === 'photo') handleCamera();
-    else {
-      setBgMode(true);
-      setMedia(null);
-      if (!currentBg) setCurrentBg(BG_OPTIONS[0]);
-    }
-  }, [handleGallery, handleCamera, currentBg]);
+  const handleTabAction = useCallback(
+    (tab: TabType) => {
+      setActiveTab(tab);
+      if (tab === 'gallery') handleGallery();
+      else if (tab === 'photo') handleCamera();
+      else {
+        setBgMode(true);
+        setMedia(null);
+        if (!currentBg) setCurrentBg(BG_OPTIONS[0]);
+      }
+    },
+    [handleGallery, handleCamera, currentBg],
+  );
 
   const handleRemoveMedia = useCallback(() => {
     setMedia(null);
@@ -419,27 +522,36 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
   // -- Share --
 
   const handleShare = useCallback(async () => {
-    if (!token) { Alert.alert('Sign in required'); return; }
+    if (!token) {
+      Alert.alert('Sign in required');
+      return;
+    }
     setUploading(true);
     let ok = false;
 
     if (bgMode && caption.trim()) {
-      ok = await uploadStory({
-        type: 'TEXT',
-        content: caption.trim(),
-        backgroundColor: currentBg.bgColor,
-        musicId: selectedMusic?.id,
-        visibility,
-      }, token);
+      ok = await uploadStory(
+        {
+          type: 'TEXT',
+          content: caption.trim(),
+          backgroundColor: currentBg.bgColor,
+          musicId: selectedMusic?.id,
+          visibility,
+        },
+        token,
+      );
     } else if (media) {
-      ok = await uploadStory({
-        type: media.type === 'video' ? 'VIDEO' : 'PHOTO',
-        uri: media.uri,
-        mimeType: media.mimeType,
-        fileName: media.fileName,
-        musicId: selectedMusic?.id,
-        visibility,
-      }, token);
+      ok = await uploadStory(
+        {
+          type: media.type === 'video' ? 'VIDEO' : 'PHOTO',
+          uri: media.uri,
+          mimeType: media.mimeType,
+          fileName: media.fileName,
+          musicId: selectedMusic?.id,
+          visibility,
+        },
+        token,
+      );
     }
     setUploading(false);
     if (ok) {
@@ -449,13 +561,25 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
     } else {
       Alert.alert(t.failed, t.story_failed);
     }
-  }, [token, bgMode, caption, currentBg, selectedMusic, visibility, media, navigation]);
+  }, [
+    token,
+    bgMode,
+    caption,
+    currentBg,
+    selectedMusic,
+    visibility,
+    media,
+    navigation,
+  ]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* -- Header ------------------------------------------- */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerBtn}
+        >
           <X size={26} color={colorss.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t.create_story}</Text>
@@ -465,11 +589,15 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
               {/* Privacy chip */}
               <TouchableOpacity
                 style={styles.privacyChip}
-                onPress={() => setVisibility(v => v === 'PUBLIC' ? 'FRIENDS' : 'PUBLIC')}
+                onPress={() =>
+                  setVisibility(v => (v === 'PUBLIC' ? 'FRIENDS' : 'PUBLIC'))
+                }
               >
-                {visibility === 'PUBLIC'
-                  ? <Globe size={13} color={colorss.primary} />
-                  : <Users size={13} color={colorss.primary} />}
+                {visibility === 'PUBLIC' ? (
+                  <Globe size={13} color={colorss.primary} />
+                ) : (
+                  <Users size={13} color={colorss.primary} />
+                )}
                 <Text style={styles.privacyChipText}>
                   {visibility === 'PUBLIC' ? t.public : t.friends}
                 </Text>
@@ -482,9 +610,11 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
                 onPress={handleShare}
                 disabled={uploading}
               >
-                {uploading
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={styles.postBtnText}>{t.post}</Text>}
+                {uploading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.postBtnText}>{t.post}</Text>
+                )}
               </TouchableOpacity>
             </>
           )}
@@ -514,7 +644,10 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
             )}
 
             {/* Remove media */}
-            <TouchableOpacity style={styles.removeBtn} onPress={handleRemoveMedia}>
+            <TouchableOpacity
+              style={styles.removeBtn}
+              onPress={handleRemoveMedia}
+            >
               <X size={18} color="#fff" />
             </TouchableOpacity>
 
@@ -524,7 +657,9 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
                 style={styles.playBtn}
                 onPress={() => setVideoPaused(p => !p)}
               >
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
+                <Text
+                  style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}
+                >
                   {videoPaused ? '▶ Play' : '⏸ Pause'}
                 </Text>
               </TouchableOpacity>
@@ -540,7 +675,10 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
                 {selectedMusic?.title ?? t.select_music}
               </Text>
               {selectedMusic && (
-                <TouchableOpacity onPress={() => setSelectedMusic(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity
+                  onPress={() => setSelectedMusic(null)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <X size={16} color="#fff" />
                 </TouchableOpacity>
               )}
@@ -548,7 +686,12 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         ) : bgMode ? (
           // Text story on background color
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: currentBg.bgColor }]}>
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: currentBg.bgColor },
+            ]}
+          >
             {/* Music overlay for text story */}
             <TouchableOpacity
               style={[styles.musicOverlay, { top: 16, bottom: undefined }]}
@@ -559,7 +702,10 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
                 {selectedMusic?.title ?? t.select_music}
               </Text>
               {selectedMusic && (
-                <TouchableOpacity onPress={() => setSelectedMusic(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity
+                  onPress={() => setSelectedMusic(null)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <X size={16} color="#fff" />
                 </TouchableOpacity>
               )}
@@ -602,7 +748,10 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
           // Empty state - profile + prompt
           <View style={styles.emptyPreview}>
             {profile?.avatarUrl ? (
-              <FastImage source={{ uri: profile.avatarUrl }} style={styles.profileAvatar} />
+              <FastImage
+                source={{ uri: profile.avatarUrl }}
+                style={styles.profileAvatar}
+              />
             ) : (
               <View style={[styles.profileAvatar, styles.profileAvatarFall]}>
                 <Text style={styles.profileAvatarChr}>
@@ -610,7 +759,9 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
                 </Text>
               </View>
             )}
-            <Text style={styles.profileName}>{profile?.displayName ?? 'Your story'}</Text>
+            <Text style={styles.profileName}>
+              {profile?.displayName ?? 'Your story'}
+            </Text>
             <Text style={styles.profilePrompt}>{t.get_started_hint}</Text>
           </View>
         )}
@@ -626,32 +777,79 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
             setActiveTab('text');
           }}
         >
-          <View style={[styles.tabIconWrap, bgMode && { backgroundColor: currentBg.bgColor }]}>
-            <Text style={[styles.tabAa, bgMode && { color: currentBg.textColor }]}>Aa</Text>
+          <View
+            style={[
+              styles.tabIconWrap,
+              bgMode && { backgroundColor: currentBg.bgColor },
+            ]}
+          >
+            <Text
+              style={[styles.tabAa, bgMode && { color: currentBg.textColor }]}
+            >
+              Aa
+            </Text>
           </View>
-          <Text style={[styles.tabLabel, bgMode && { color: colorss.primary }]}>{t.tab_background}</Text>
+          <Text style={[styles.tabLabel, bgMode && { color: colorss.primary }]}>
+            {t.tab_background}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'gallery' && !bgMode && styles.tabItemActive]}
-          onPress={() => { setBgMode(false); handleTabAction('gallery'); }}
+          style={[
+            styles.tabItem,
+            activeTab === 'gallery' && !bgMode && styles.tabItemActive,
+          ]}
+          onPress={() => {
+            setBgMode(false);
+            handleTabAction('gallery');
+          }}
         >
           <View style={styles.tabIconWrap}>
-            <ImageIcon size={22} color={activeTab === 'gallery' && !bgMode ? colorss.primary : colorss.textSecondary} />
+            <ImageIcon
+              size={22}
+              color={
+                activeTab === 'gallery' && !bgMode
+                  ? colorss.primary
+                  : colorss.textSecondary
+              }
+            />
           </View>
-          <Text style={[styles.tabLabel, activeTab === 'gallery' && !bgMode && { color: colorss.primary }]}>
+          <Text
+            style={[
+              styles.tabLabel,
+              activeTab === 'gallery' && !bgMode && { color: colorss.primary },
+            ]}
+          >
             {t.tab_gallery}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'photo' && !bgMode && styles.tabItemActive]}
-          onPress={() => { setBgMode(false); handleTabAction('photo'); }}
+          style={[
+            styles.tabItem,
+            activeTab === 'photo' && !bgMode && styles.tabItemActive,
+          ]}
+          onPress={() => {
+            setBgMode(false);
+            handleTabAction('photo');
+          }}
         >
           <View style={styles.tabIconWrap}>
-            <Camera size={22} color={activeTab === 'photo' && !bgMode ? colorss.primary : colorss.textSecondary} />
+            <Camera
+              size={22}
+              color={
+                activeTab === 'photo' && !bgMode
+                  ? colorss.primary
+                  : colorss.textSecondary
+              }
+            />
           </View>
-          <Text style={[styles.tabLabel, activeTab === 'photo' && !bgMode && { color: colorss.primary }]}>
+          <Text
+            style={[
+              styles.tabLabel,
+              activeTab === 'photo' && !bgMode && { color: colorss.primary },
+            ]}
+          >
             {t.tab_photo}
           </Text>
         </TouchableOpacity>
@@ -676,244 +874,258 @@ export default CreateStoryScreen;
 
 // --- Styles -------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colorss.white },
+const stylesFunc = (colorss: AppColors) =>
+  StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colorss.white },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colorss.border,
-  },
-  headerBtn: { padding: 4 },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: colorss.textPrimary },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colorss.border,
+    },
+    headerBtn: { padding: 4 },
+    headerTitle: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: colorss.textPrimary,
+    },
+    headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 
-  privacyChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1.5,
-    borderColor: colorss.primary,
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: `${colorss.primary}10`,
-  },
-  privacyChipText: { fontSize: 12, fontWeight: '700', color: colorss.primary },
+    privacyChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      borderWidth: 1.5,
+      borderColor: colorss.primary,
+      borderRadius: 20,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      backgroundColor: `${colorss.primary}10`,
+    },
+    privacyChipText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colorss.primary,
+    },
 
-  postBtn: {
-    backgroundColor: colorss.primary,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    minWidth: 56,
-    alignItems: 'center',
-  },
-  postBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    postBtn: {
+      backgroundColor: colorss.primary,
+      borderRadius: 20,
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+      minWidth: 56,
+      alignItems: 'center',
+    },
+    postBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
-  // -- Preview ----------------------------------------------------------------
-  preview: {
-    flex: 1,
-    backgroundColor: '#111',
-    overflow: 'hidden',
-  },
+    // -- Preview ----------------------------------------------------------------
+    preview: {
+      flex: 1,
+      backgroundColor: '#111',
+      overflow: 'hidden',
+    },
 
-  removeBtn: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playBtn: {
-    position: 'absolute',
-    right: 14,
-    bottom: 24,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+    removeBtn: {
+      position: 'absolute',
+      top: 14,
+      right: 14,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      borderRadius: 20,
+      width: 34,
+      height: 34,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    playBtn: {
+      position: 'absolute',
+      right: 14,
+      bottom: 24,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      borderRadius: 20,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
 
-  musicOverlay: {
-    position: 'absolute',
-    bottom: 24,
-    left: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.52)',
-    borderRadius: 24,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    maxWidth: '70%',
-  },
-  musicOverlayText: {
-    flex: 1,
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 13,
-  },
+    musicOverlay: {
+      position: 'absolute',
+      bottom: 24,
+      left: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: 'rgba(0,0,0,0.52)',
+      borderRadius: 24,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      maxWidth: '70%',
+    },
+    musicOverlayText: {
+      flex: 1,
+      color: '#fff',
+      fontWeight: '600',
+      fontSize: 13,
+    },
 
-  // -- Text story -------------------------------------------------------------
-  textInputWrap: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-  },
-  textInput: {
-    fontSize: 22,
-    textAlign: 'center',
-    minHeight: 80,
-  },
-  colorStripScroll: {
-    flexGrow: 0,
-    marginBottom: 12,
-  },
-  colorStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 8,
-  },
-  colorDot: { width: 34, height: 34, borderRadius: 17 },
-  colorDotActive: { borderWidth: 3, borderColor: '#fff' },
+    // -- Text story -------------------------------------------------------------
+    textInputWrap: {
+      flex: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 28,
+    },
+    textInput: {
+      fontSize: 22,
+      textAlign: 'center',
+      minHeight: 80,
+    },
+    colorStripScroll: {
+      flexGrow: 0,
+      marginBottom: 12,
+    },
+    colorStrip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      gap: 8,
+    },
+    colorDot: { width: 34, height: 34, borderRadius: 17 },
+    colorDotActive: { borderWidth: 3, borderColor: '#fff' },
 
-  // -- Empty state ------------------------------------------------------------
-  emptyPreview: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colorss.backgroundDeep,
-  },
-  profileAvatar: { width: 72, height: 72, borderRadius: 36 },
-  profileAvatarFall: {
-    backgroundColor: colorss.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileAvatarChr: { color: '#fff', fontSize: 28, fontWeight: '700' },
-  profileName: { fontSize: 17, fontWeight: '700', color: colorss.textPrimary },
-  profilePrompt: { fontSize: 13, color: colorss.textSecondary },
+    // -- Empty state ------------------------------------------------------------
+    emptyPreview: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 10,
+      backgroundColor: colorss.backgroundDeep,
+    },
+    profileAvatar: { width: 72, height: 72, borderRadius: 36 },
+    profileAvatarFall: {
+      backgroundColor: colorss.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    profileAvatarChr: { color: '#fff', fontSize: 28, fontWeight: '700' },
+    profileName: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: colorss.textPrimary,
+    },
+    profilePrompt: { fontSize: 13, color: colorss.textSecondary },
 
-  // -- Bottom tabs ------------------------------------------------------------
-  bottomTabs: {
-    flexDirection: 'row',
-    backgroundColor: colorss.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colorss.border,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 12,
-    paddingTop: 10,
-  },
-  tabItem: { flex: 1, alignItems: 'center', gap: 4 },
-  tabItemActive: {},
-  tabIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: colorss.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabAa: { fontSize: 17, fontWeight: '700', color: colorss.textSecondary },
-  tabLabel: { fontSize: 11, fontWeight: '600', color: colorss.textSecondary },
-});
+    // -- Bottom tabs ------------------------------------------------------------
+    bottomTabs: {
+      flexDirection: 'row',
+      backgroundColor: colorss.white,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colorss.border,
+      paddingBottom: Platform.OS === 'ios' ? 20 : 12,
+      paddingTop: 10,
+    },
+    tabItem: { flex: 1, alignItems: 'center', gap: 4 },
+    tabItemActive: {},
+    tabIconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      backgroundColor: colorss.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tabAa: { fontSize: 17, fontWeight: '700', color: colorss.textSecondary },
+    tabLabel: { fontSize: 11, fontWeight: '600', color: colorss.textSecondary },
+  });
 
 // Music sheet styles
-const mStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: colorss.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '75%',
-    paddingTop: 8,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: colorss.border,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  sheetTitle: { fontSize: 16, fontWeight: '700', color: colorss.textPrimary },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 10,
-    backgroundColor: colorss.background,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    gap: 8,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 11,
-    fontSize: 15,
-    color: colorss.textPrimary,
-  },
-  loadingWrap: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  trackRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colorss.border,
-  },
-  trackRowSelected: { backgroundColor: `${colorss.primary}0D` },
-  trackCover: { width: 48, height: 48, borderRadius: 8 },
-  trackCoverFall: {
-    backgroundColor: `${colorss.primary}15`,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  trackTitle: { fontSize: 14, fontWeight: '600', color: colorss.textPrimary },
-  trackDuration: { fontSize: 12, color: colorss.textSecondary, marginTop: 2 },
-  selectedDot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colorss.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeMusic: {
-    margin: 16,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colorss.error,
-    alignItems: 'center',
-  },
-  removeMusicText: { color: colorss.error, fontWeight: '700', fontSize: 14 },
-});
+const mStylesFunc = (colorss: AppColors) =>
+  StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      justifyContent: 'flex-end',
+    },
+    sheet: {
+      backgroundColor: colorss.white,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      maxHeight: '75%',
+      paddingTop: 8,
+    },
+    sheetHandle: {
+      width: 40,
+      height: 4,
+      backgroundColor: colorss.border,
+      borderRadius: 2,
+      alignSelf: 'center',
+      marginBottom: 12,
+    },
+    sheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+    },
+    sheetTitle: { fontSize: 16, fontWeight: '700', color: colorss.textPrimary },
+    searchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginHorizontal: 16,
+      marginBottom: 10,
+      backgroundColor: colorss.background,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      gap: 8,
+    },
+    searchInput: {
+      flex: 1,
+      paddingVertical: 11,
+      fontSize: 15,
+      color: colorss.textPrimary,
+    },
+    loadingWrap: {
+      paddingVertical: 40,
+      alignItems: 'center',
+    },
+    trackRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colorss.border,
+    },
+    trackRowSelected: { backgroundColor: `${colorss.primary}0D` },
+    trackCover: { width: 48, height: 48, borderRadius: 8 },
+    trackCoverFall: {
+      backgroundColor: `${colorss.primary}15`,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    trackTitle: { fontSize: 14, fontWeight: '600', color: colorss.textPrimary },
+    trackDuration: { fontSize: 12, color: colorss.textSecondary, marginTop: 2 },
+    selectedDot: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: colorss.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    removeMusic: {
+      margin: 16,
+      padding: 14,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colorss.error,
+      alignItems: 'center',
+    },
+    removeMusicText: { color: colorss.error, fontWeight: '700', fontSize: 14 },
+  });
