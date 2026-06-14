@@ -21,6 +21,7 @@ import {
   formatChatTime,
   HopenityChatItem,
 } from '../services/chatService';
+import { readRequestsCache, writeRequestsCache } from '../services/offlineCache';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
   clearAuth,
@@ -70,15 +71,22 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
   const { reloadConversations } = useChats();
   const [activeTab, setActiveTab] = useState<'know' | 'spam'>('know');
   const [loading, setLoading] = useState(false);
-  const [requested, setRequested] = useState<HopenityChatItem[]>([]);
+  const [requested, setRequested] = useState<HopenityChatItem[]>(() => {
+    const cached = readRequestsCache(
+      normalizeChatUserId(giftedChatUser?._id) ||
+      normalizeChatUserId(profile?.userId) ||
+      'me',
+    );
+    return (cached as HopenityChatItem[] | null) ?? [];
+  });
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
-  const loadRequested = useCallback(async () => {
+  const loadRequested = useCallback(async (silent = false) => {
     if (!token) {
       setRequested([]);
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const { chats, httpStatus } = await fetchHopenityChatDirectory(token, {
         status: 'requested',
@@ -90,19 +98,22 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
         setRequested([]);
         return;
       }
-      setRequested(chats); // show all requested chats; direction resolved per-row below
+      setRequested(chats);
+      writeRequestsCache(localUser._id, chats);
     } catch (e) {
       console.error('[MessageRequestsScreen] load requested:', e);
-      setRequested([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  }, [dispatch, token]);
+  }, [dispatch, token, localUser._id]);
 
   useEffect(() => {
     if (activeTab === 'know') {
-      loadRequested();
+      // If we already have cached data, fetch silently in the background
+      const hasCached = requested.length > 0;
+      loadRequested(hasCached);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, loadRequested]);
 
   const rows = useMemo(() => {

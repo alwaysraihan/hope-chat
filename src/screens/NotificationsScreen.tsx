@@ -113,7 +113,7 @@ function SkeletonBox({
 
 function SkeletonRow() {
   return (
-    <View style={styles.item}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 12 }}>
       <SkeletonBox width={52} height={52} borderRadius={26} />
       <View style={{ flex: 1, gap: 8 }}>
         <SkeletonBox width="70%" height={14} />

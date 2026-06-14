@@ -24,7 +24,7 @@ const ProfileHeader = ({ actionButton, name, avatarUrl, onBack }: Props) => {
         <TouchableOpacity onPress={onBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <LucideArrowLeft color={colorss.textPrimary} />
         </TouchableOpacity>
-        <LucideSettings color={colorss.textPrimary} />
+        {/* <LucideSettings color={colorss.textPrimary} /> */}
       </View>
 
       <View style={styles.profileBox}>

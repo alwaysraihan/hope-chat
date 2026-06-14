@@ -77,7 +77,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
       </View>
 
       {/* Dark mode quick toggle */}
-      <View style={[styles.darkRow, { borderBottomColor: colors.border }]}>
+      {/* <View style={[styles.darkRow, { borderBottomColor: colors.border }]}>
         {isDark ? (
           <Moon size={20} color={colors.accent} />
         ) : (
@@ -97,7 +97,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
           thumbColor={colorss.white}
           ios_backgroundColor={colorss.border}
         />
-      </View>
+      </View> */}
 
       <FlatList
         data={THEME_DATA}
@@ -145,7 +145,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <Text style={[styles.footerTitle, { color: colors.textPrimary }]}>
+            {/* <Text style={[styles.footerTitle, { color: colors.textPrimary }]}>
               Quick reactions (space-separated)
             </Text>
             <TextInput
@@ -163,7 +163,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
               placeholder="❤️ 👍 😂 …"
               placeholderTextColor={colorss.placeholder}
               style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.inputBg }]}
-            />
+            /> */}
           </View>
         }
       />

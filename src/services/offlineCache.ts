@@ -17,6 +17,10 @@ function threadPage1Key(conversationId: string): string {
   return `thread_p1_v1_${conversationId}`;
 }
 
+function requestsKey(userId: string): string {
+  return `msg_requests_v1_${userId}`;
+}
+
 function reviveMessage(m: ExtendedMessage): ExtendedMessage {
   const raw = m.createdAt as unknown;
   const d =
@@ -176,6 +180,29 @@ export function writeNotificationsCache(userId: string, items: unknown[]): void 
     storage().set(notificationsKey(userId), JSON.stringify(items));
   } catch (e) {
     console.warn('[offlineCache] writeNotificationsCache', e);
+  }
+}
+
+// ─── Message requests cache ───────────────────────────────────────────────────
+
+export function readRequestsCache(userId: string): unknown[] | null {
+  if (!userId || userId === 'me') return null;
+  const raw = storage().getString(requestsKey(userId));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeRequestsCache(userId: string, items: unknown[]): void {
+  if (!userId || userId === 'me') return;
+  try {
+    storage().set(requestsKey(userId), JSON.stringify(items));
+  } catch (e) {
+    console.warn('[offlineCache] writeRequestsCache', e);
   }
 }
 

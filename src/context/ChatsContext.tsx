@@ -695,7 +695,6 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      setPendingRequestCount(counts?.requested ?? 0);
       const hidden = new Set(getHiddenConversationIds());
       const pinnedIds = new Set(getPinnedConversationIds());
       const mutedIds = new Set(getMutedConversationIds());
@@ -712,6 +711,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         ...mapped.filter(c => c.pinned),
         ...mapped.filter(c => !c.pinned),
       ];
+      setPendingRequestCount(mapped.filter(c => c.needsAcceptance).length);
       setConversations(next);
       // Only cache personal-mode results — page inbox is transient and should
       // never appear after switching back to personal account.

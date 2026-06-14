@@ -40,7 +40,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
   };
 
   const getIcon = (routeName: string, isFocused: boolean) => {
-    const iconColor = isFocused ? colors.primary : '#3D3B3B';
+    const iconColor = isFocused ? colors.primary : isDark ? '#888888' : '#3D3B3B';
 
     switch (routeName) {
       case 'Home':
@@ -70,7 +70,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
         styles.container,
         {
           paddingBottom: bottom - 6,
-          backgroundColor: isDark ? '#121212' : colors.background,
+          backgroundColor: isDark ? '#000000' : colors.background,
         },
       ]}
     >
@@ -103,7 +103,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({
               style={[
                 styles.label,
                 {
-                  color: isFocused ? colors.pink : '#3D3B3B',
+                  color: isFocused ? colors.primary : isDark ? '#888888' : '#3D3B3B',
                   fontSize: 14,
                   marginTop: 3,
                 },

@@ -136,13 +136,13 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           onPress: toggleDarkMode,
           rightEl: DarkSwitch,
         },
-        {
-          id: 'theme',
-          icon: <ImageIcon size={20} color={iconColor} />,
-          label: t.theme,
-          sub: t.theme_sub,
-          onPress: () => navigation.navigate('Theme'),
-        },
+        // {
+        //   id: 'theme',
+        //   icon: <ImageIcon size={20} color={iconColor} />,
+        //   label: t.theme,
+        //   sub: t.theme_sub,
+        //   onPress: () => navigation.navigate('Theme'),
+        // },
       ],
     },
     {
