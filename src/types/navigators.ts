@@ -47,6 +47,8 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   Profile: {
     /** conversation ID (same as ConversationSummary.id) */
     userId: string;
+    /** Hopenity user ID — passed explicitly so openHopenityProfile works even when peerUserId is missing from the cached conversation. */
+    peerUserId?: string;
   };
   Search: undefined;
   ConversationAction: {

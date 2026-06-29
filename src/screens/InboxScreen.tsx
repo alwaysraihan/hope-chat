@@ -48,6 +48,7 @@ import { Toast } from '../components/Toast';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
 import { selectActivePage } from '../redux/features/auth/authSlice';
+import { openHopenityProfile } from '../services/hopenityLinking';
 
 const PRESET_IMAGES: Record<number, number> = {
   1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
@@ -206,7 +207,28 @@ const InboxScreenInner: React.FC<
     loadEarlier,
     forwardingMessage,
     clearForwarding,
+    isEncrypted,
+    registerScrollToMessage,
   } = useInbox();
+
+  // ── GiftedChat FlatList ref for reply-tap scroll ───────────────────────────
+  const messageContainerRef = useRef<any>(null);
+
+  useEffect(() => {
+    registerScrollToMessage((targetId) => {
+      // messages is newest-first (GiftedChat order); find the index of the target.
+      const idx = (messages as IMessage[]).findIndex(
+        m => String(m._id) === String(targetId),
+      );
+      if (idx < 0 || !messageContainerRef.current) return;
+      try {
+        messageContainerRef.current.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+      } catch {
+        // scrollToIndex can throw when the item is not yet rendered; fall back to offset.
+        messageContainerRef.current.scrollToEnd?.({ animated: true });
+      }
+    });
+  }, [messages, registerScrollToMessage]);
 
   useEffect(() => {
     if (!initialText) return;
@@ -401,6 +423,9 @@ const InboxScreenInner: React.FC<
           isGroup={conversation.isGroup}
           refreshTrigger={refreshTrigger}
           onPressReactions={() => navigation.navigate('Reactions')}
+          onSenderPress={(senderId) => {
+            openHopenityProfile(senderId).catch(() => {});
+          }}
         />
       );
     },
@@ -423,6 +448,7 @@ const InboxScreenInner: React.FC<
         name={peerName}
         status={headerStatus}
         avatarUri={route.params.avatarUrl ?? conversation.avatarUrl}
+        isEncrypted={isEncrypted}
         onProfilePress={() => {
           if (conversation.isGroup) {
             navigation.navigate('GroupInfo', {
@@ -432,6 +458,7 @@ const InboxScreenInner: React.FC<
           } else {
             navigation.navigate('Profile', {
               userId: conversation.id,
+              peerUserId: conversation.peerUserId ?? undefined,
             });
           }
         }}
@@ -592,6 +619,7 @@ const InboxScreenInner: React.FC<
 
         const mainChat = (
           <GiftedChat
+            messageContainerRef={messageContainerRef}
             placeholder={
               needsAcceptance
                 ? 'Accept the request above to reply…'
@@ -613,7 +641,8 @@ const InboxScreenInner: React.FC<
             }}
             renderTime={renderTime}
             renderAvatar={() => null}
-            maxComposerHeight={100}
+            minComposerHeight={36}
+            maxComposerHeight={108}
             alwaysShowSend
             renderInputToolbar={renderInputToolbar}
             renderMessage={renderMessage}

@@ -71,6 +71,12 @@ import {
   maybeDecryptContent,
 } from '../services/e2ee/conversationCrypto';
 import {
+  deriveGroupMessageKey,
+  encryptGroupMessage,
+  maybeDecryptGroupContent,
+} from '../services/e2ee/groupConversationCrypto';
+import { fetchGroupInfo } from '../services/groupService';
+import {
   getEffectiveDisappearingTtlSec,
   getEffectiveReactionPalette,
   isE2eeEnabled,
@@ -137,6 +143,15 @@ interface InboxContextValue {
   handleVoiceRecordingCancel: () => void;
 
   reactionEmojiRow: string[];
+
+  /** True when E2EE is active for the current conversation (DM or group). */
+  isEncrypted: boolean;
+
+  /**
+   * Register a scroll-to-message function from InboxScreen once the
+   * GiftedChat FlatList mounts. Calling this is a no-op after unmount.
+   */
+  registerScrollToMessage: (fn: (id: string | number) => void) => void;
 
   // ── Context
   wrapRef: RefObject<View | null>;
@@ -271,7 +286,31 @@ export function InboxProvider({
     }
   }, [isGroup, _conversationId, peerUserId, localUserIdStr]);
 
-  const shouldEncryptOutgoing = isE2eeEnabled() && !!dmCryptoKey;
+  /** Symmetric group key — derived once after fetching group members. */
+  const [groupCryptoKey, setGroupCryptoKey] = useState<Uint8Array | null>(null);
+
+  useEffect(() => {
+    if (!isGroup || !_conversationId || !token || !isE2eeEnabled()) {
+      setGroupCryptoKey(null);
+      return;
+    }
+    let cancelled = false;
+    fetchGroupInfo(_conversationId, token).then(info => {
+      if (cancelled || !info || info.members.length === 0) return;
+      try {
+        const key = deriveGroupMessageKey(
+          _conversationId,
+          info.members.map(m => m.userId),
+        );
+        setGroupCryptoKey(key);
+      } catch {
+        // leave null — group will send/receive plaintext
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [isGroup, _conversationId, token]);
+
+  const shouldEncryptOutgoing = isE2eeEnabled() && (isGroup ? !!groupCryptoKey : !!dmCryptoKey);
 
   const disappearingTtlSec = getEffectiveDisappearingTtlSec(_conversationId);
   const [disappearPulse, setDisappearPulse] = useState(0);
@@ -364,6 +403,8 @@ export function InboxProvider({
       const rawContent = String(rawObj.content ?? rawObj.text ?? '').trimStart();
       if (dmCryptoKey && rawContent.startsWith('HC1:')) {
         rawObj.content = maybeDecryptContent(rawContent, dmCryptoKey);
+      } else if (groupCryptoKey && rawContent.startsWith('HCG1:')) {
+        rawObj.content = maybeDecryptGroupContent(rawContent, groupCryptoKey);
       }
 
       const parsed = mapApiMessageToTimeline(rawObj);
@@ -379,6 +420,18 @@ export function InboxProvider({
         media = {
           ...media,
           url: maybeDecryptContent(media.url!, dmCryptoKey),
+        };
+      }
+      if (groupCryptoKey && media?.remoteUri?.startsWith('HCG1:')) {
+        media = {
+          ...media,
+          remoteUri: maybeDecryptGroupContent(media.remoteUri, groupCryptoKey),
+        };
+      }
+      if (groupCryptoKey && media?.url?.startsWith('HCG1:')) {
+        media = {
+          ...media,
+          url: maybeDecryptGroupContent(media.url!, groupCryptoKey),
         };
       }
 
@@ -667,6 +720,56 @@ export function InboxProvider({
     mergeLocalCallLogsFromCache,
   ]);
 
+  // ─── Live poll: fetch new messages every 15 s while this chat is open ─────
+  useEffect(() => {
+    if (!_conversationId || !token) return;
+    const poll = async () => {
+      try {
+        const page = await fetchHopenityChatMessages(_conversationId, token, {
+          limit: PAGE_SIZE,
+          isGroup: useV2Messages,
+        });
+        const fetched = page.messages ?? [];
+        const mapped = fetched.map(mapHopenityMessage);
+        mapped.sort((a, b) => {
+          const toMs = (t: unknown) =>
+            t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
+          return toMs(a.createdAt) - toMs(b.createdAt);
+        });
+        setAllMessages(prev => {
+          const existingIds = new Set(prev.map(m => String(m._id)));
+          const newOnes = mapped.filter(m => !existingIds.has(String(m._id)));
+          if (newOnes.length === 0) return prev;
+          const combined = [...prev, ...newOnes];
+          combined.sort((a, b) => {
+            const toMs = (t: unknown) =>
+              t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
+            return toMs(a.createdAt) - toMs(b.createdAt);
+          });
+          writeThreadMessagesCache(_conversationId, combined);
+          return combined;
+        });
+        setMessages(prev => {
+          const existingIds = new Set((prev as ExtendedMessage[]).map((m: ExtendedMessage) => String(m._id)));
+          const newOnes = mapped.filter(m => !existingIds.has(String(m._id)));
+          if (newOnes.length === 0) return prev;
+          const combined = [
+            ...(prev as ExtendedMessage[]).filter((m: ExtendedMessage) => m._id !== INTRO_MESSAGE_ID),
+            ...newOnes,
+          ];
+          combined.sort((a, b) => {
+            const toMs = (t: unknown) =>
+              t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
+            return toMs(b.createdAt) - toMs(a.createdAt);
+          });
+          return mergeIntroDesc(combined, threadIntroPeer);
+        });
+      } catch { /* silent — stale UI is fine, next poll will retry */ }
+    };
+    const id = setInterval(poll, 15_000);
+    return () => clearInterval(id);
+  }, [_conversationId, token, useV2Messages, mapHopenityMessage, threadIntroPeer]);
+
   // ─── Fetch messages ────────────────────────────────────────────────────────
 
   const fetchMessages = useCallback(
@@ -844,7 +947,9 @@ export function InboxProvider({
           const plain = String(stamped.text ?? '');
           let wire = plain;
           if (shouldEncryptOutgoing && plain.length > 0) {
-            wire = encryptMessagePayload(plain, dmCryptoKey!);
+            wire = isGroup
+              ? encryptGroupMessage(plain, groupCryptoKey!)
+              : encryptMessagePayload(plain, dmCryptoKey!);
           }
           sendHopenityChatMessage(_conversationId, wire, token, activePage?.id ?? null, useV2Messages, currentReplyTo?._id ?? null)
             .then(res => {
@@ -902,6 +1007,8 @@ export function InboxProvider({
       localUserIdStr,
       shouldEncryptOutgoing,
       dmCryptoKey,
+      groupCryptoKey,
+      isGroup,
     ],
   );
 
@@ -950,7 +1057,9 @@ export function InboxProvider({
             });
             let wire = remoteUri;
             if (shouldEncryptOutgoing) {
-              wire = encryptMessagePayload(remoteUri, dmCryptoKey!);
+              wire = isGroup
+                ? encryptGroupMessage(remoteUri, groupCryptoKey!)
+                : encryptMessagePayload(remoteUri, dmCryptoKey!);
             }
             const sent = await sendHopenityChatMessage(
               _conversationId,
@@ -1005,6 +1114,8 @@ export function InboxProvider({
       localUserIdStr,
       shouldEncryptOutgoing,
       dmCryptoKey,
+      groupCryptoKey,
+      isGroup,
     ],
   );
 
@@ -1051,7 +1162,9 @@ export function InboxProvider({
             });
             let wire = remoteUri;
             if (shouldEncryptOutgoing) {
-              wire = encryptMessagePayload(remoteUri, dmCryptoKey!);
+              wire = isGroup
+                ? encryptGroupMessage(remoteUri, groupCryptoKey!)
+                : encryptMessagePayload(remoteUri, dmCryptoKey!);
             }
             const sent = await sendHopenityChatMessage(
               _conversationId,
@@ -1106,6 +1219,8 @@ export function InboxProvider({
       localUserIdStr,
       shouldEncryptOutgoing,
       dmCryptoKey,
+      groupCryptoKey,
+      isGroup,
     ],
   );
 
@@ -1187,9 +1302,17 @@ export function InboxProvider({
 
   // ─── Scroll to reply ───────────────────────────────────────────────────────
 
+  const scrollToMessageFnRef = useRef<((id: string | number) => void) | null>(null);
+
+  const registerScrollToMessage = useCallback(
+    (fn: (id: string | number) => void) => {
+      scrollToMessageFnRef.current = fn;
+    },
+    [],
+  );
+
   const handlePressReplyPreview = useCallback((messageId: string | number) => {
-    // TODO: wire flatListRef.current?.scrollToItem(...)
-    console.log('[InboxProvider] scroll to message:', messageId);
+    scrollToMessageFnRef.current?.(messageId);
   }, []);
 
   // ─── Camera ────────────────────────────────────────────────────────────────
@@ -1324,6 +1447,10 @@ export function InboxProvider({
     handleVoiceRecordingCancel,
 
     reactionEmojiRow,
+
+    isEncrypted: shouldEncryptOutgoing,
+
+    registerScrollToMessage,
 
     // refs
     wrapRef,

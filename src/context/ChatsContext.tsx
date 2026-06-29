@@ -9,6 +9,10 @@ import React, {
   useState,
 } from 'react';
 import { AppState, DeviceEventEmitter } from 'react-native';
+
+/** Emitting this event from anywhere (e.g. FCM handler) triggers an immediate inbox reload. */
+export const RELOAD_CHAT_LIST_EVENT = 'hopechat:reload_chat_list';
+const POLL_INTERVAL_MS = 30_000;
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
   clearAuth,
@@ -749,6 +753,27 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         void reloadConversations();
       }
       lastState = nextState;
+    });
+    return () => sub.remove();
+  }, [token, reloadConversations]);
+
+  // Poll every 30s while foregrounded so new messages & requests appear without
+  // requiring the user to background/foreground the app.
+  useEffect(() => {
+    if (!token) return undefined;
+    const id = setInterval(() => {
+      if (AppState.currentState === 'active') {
+        void reloadConversations();
+      }
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [token, reloadConversations]);
+
+  // Instant reload when something (e.g. FCM new-message notification) fires the event.
+  useEffect(() => {
+    if (!token) return undefined;
+    const sub = DeviceEventEmitter.addListener(RELOAD_CHAT_LIST_EVENT, () => {
+      void reloadConversations();
     });
     return () => sub.remove();
   }, [token, reloadConversations]);

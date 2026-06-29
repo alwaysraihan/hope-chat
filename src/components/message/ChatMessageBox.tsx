@@ -1,6 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import {
+  Alert,
   Dimensions,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -40,7 +42,64 @@ type ChatMessageBoxProps = {
   onPressReactions?: () => void;
   refreshTrigger?: number;
   isGroup?: boolean;
+  /** Called when the sender avatar/name is tapped in a group message. */
+  onSenderPress?: (userId: string, name: string) => void;
 } & MessageProps<IMessage>;
+
+// ─── Link helpers ─────────────────────────────────────────────────────────────
+
+const URL_RE = /(https?:\/\/[^\s]+)/gi;
+
+function isHopenityUrl(url: string): boolean {
+  return /hopenity\.com|hoppi\.live/i.test(url);
+}
+
+function openHopenityDeepOrWeb(url: string): void {
+  // Try to open in the Hopenity app via deep link, fall back to browser.
+  const deepLink =
+    Platform.OS === 'ios'
+      ? url.replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
+             .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hopenity.com')
+      : url.replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
+             .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hopenity.com');
+  Linking.canOpenURL(deepLink)
+    .then(ok => Linking.openURL(ok ? deepLink : url))
+    .catch(() => Linking.openURL(url).catch(() => {}));
+}
+
+function handleLinkPress(url: string): void {
+  if (isHopenityUrl(url)) {
+    openHopenityDeepOrWeb(url);
+    return;
+  }
+  Alert.alert(
+    'Open link?',
+    url.length > 80 ? url.slice(0, 80) + '…' : url,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Open', onPress: () => Linking.openURL(url).catch(() => {}) },
+    ],
+  );
+}
+
+/** Splits text into plain segments and URL segments for inline link rendering. */
+function parseTextWithLinks(text: string): Array<{ text: string; isLink: boolean; url?: string }> {
+  const parts: Array<{ text: string; isLink: boolean; url?: string }> = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  URL_RE.lastIndex = 0;
+  while ((match = URL_RE.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push({ text: text.slice(last, match.index), isLink: false });
+    }
+    parts.push({ text: match[0], isLink: true, url: match[0] });
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) {
+    parts.push({ text: text.slice(last), isLink: false });
+  }
+  return parts.length > 0 ? parts : [{ text, isLink: false }];
+}
 
 // ─── Download helper ──────────────────────────────────────────────────────────
 
@@ -157,7 +216,7 @@ const sheet = StyleSheet.create({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ChatMessageBox(props: ChatMessageBoxProps) {
-  const { currentMessage, position, onPressReactions, isGroup } = props;
+  const { currentMessage, position, onPressReactions, isGroup, onSenderPress } = props;
   const { handlePressReplyPreview } = useInbox();
   const msg = currentMessage as ExtendedMessage;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -206,9 +265,15 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     isGroupIncoming && typeof msg.user?.avatar === 'string'
       ? (msg.user.avatar as string)
       : null;
+  const senderUserId = isGroupIncoming ? String(msg.user?._id ?? '') : '';
   const SenderHeader =
     isGroupIncoming && senderName ? (
-      <View style={styles.senderRow}>
+      <TouchableOpacity
+        style={styles.senderRow}
+        onPress={() => onSenderPress?.(senderUserId, senderName)}
+        activeOpacity={onSenderPress ? 0.6 : 1}
+        disabled={!onSenderPress}
+      >
         {senderAvatar ? (
           <FastImage
             source={{ uri: senderAvatar }}
@@ -224,7 +289,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
         <Text style={styles.senderName} numberOfLines={1}>
           {senderName}
         </Text>
-      </View>
+      </TouchableOpacity>
     ) : null;
 
   const reactionProps = {
@@ -454,13 +519,23 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           <Text
             style={[
               styles.messageText,
-              {
-                color: textColor,
-              },
+              { color: textColor },
               msg.messageKind === 'call_log' ? styles.callLogText : null,
             ]}
           >
-            {msg?.text ?? ''}
+            {parseTextWithLinks(msg?.text ?? '').map((seg, i) =>
+              seg.isLink ? (
+                <Text
+                  key={i}
+                  style={styles.linkText}
+                  onPress={() => handleLinkPress(seg.url!)}
+                >
+                  {seg.text}
+                </Text>
+              ) : (
+                seg.text
+              ),
+            )}
           </Text>
         </View>
       </View>
@@ -522,6 +597,7 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 8,
     flexDirection: 'column',
+    flexShrink: 0,
   },
   textBubbleLeft: {
     alignSelf: 'flex-start',
@@ -536,9 +612,11 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     lineHeight: 20,
     letterSpacing: 0.1,
-    flexShrink: 1,
+    flexShrink: 0,
+    flexWrap: 'wrap',
   },
   callLogText: { fontStyle: 'italic', fontSize: 14 },
+  linkText: { textDecorationLine: 'underline', opacity: 0.85 },
   mediaBubble: {
     width: 210,
     height: 210,

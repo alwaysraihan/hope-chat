@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState, DeviceEventEmitter, Platform } from 'react-native';
+import { RELOAD_CHAT_LIST_EVENT } from '../context/ChatsContext';
 import NetInfo from '@react-native-community/netinfo';
 import { getApp } from '@react-native-firebase/app';
 import {
@@ -363,16 +364,24 @@ const IncomingCallListener = () => {
             }
             navigateIncomingCall(parsed);
           })();
-        } else if (__DEV__ && Object.keys(data).length > 0) {
-          console.warn(
-            '[HopeChat] FCM foreground message ignored (not incoming-call payload)',
-            Object.keys(data),
-          );
+        } else {
+          // Non-call notification (new chat message, request, etc.) — refresh inbox.
+          if (Object.keys(data).length > 0) {
+            DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+          }
+          if (__DEV__ && Object.keys(data).length > 0) {
+            console.log(
+              '[HopeChat] FCM non-call message → reloading chat list',
+              Object.keys(data),
+            );
+          }
         }
       });
 
       unsubOpenedApp = onNotificationOpenedApp(messaging, remoteMessage => {
         const data = normalizeFcmData(remoteMessage?.data);
+        // Always refresh inbox when opening from a notification (could be a new message).
+        DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
         openFromNotificationData(data);
       });
 

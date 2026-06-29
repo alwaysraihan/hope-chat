@@ -343,5 +343,20 @@ export function mapApiMessageToTimeline(
     };
   }
 
+  const looksLikeVideoOnly =
+    /^https?:\/\/.+\.(mp4|mov|m3u8|webm|mkv|avi|3gp|m4v)(\?|$)/i.test(messageText.trim());
+  if (looksLikeVideoOnly) {
+    return {
+      text: '',
+      media: {
+        type: 'video',
+        url: messageText.trim(),
+        remoteUri: messageText.trim(),
+      },
+      messageKind: 'text',
+      delivery,
+    };
+  }
+
   return { text: messageText, messageKind: 'text', delivery };
 }

@@ -38,6 +38,7 @@ import {
 import { useCallAudio, type AudioOutputKind } from '../hooks/useCallAudio';
 import AudioOutputPickerSheet from '../components/AudioOutputPickerSheet';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { activateKeepAwake, deactivateKeepAwake } from '../utils/keepAwake';
 import { StackActions } from '@react-navigation/native';
 import { useAppSelector } from '../hooks/redux';
 import {
@@ -165,6 +166,12 @@ function VideoCallGate({
 
   /** Android: foreground service + ongoing notification so the call survives minimize. */
   useLiveKitAndroidForeground(room, displayName, 'video');
+
+  /** Prevent the screen from sleeping while in a video call. */
+  useEffect(() => {
+    activateKeepAwake();
+    return deactivateKeepAwake;
+  }, []);
 
   /**
    * Register this call so a 2nd incoming call can tear it down cleanly. We register a *silent*

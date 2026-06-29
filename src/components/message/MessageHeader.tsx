@@ -5,6 +5,7 @@ import {
   Phone,
   ChevronLeft,
   MoreVertical,
+  Lock,
 } from 'lucide-react-native';
 import { colorss } from '../../theme';
 import FastImage from '@d11/react-native-fast-image';
@@ -21,6 +22,8 @@ interface MessageHeaderProps {
   /** e.g. "Online" or "last seen …" — omit or empty to hide subtitle */
   status?: string;
   avatarUri?: string | null;
+  /** Show a lock badge when E2EE is active for this conversation. */
+  isEncrypted?: boolean;
 }
 
 function initialsFromName(name: string): string {
@@ -44,6 +47,7 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   name,
   status,
   avatarUri,
+  isEncrypted = false,
 }) => {
   // Both call actions are hidden when undefined (REQUESTED / unaccepted chats)
   const callActions = [
@@ -76,9 +80,14 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
           </View>
         )}
         <View style={styles.nameBlock}>
-          <Text style={[styles.name, { color: white }]} numberOfLines={1}>
-            {name || 'Chat'}
-          </Text>
+          <View style={styles.nameRow}>
+            <Text style={[styles.name, { color: white }]} numberOfLines={1}>
+              {name || 'Chat'}
+            </Text>
+            {isEncrypted ? (
+              <Lock size={11} color="rgba(255,255,255,0.85)" style={styles.lockIcon} />
+            ) : null}
+          </View>
           {status ? (
             <Text style={styles.status} numberOfLines={1}>
               {status}
@@ -148,6 +157,14 @@ const styles = StyleSheet.create({
   nameBlock: {
     gap: 1,
     flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  lockIcon: {
+    marginTop: 1,
   },
   name: {
     fontSize: 15,

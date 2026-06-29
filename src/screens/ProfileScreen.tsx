@@ -62,7 +62,13 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const peerName = conversation?.name ?? 'Chat';
   const avatarUrl = conversation?.avatarUrl ?? null;
-  const peerUserId = conversation?.peerUserId ?? undefined;
+  // Prefer the explicitly-passed peerUserId (set by InboxScreen) so that
+  // openHopenityProfile works even when the cached conversation hasn't
+  // populated peerUserId yet.
+  const peerUserId =
+    route.params.peerUserId ??
+    conversation?.peerUserId ??
+    undefined;
 
   // Track blocked state — reload from server on focus so it stays fresh.
   const [isBlocked, setIsBlocked] = useState(false);

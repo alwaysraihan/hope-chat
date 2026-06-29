@@ -35,6 +35,7 @@ import { selectHopenityProfile } from '../redux/features/auth/authSlice';
 import { useT } from '../hooks/useT';
 import { performLogout } from '../services/logout';
 import { useAppTheme } from '../context/ThemeContext';
+import { isE2eeEnabled, setE2eeEnabled } from '../services/chatPrefs';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Settings'>;
 
@@ -52,6 +53,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const profile = useAppSelector(selectHopenityProfile);
   const { isDark, colors, toggleDarkMode } = useAppTheme();
+  const [e2eeOn, setE2eeOn] = React.useState(() => isE2eeEnabled());
 
   const iconColor = colors.textPrimary;
 
@@ -73,6 +75,16 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     <Switch
       value={isDark}
       onValueChange={toggleDarkMode}
+      trackColor={{ false: colorss.border, true: colors.accent }}
+      thumbColor={colorss.white}
+      ios_backgroundColor={colorss.border}
+    />
+  );
+
+  const E2eeSwitch = (
+    <Switch
+      value={e2eeOn}
+      onValueChange={v => { setE2eeOn(v); setE2eeEnabled(v); }}
       trackColor={{ false: colorss.border, true: colors.accent }}
       thumbColor={colorss.white}
       ios_backgroundColor={colorss.border}
@@ -110,6 +122,13 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           label: t.disappearing_messages,
           sub: t.disappearing_messages_sub,
           onPress: () => navigation.navigate('DisappearingMessages', {}),
+        },
+        {
+          id: 'e2ee',
+          icon: <Shield size={20} color={iconColor} />,
+          label: 'End-to-end encryption',
+          sub: e2eeOn ? 'Messages are encrypted on your device' : 'Encryption is off',
+          rightEl: E2eeSwitch,
         },
       ],
     },
