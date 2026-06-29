@@ -258,10 +258,13 @@ export function mapApiMessageToTimeline(
         const requestType = parseDonationRequestType(
           String(parsed.requestType ?? parsed.subType ?? parsed.category ?? ''),
         );
+        const rawEmbStatus = String(parsed.status ?? 'PENDING').toUpperCase();
+        const embStatus: DonationRequestPayload['status'] =
+          rawEmbStatus === 'ACCEPTED' || rawEmbStatus === 'REJECTED' ? rawEmbStatus : 'PENDING';
         return {
           text,
           messageKind: 'donation_request',
-          donationRequest: { donationId, postId, status: 'PENDING', requestType },
+          donationRequest: { donationId, postId, status: embStatus, requestType },
           delivery,
         };
       }

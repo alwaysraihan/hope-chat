@@ -85,15 +85,40 @@ export async function openPlayStore(): Promise<void> {
  * falls back to opening the web profile URL in the browser if the app is not
  * installed or the scheme is not handled.
  */
+export async function openHopenityPost(postId: string | number): Promise<void> {
+  const id = String(postId ?? '').trim();
+  if (!id) { await openHopenityBestEffort(); return; }
+
+  const deepLink =
+    Platform.OS === 'ios'
+      ? `https://hopenity.com/post/${id}`
+      : `hopenity://hopenity.com/post/${id}`;
+
+  try {
+    const ok = await Linking.canOpenURL(deepLink);
+    if (ok) { await Linking.openURL(deepLink); return; }
+  } catch { /* fall through */ }
+
+  try {
+    await Linking.openURL(`https://hopenity.com/post/${id}`);
+  } catch { /* nothing else to try */ }
+}
+
 export async function openHopenityProfile(userId: string | number): Promise<void> {
   const id = String(userId ?? '').trim();
   if (!id) { await openHopenityBestEffort(); return; }
 
-  // Hopenity's deep-link parser maps /user/{userId} → ProfileScreen.
-  // /profile (no id) maps to myProfile (own profile), so we must use /user/.
+  // iOS: Hopenity registers `applinks:hopenity.com` (Universal Links), so the
+  // correct deep link is https://hopenity.com/user/{id}. The custom scheme
+  // hopenity://user/{id} would parse "user" as the hostname and Hopenity's
+  // parseDeepLinkUrl would reject it (host doesn't include "hopenity.com").
+  // Android: hopenity://hopenity.com/user/{id} matches the intent filter
+  // (scheme=hopenity, host=hopenity.com, pathPrefix=/). On Android 11+ if
+  // canOpenURL returns false (missing <queries>), fall through to HTTPS which
+  // is also caught by Hopenity's autoVerify intent filter.
   const deepLink =
     Platform.OS === 'ios'
-      ? `${HOPENITY_IOS_SCHEME}user/${id}`
+      ? `https://hopenity.com/user/${id}`
       : `hopenity://hopenity.com/user/${id}`;
 
   try {
@@ -101,7 +126,7 @@ export async function openHopenityProfile(userId: string | number): Promise<void
     if (ok) { await Linking.openURL(deepLink); return; }
   } catch { /* fall through */ }
 
-  // Fallback: open the web profile.
+  // Fallback: open the web profile (also caught by Hopenity's intent filters).
   try {
     await Linking.openURL(`https://hopenity.com/user/${id}`);
   } catch { /* nothing else to try */ }

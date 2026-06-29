@@ -702,8 +702,13 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       const hidden = new Set(getHiddenConversationIds());
       const pinnedIds = new Set(getPinnedConversationIds());
       const mutedIds = new Set(getMutedConversationIds());
+      // In page mode the page is one of the conversation participants, so use
+      // the page's ID as the "local" identity to correctly find the peer.
+      const effectiveLocalUser = activePage
+        ? { _id: activePage.id, name: activePage.name }
+        : localUser;
       const mapped = chats
-        .map(chat => mapChatItemToSummary(chat, localUser))
+        .map(chat => mapChatItemToSummary(chat, effectiveLocalUser))
         .filter(c => !hidden.has(c.id))
         .map(c => ({
           ...c,

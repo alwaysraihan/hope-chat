@@ -49,6 +49,7 @@ import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
 import { selectActivePage } from '../redux/features/auth/authSlice';
 import { openHopenityProfile } from '../services/hopenityLinking';
+import { SellerProductSheet } from '../components/message/SellerProductSheet';
 
 const PRESET_IMAGES: Record<number, number> = {
   1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
@@ -209,6 +210,8 @@ const InboxScreenInner: React.FC<
     clearForwarding,
     isEncrypted,
     registerScrollToMessage,
+    sellerSheetVisible,
+    closeSellerSheet,
   } = useInbox();
 
   // ── GiftedChat FlatList ref for reply-tap scroll ───────────────────────────
@@ -695,6 +698,14 @@ const InboxScreenInner: React.FC<
       {forwardingMessage && (
         <ForwardModal message={forwardingMessage} onClose={clearForwarding} />
       )}
+      <SellerProductSheet
+        visible={sellerSheetVisible}
+        hopenityToken={token}
+        onClose={closeSellerSheet}
+        onSelectProduct={(url: string) => {
+          onSend([{ _id: String(Date.now()), text: url, createdAt: new Date(), user: { _id: user._id } } as ExtendedMessage]);
+        }}
+      />
     </SafeAreaView>
   );
 };

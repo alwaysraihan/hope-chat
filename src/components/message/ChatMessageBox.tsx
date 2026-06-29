@@ -19,6 +19,7 @@ import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 
 import ChatThreadIntroCard from './ChatThreadIntroCard';
 import AudioPlayer from './AudioPlayer';
+import { ProductCardPreview } from './ProductCardPreview';
 import DonationRequestBubble from './DonationRequestBubble';
 import MediaPreviewModal from './ImagePreviewModal';
 import ReplyPreview from './ReplyPreview';
@@ -49,19 +50,30 @@ type ChatMessageBoxProps = {
 // ─── Link helpers ─────────────────────────────────────────────────────────────
 
 const URL_RE = /(https?:\/\/[^\s]+)/gi;
+const HOPPI_PRODUCT_RE = /^https?:\/\/(www\.)?hoppi\.live\/product\/([a-zA-Z0-9_-]+)/i;
+
+function extractProductSlug(url: string): string | null {
+  const m = url.match(HOPPI_PRODUCT_RE);
+  return m ? m[2] : null;
+}
 
 function isHopenityUrl(url: string): boolean {
   return /hopenity\.com|hoppi\.live/i.test(url);
 }
 
 function openHopenityDeepOrWeb(url: string): void {
-  // Try to open in the Hopenity app via deep link, fall back to browser.
-  const deepLink =
-    Platform.OS === 'ios'
-      ? url.replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
-             .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hopenity.com')
-      : url.replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
-             .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hopenity.com');
+  // iOS: Hopenity uses Universal Links (applinks:hopenity.com), so the HTTPS
+  // URL opens the app directly — no scheme conversion needed.
+  // Android: swap https → hopenity:// so the intent filter routes to the app
+  // without prompting "open with browser". Fall back to the original HTTPS URL
+  // if canOpenURL returns false (Android 11+ <queries> visibility restriction).
+  if (Platform.OS === 'ios') {
+    Linking.openURL(url).catch(() => {});
+    return;
+  }
+  const deepLink = url
+    .replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
+    .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hopenity.com');
   Linking.canOpenURL(deepLink)
     .then(ok => Linking.openURL(ok ? deepLink : url))
     .catch(() => Linking.openURL(url).catch(() => {}));
@@ -501,6 +513,12 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     textColor = '#000';
   }
 
+  // Detect the first hoppi.live product URL in the message for a preview card.
+  const rawText = msg?.text ?? '';
+  const allUrls = rawText.match(URL_RE) ?? [];
+  const productUrl = allUrls.find(u => extractProductSlug(u) != null) ?? null;
+  const productSlug = productUrl ? extractProductSlug(productUrl) : null;
+
   return (
     <Reaction {...reactionProps}>
       <View
@@ -523,7 +541,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               msg.messageKind === 'call_log' ? styles.callLogText : null,
             ]}
           >
-            {parseTextWithLinks(msg?.text ?? '').map((seg, i) =>
+            {parseTextWithLinks(rawText).map((seg, i) =>
               seg.isLink ? (
                 <Text
                   key={i}
@@ -537,6 +555,14 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               ),
             )}
           </Text>
+          {productSlug ? (
+            <ProductCardPreview
+              slug={productSlug}
+              isOwn={isOwn}
+              isDark={isDark}
+              onPress={() => handleLinkPress(productUrl!)}
+            />
+          ) : null}
         </View>
       </View>
     </Reaction>

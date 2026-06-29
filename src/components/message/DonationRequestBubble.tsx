@@ -14,6 +14,7 @@ import type { DonationRequestPayload, DonationRequestType, ExtendedMessage } fro
 import { API_BASE_URL } from '../../config/env';
 import { useAppSelector } from '../../hooks/redux';
 import { selectAuthToken } from '../../redux/features/auth/authSlice';
+import { openHopenityPost } from '../../services/hopenityLinking';
 import { colorss } from '../../theme';
 
 // ── Session-level status cache ─────────────────────────────────────────────────
@@ -110,13 +111,22 @@ export default function DonationRequestBubble({ message, isOwn }: Props) {
   const isPending  = status === 'PENDING';
   const isAccepted = status === 'ACCEPTED';
 
+  const handleViewPost = useCallback(() => {
+    if (dr.postId) void openHopenityPost(dr.postId);
+  }, [dr.postId]);
+
   return (
     <View style={[styles.card, isOwn ? styles.cardRight : styles.cardLeft, { borderColor: meta.borderColor }]}>
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: meta.headerBg, borderBottomColor: meta.borderColor }]}>
+      {/* Header — tap to view post details */}
+      <TouchableOpacity
+        style={[styles.header, { backgroundColor: meta.headerBg, borderBottomColor: meta.borderColor }]}
+        onPress={handleViewPost}
+        activeOpacity={0.75}
+      >
         <RequestIcon type={dr.requestType} size={14} color={meta.accent} />
         <Text style={[styles.headerText, { color: meta.accent }]}>{meta.label}</Text>
-      </View>
+        <Text style={[styles.viewLink, { color: meta.accent }]}>View post ›</Text>
+      </TouchableOpacity>
 
       {/* Interest text */}
       <Text style={styles.body}>{message.text || 'I am interested in this.'}</Text>
@@ -203,6 +213,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     textTransform: 'uppercase',
     flex: 1,
+  },
+  viewLink: {
+    fontSize: 11,
+    fontWeight: '600',
   },
 
   body: {

@@ -137,6 +137,11 @@ interface InboxContextValue {
   handleCameraPress: () => void;
   handleGalleryPress: () => void;
 
+  // ── Seller product share
+  sellerSheetVisible: boolean;
+  openSellerSheet: () => void;
+  closeSellerSheet: () => void;
+
   // ── Voice
   handleVoiceRecordingStart: () => void;
   handleVoiceRecordingComplete: (path: string, duration: number) => void;
@@ -1361,6 +1366,12 @@ export function InboxProvider({
     );
   }, [sendMediaMessage]);
 
+  // ─── Seller product share sheet ────────────────────────────────────────────
+
+  const [sellerSheetVisible, setSellerSheetVisible] = useState(false);
+  const openSellerSheet = useCallback(() => setSellerSheetVisible(true), []);
+  const closeSellerSheet = useCallback(() => setSellerSheetVisible(false), []);
+
   // ─── Voice recording lifecycle ─────────────────────────────────────────────
 
   const handleVoiceRecordingStart = useCallback(async () => {
@@ -1440,6 +1451,9 @@ export function InboxProvider({
     // Media
     handleCameraPress,
     handleGalleryPress,
+    sellerSheetVisible,
+    openSellerSheet,
+    closeSellerSheet,
 
     // Voice
     handleVoiceRecordingStart,

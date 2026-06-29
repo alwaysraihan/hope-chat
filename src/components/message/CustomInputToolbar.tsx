@@ -12,6 +12,7 @@ import {
   Camera,
   Image,
   Mic,
+  ShoppingBag,
   Smile,
   Send,
   ArrowRight,
@@ -43,6 +44,7 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
     handleVoiceRecordingComplete,
     handleVoiceRecordingCancel,
     clearReply,
+    openSellerSheet,
   } = useInbox();
   const { isDark, colors } = useAppTheme();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -283,6 +285,12 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
               onPress={handleVoiceRecordingStart}
             >
               <Mic size={22} color={colorss.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={openSellerSheet}
+            >
+              <ShoppingBag size={22} color={colorss.primary} />
             </TouchableOpacity>
           </Animated.View>
         ) : (
