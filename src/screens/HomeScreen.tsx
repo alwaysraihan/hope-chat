@@ -34,9 +34,10 @@ import {
   isDmEligibleForStoryStrips,
 } from '../services/story/storyStripEligibility';
 
-import { useAppSelector } from '../hooks/redux';
+import { useAppSelector, useAppDispatch } from '../hooks/redux';
 import {
   selectHopenityProfile,
+  setActivePage,
 } from '../redux/features/auth/authSlice';
 import { useT } from '../hooks/useT';
 import { IC_HOPENITY } from '../assets';
@@ -58,6 +59,7 @@ type Props = CompositeScreenProps<
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const colorss = useColors();
   const t = useT();
+  const dispatch = useAppDispatch();
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const token = useAppSelector(s => s.auth.token);
   const profile = useAppSelector(selectHopenityProfile);
@@ -175,7 +177,16 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   // conversationId before navigating (same pattern as FB Messenger — thread is
   // provisioned server-side so InboxScreen has a valid ID from the first render).
   const navigateInboxForPeer = useCallback(
-    async ({ peerId, displayName, avatarUrl, chatId }: PeerLinkPayload) => {
+    async ({ peerId, displayName, avatarUrl, chatId, senderPageId, senderPageName, senderPageImage }: PeerLinkPayload) => {
+      // Switch to page mode in Redux so InboxContext sends messages as the page.
+      if (senderPageId) {
+        dispatch(setActivePage({
+          id: senderPageId,
+          name: senderPageName ?? '',
+          image: senderPageImage ?? null,
+        }));
+      }
+
       const existing = conversations.find(
         c =>
           !c.isGroup &&
@@ -185,16 +196,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
       let conversationId: string;
       if (existing) {
-        // Known conversation — navigate immediately with the real ID.
         conversationId = String(existing.id);
       } else if (chatId) {
-        // Hopenity pre-provisioned the chat ID — use it directly.
         conversationId = chatId;
       } else {
-        // Provision or find the server-side conversation.
-        // On failure we still navigate: the Inbox will show an empty state
-        // and the user can send their first message which creates the chat.
-        const realId = token ? await getOrCreatePeerChat(peerId, token) : null;
+        const realId = token ? await getOrCreatePeerChat(peerId, token, senderPageId ?? undefined) : null;
         conversationId = realId ?? peerId;
       }
 
@@ -227,7 +233,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         seedConversation: seed,
       });
     },
-    [navigation, conversations, localUserId, token],
+    [navigation, conversations, localUserId, token, dispatch],
   );
 
   // Runtime deep link — app already running / backgrounded.

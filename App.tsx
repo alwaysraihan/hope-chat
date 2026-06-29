@@ -120,6 +120,9 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
           displayName: parseQs(qs, 'name'),
           avatarUrl: parseQs(qs, 'avatar') ?? null,
           chatId: parseQs(qs, 'chatId') ?? null,
+          senderPageId: parseQs(qs, 'senderPageId') ?? null,
+          senderPageName: parseQs(qs, 'senderPageName') ?? null,
+          senderPageImage: parseQs(qs, 'senderPageImage') ?? null,
         });
         if (loggedIn) {
           if (navigationRef.isReady()) {
@@ -275,6 +278,9 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
     avatarUrl: parseQs(qs, 'avatar') ?? null,
     chatId: parseQs(qs, 'chatId') ?? null,
     autoCall: parseQs(qs, 'autoCall') === '1',
+    senderPageId: parseQs(qs, 'senderPageId') ?? null,
+    senderPageName: parseQs(qs, 'senderPageName') ?? null,
+    senderPageImage: parseQs(qs, 'senderPageImage') ?? null,
   });
   // Bring HomeScreen into view so its listener can navigate to the right chat.
   if (navigationRef.isReady()) {

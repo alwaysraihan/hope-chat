@@ -456,15 +456,18 @@ function unwrapChatMessagesEnvelope(json: unknown): HopenityChatMessagesPage {
 export async function getOrCreatePeerChat(
   targetUserId: string,
   token: string,
+  senderPageId?: string | null,
 ): Promise<string | null> {
   try {
+    const body: Record<string, unknown> = { targetUserId };
+    if (senderPageId) body.senderPageId = senderPageId;
     const response = await fetch(`${API_BASE_URL}/api/v1/chats`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ targetUserId }),
+      body: JSON.stringify(body),
     });
     const json = await response.json().catch(() => null);
     const raw = json?.responseObject ?? json?.data ?? json;

@@ -18,6 +18,10 @@ export type PeerLinkPayload = {
   chatId?: string | null;
   /** When true, HopeChat should navigate to the chat and hint that user wants to call. */
   autoCall?: boolean;
+  /** When set, HopeChat switches to this page identity before opening the conversation. */
+  senderPageId?: string | null;
+  senderPageName?: string | null;
+  senderPageImage?: string | null;
 };
 
 let _pending: PeerLinkPayload | null = null;
