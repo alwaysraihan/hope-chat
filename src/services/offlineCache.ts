@@ -206,6 +206,24 @@ export function writeRequestsCache(userId: string, items: unknown[]): void {
   }
 }
 
+// ─── Pending request count cache ──────────────────────────────────────────────
+// Persists the badge count so it shows immediately on next cold start.
+
+function requestCountKey(userId: string): string {
+  return `msg_request_count_v1_${userId}`;
+}
+
+export function readRequestCountCache(userId: string): number | null {
+  if (!userId || userId === 'me') return null;
+  const raw = storage().getNumber(requestCountKey(userId));
+  return raw != null ? raw : null;
+}
+
+export function writeRequestCountCache(userId: string, count: number): void {
+  if (!userId || userId === 'me') return;
+  try { storage().set(requestCountKey(userId), count); } catch { /* best-effort */ }
+}
+
 // ─── Thread messages cache ────────────────────────────────────────────────────
 
 /** Append a local-only group system event (member joined/left) to the thread cache. */

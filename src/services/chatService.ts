@@ -550,13 +550,65 @@ export async function fetchHopenityChatMessages(
   return unwrapChatMessagesEnvelope(json);
 }
 
-/** Mark inbound messages read (server PATCH). */
+/** Delete a message the current user sent (within 30-minute window). */
+export async function deleteHopenityChatMessage(
+  messageId: string | number,
+  token?: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!token) return { ok: false, error: 'Not authenticated' };
+  const url = `${API_BASE_URL}/api/v1/chats/messages/${encodeURIComponent(String(messageId))}`;
+  try {
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json = await response.json().catch(() => null);
+    if (response.ok) return { ok: true };
+    return { ok: false, error: json?.message ?? 'Delete failed' };
+  } catch {
+    return { ok: false, error: 'Network error' };
+  }
+}
+
+/**
+ * Dedicated lean endpoint for message requests.
+ * Returns { chats, total } with 2 backend queries only (no unread subquery per row).
+ */
+export async function fetchChatRequests(
+  token?: string | null,
+  pageId?: number,
+): Promise<{ chats: HopenityChatItem[]; total: number; httpStatus: number }> {
+  if (!token) return { chats: [], total: 0, httpStatus: 401 };
+  const params = new URLSearchParams();
+  if (pageId != null) params.set('pageId', String(pageId));
+  const url = `${API_BASE_URL}/api/v1/chats/requests${params.toString() ? `?${params.toString()}` : ''}`;
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    });
+    const httpStatus = response.status;
+    const json = await response.json().catch(() => null);
+    const payload = json?.responseObject ?? json?.data ?? json;
+    const chats: HopenityChatItem[] = Array.isArray(payload?.chats) ? payload.chats : [];
+    const total: number = typeof payload?.total === 'number' ? payload.total : chats.length;
+    return { chats, total, httpStatus };
+  } catch {
+    return { chats: [], total: 0, httpStatus: 0 };
+  }
+}
+
+/** Mark inbound messages read (server PATCH). Handles both DMs (v1) and group threads (v2). */
 export async function markHopenityChatRead(
   chatId: string | number,
   token?: string | null,
+  isGroup?: boolean,
 ): Promise<boolean> {
   if (!token) return false;
-  const url = `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(String(chatId))}/read`;
+  const id = encodeURIComponent(String(chatId));
+  const url = isGroup
+    ? `${API_BASE_URL}/api/v2/groups/${id}/read`
+    : `${API_BASE_URL}/api/v1/chats/${id}/read`;
   const response = await fetch(url, {
     method: 'PATCH',
     headers: {

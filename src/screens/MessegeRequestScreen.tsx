@@ -17,7 +17,7 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 import { useT } from '../hooks/useT';
 import {
   acceptHopenityChatRequest,
-  fetchHopenityChatDirectory,
+  fetchChatRequests,
   formatChatTime,
   HopenityChatItem,
 } from '../services/chatService';
@@ -88,11 +88,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     }
     if (!silent) setLoading(true);
     try {
-      const { chats, httpStatus } = await fetchHopenityChatDirectory(token, {
-        status: 'requested',
-        limit: 100,
-        offset: 0,
-      });
+      const { chats, httpStatus } = await fetchChatRequests(token);
       if (httpStatus === 401) {
         dispatch(clearAuth());
         setRequested([]);

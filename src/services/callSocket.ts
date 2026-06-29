@@ -14,6 +14,9 @@ const SOCKET_URL = API_BASE_URL.replace(/\/+$/, '');
 
 type CallSocketListener = (data: Record<string, string>) => void;
 
+type MessageDeletedListener = (data: { messageId: number; chatId: number }) => void;
+type NewMessageListener = (data: { chatId: number }) => void;
+
 class CallSocketService {
   private socket: any = null;
   private token: string | null = null;
@@ -21,6 +24,8 @@ class CallSocketService {
   private incomingCallListeners: Set<CallSocketListener> = new Set();
   private cancelledListeners: Set<CallSocketListener> = new Set();
   private ringingListeners: Set<CallSocketListener> = new Set();
+  private messageDeletedListeners: Set<MessageDeletedListener> = new Set();
+  private newMessageListeners: Set<NewMessageListener> = new Set();
 
   connect(authToken: string, userId?: string): void {
     if (this.socket?.connected && this.token === authToken) return;
@@ -78,6 +83,18 @@ class CallSocketService {
         if (!normalized) return;
         this.ringingListeners.forEach(l => { try { l(normalized); } catch { /* */ } });
       });
+      this.socket.on('message_deleted', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const payload = { messageId: Number(d.messageId), chatId: Number(d.chatId) };
+        this.messageDeletedListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
+      this.socket.on('new_message', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const payload = { chatId: Number(d.chatId) };
+        this.newMessageListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
     } catch (e) {
       if (__DEV__) console.warn('[CallSocket] connect error', e);
       this.socket = null;
@@ -119,6 +136,26 @@ class CallSocketService {
     try {
       this.socket.emit('call_ringing', { liveKitRoom, callerId });
     } catch { /* */ }
+  }
+
+  joinChatRoom(chatId: string | number): void {
+    if (!this.socket?.connected) return;
+    try { this.socket.emit('join_chat', String(chatId)); } catch { /* */ }
+  }
+
+  leaveChatRoom(chatId: string | number): void {
+    if (!this.socket?.connected) return;
+    try { this.socket.emit('leave_chat', String(chatId)); } catch { /* */ }
+  }
+
+  onMessageDeleted(listener: MessageDeletedListener): () => void {
+    this.messageDeletedListeners.add(listener);
+    return () => this.messageDeletedListeners.delete(listener);
+  }
+
+  onNewMessage(listener: NewMessageListener): () => void {
+    this.newMessageListeners.add(listener);
+    return () => this.newMessageListeners.delete(listener);
   }
 
   isConnected(): boolean {

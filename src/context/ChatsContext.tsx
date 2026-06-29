@@ -35,7 +35,9 @@ import {
   appendCallLogToThreadCache,
   getHiddenConversationIds,
   readChatDirectoryCache,
+  readRequestCountCache,
   writeChatDirectoryCache,
+  writeRequestCountCache,
 } from '../services/offlineCache';
 import {
   CALL_OUTCOME_EVENT,
@@ -633,7 +635,12 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
   const token = useAppSelector(selectAuthToken);
   const [listLoading, setListLoading] = useState(false);
-  const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [pendingRequestCount, setPendingRequestCount] = useState(() => {
+    const uid = normalizeChatUserId(
+      giftedChatUser?._id ?? hopenityProfile?.userId ?? '',
+    );
+    return readRequestCountCache(uid) ?? 0;
+  });
   const [conversations, setConversations] = useState<ConversationSummary[]>(
     () => [],
   );
@@ -720,12 +727,14 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         ...mapped.filter(c => c.pinned),
         ...mapped.filter(c => !c.pinned),
       ];
-      setPendingRequestCount(mapped.filter(c => c.needsAcceptance).length);
+      const newRequestCount = mapped.filter(c => c.needsAcceptance).length;
+      setPendingRequestCount(newRequestCount);
       setConversations(next);
       // Only cache personal-mode results — page inbox is transient and should
       // never appear after switching back to personal account.
       if (!activePage) {
         writeChatDirectoryCache(String(localUser._id ?? ''), next);
+        writeRequestCountCache(String(localUser._id ?? ''), newRequestCount);
       }
     } catch (err) {
       console.error('[ChatsProvider] fetchHopenityChatDirectory error:', err);

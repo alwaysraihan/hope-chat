@@ -29,8 +29,9 @@ import {
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { resetReplayTo, setReplayTo } from '../redux/features/inbox/inboxSlice';
 import { ExtendedMessage } from '../components/types/chat';
-import { useChats } from './ChatsContext';
+import { RELOAD_CHAT_LIST_EVENT, useChats } from './ChatsContext';
 import {
+  deleteHopenityChatMessage,
   fetchHopenityChatMessages,
   formatChatTime,
   markHopenityChatRead,
@@ -61,6 +62,7 @@ import {
   CALL_OUTCOME_APPLIED_EVENT,
   type CallOutcomeAppliedPayload,
 } from '../services/callOutcomeBus';
+import { callSocket } from '../services/callSocket';
 import {
   extractMessageSenderId,
   extractOutgoingHint,
@@ -709,7 +711,7 @@ export function InboxProvider({
             fetched.length >= PAGE_SIZE,
         );
         writeThreadMessagesCache(_conversationId, mergedAsc);
-        markHopenityChatRead(_conversationId, token).catch(() => undefined);
+        markHopenityChatRead(_conversationId, token, isGroup).catch(() => undefined);
       } catch (err) {
         console.error('[InboxProvider] load chat messages error:', err);
       }
@@ -900,6 +902,30 @@ export function InboxProvider({
     appendMessage,
     updateConversationPreview,
   ]);
+
+  // ─── Socket: join chat room for real-time message_deleted events ──────────────
+  useEffect(() => {
+    if (!_conversationId) return;
+    callSocket.joinChatRoom(_conversationId);
+
+    const unsubDeleted = callSocket.onMessageDeleted(({ chatId, messageId }) => {
+      if (String(chatId) !== String(_conversationId)) return;
+      deleteMessage(messageId);
+    });
+
+    // Trigger an immediate poll when a new_message event arrives so the chat list
+    // and inbox refresh without waiting for the 15/30-second polling cycle.
+    const unsubNew = callSocket.onNewMessage(({ chatId }) => {
+      if (String(chatId) !== String(_conversationId)) return;
+      DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+    });
+
+    return () => {
+      callSocket.leaveChatRoom(_conversationId);
+      unsubDeleted();
+      unsubNew();
+    };
+  }, [_conversationId, deleteMessage]);
 
   // ─── Send text / media ─────────────────────────────────────────────────────
 
@@ -1284,19 +1310,42 @@ export function InboxProvider({
 
   const handleDelete = useCallback(
     (message: IMessage) => {
-      Alert.alert('Delete message?', 'This will delete the message for you.', [
+      const isMine = String((message as ExtendedMessage).user?._id ?? '') === String(localUserIdStr ?? '');
+      const ageMs = Date.now() - new Date((message as ExtendedMessage).createdAt ?? 0).getTime();
+      const withinWindow = ageMs < 30 * 60 * 1000;
+
+      if (!isMine) {
+        Alert.alert("Can't delete", "You can only delete messages you sent.");
+        return;
+      }
+
+      const canDeleteForEveryone = withinWindow;
+      const title = canDeleteForEveryone ? 'Delete message?' : 'Delete for me?';
+      const body = canDeleteForEveryone
+        ? 'This will remove the message for everyone in this chat.'
+        : 'This message is older than 30 minutes and will only be removed from your view.';
+
+      Alert.alert(title, body, [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
+            // Optimistic removal
             deleteMessage(message._id);
-            // TODO: api.deleteMessage(message._id);
+
+            if (canDeleteForEveryone) {
+              const { ok, error } = await deleteHopenityChatMessage(message._id, token);
+              if (!ok) {
+                // Restore is not straightforward; show error only
+                Alert.alert('Could not delete', error ?? 'Please try again.');
+              }
+            }
           },
         },
       ]);
     },
-    [deleteMessage],
+    [deleteMessage, token, localUserIdStr],
   );
 
   // ─── Forward ───────────────────────────────────────────────────────────────
