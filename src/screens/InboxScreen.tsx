@@ -127,13 +127,14 @@ const InboxScreenInner: React.FC<
   useFocusEffect(
     useCallback(() => {
       if (!token || conversation.isGroup) return undefined;
-      fetchHopenityChatDirectory(token, { status: 'blocked', limit: 100 })
+      const pageId = activePage?.id ? Number(activePage.id) : undefined;
+      fetchHopenityChatDirectory(token, { status: 'blocked', limit: 100, ...(pageId != null ? { pageId } : {}) })
         .then(dir => {
           setIsBlocked(dir.chats.some(c => String(c.id) === String(conversation.id)));
         })
         .catch(() => {});
       return undefined;
-    }, [token, conversation.id, conversation.isGroup]),
+    }, [token, conversation.id, conversation.isGroup, activePage?.id]),
   );
 
   // Re-check booking messagingEnabled each time we return to this screen so

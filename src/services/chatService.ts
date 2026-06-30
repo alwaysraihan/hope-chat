@@ -34,8 +34,10 @@ export type HopenityChatItem = {
     unviewedStoryCount?: number;
     unviewed_story_count?: number;
   };
+  userAPageId?: number | string | null;
   userAPage?: { name?: string; image?: string | null } | null;
   userBId?: string;
+  userBPageId?: number | string | null;
   userB?: {
     user_id?: string;
     name?: string;

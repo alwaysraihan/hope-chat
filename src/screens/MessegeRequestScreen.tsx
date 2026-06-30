@@ -25,6 +25,7 @@ import { readRequestsCache, writeRequestsCache } from '../services/offlineCache'
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
   clearAuth,
+  selectActivePage,
   selectAuthToken,
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
@@ -55,6 +56,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
   const token = useAppSelector(selectAuthToken);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const profile = useAppSelector(selectHopenityProfile);
+  const activePage = useAppSelector(selectActivePage);
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const localUser = useMemo(
@@ -88,7 +90,8 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     }
     if (!silent) setLoading(true);
     try {
-      const { chats, httpStatus } = await fetchChatRequests(token);
+      const pageId = activePage?.id ? Number(activePage.id) : undefined;
+      const { chats, httpStatus } = await fetchChatRequests(token, pageId);
       if (httpStatus === 401) {
         dispatch(clearAuth());
         setRequested([]);
@@ -101,7 +104,7 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [dispatch, token, localUser._id]);
+  }, [dispatch, token, localUser._id, activePage?.id]);
 
   useEffect(() => {
     if (activeTab === 'know') {

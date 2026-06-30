@@ -116,12 +116,37 @@ export function useChats(): ChatsContextValue {
   return ctx;
 }
 
+function matchesLocalId(value: string | number | null | undefined, localId: string): boolean {
+  if (value == null) return false;
+  const v = String(value);
+  if (!v) return false;
+  const vN = normalizeChatUserId(v) || v;
+  if (vN === localId) return true;
+  // Numeric page id comparison (e.g. page id 123 passed as "123")
+  if (/^\d+$/.test(vN) && /^\d+$/.test(localId) && Number(vN) === Number(localId)) return true;
+  return false;
+}
+
 function peerSide(
   chat: HopenityChatItem,
   localUserId: string | number,
 ): 'A' | 'B' | null {
   const localId =
     normalizeChatUserId(localUserId) || String(localUserId ?? '');
+
+  // Check userAId / userAPageId for local side A
+  const isLocalA =
+    matchesLocalId(chat.userAId, localId) ||
+    matchesLocalId(chat.userAPageId, localId);
+  // Check userBId / userBPageId for local side B
+  const isLocalB =
+    matchesLocalId(chat.userBId, localId) ||
+    matchesLocalId(chat.userBPageId, localId);
+
+  if (isLocalA) return 'B';
+  if (isLocalB) return 'A';
+
+  // Fallback to userId-only comparison for legacy chats
   const a =
     chat.userAId != null && String(chat.userAId) !== ''
       ? String(chat.userAId)
@@ -130,19 +155,13 @@ function peerSide(
     chat.userBId != null && String(chat.userBId) !== ''
       ? String(chat.userBId)
       : '';
-
   const aN = normalizeChatUserId(a) || a;
   const bN = normalizeChatUserId(b) || b;
-
-  if (aN && aN === localId) return 'B';
-  if (bN && bN === localId) return 'A';
 
   if (aN && !bN) return aN !== localId ? 'A' : null;
   if (bN && !aN) return bN !== localId ? 'B' : null;
 
   if (aN && bN) {
-    if (aN !== localId && bN === localId) return 'A';
-    if (bN !== localId && aN === localId) return 'B';
     if (aN !== localId) return 'A';
     if (bN !== localId) return 'B';
   }
@@ -175,6 +194,17 @@ function getRemoteParticipantId(
   localUserId: string | number,
 ): string | null {
   const L = normalizeChatUserId(localUserId) || String(localUserId ?? '');
+
+  // In page mode, localUserId is the page's numeric id. Check both userAPageId and userBPageId.
+  const isLocalA =
+    matchesLocalId(chat.userAId, L) || matchesLocalId(chat.userAPageId, L);
+  const isLocalB =
+    matchesLocalId(chat.userBId, L) || matchesLocalId(chat.userBPageId, L);
+
+  if (isLocalA && chat.userBId) return String(chat.userBId);
+  if (isLocalB && chat.userAId) return String(chat.userAId);
+
+  // Fallback: use userId-only comparison (legacy / USER-mode chats)
   const a =
     chat.userAId != null && String(chat.userAId) !== ''
       ? String(chat.userAId)
@@ -187,8 +217,6 @@ function getRemoteParticipantId(
   const aN = normalizeChatUserId(a) || a;
   const bN = normalizeChatUserId(b) || b;
 
-  if (aN && aN === L && bN) return b;
-  if (bN && bN === L && aN) return a;
   if (aN && aN !== L) return a;
   if (bN && bN !== L) return b;
 
