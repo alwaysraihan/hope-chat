@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  DeviceEventEmitter,
   Image,
   View,
   Text,
@@ -24,7 +25,7 @@ import {
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ChevronRight, PlayCircle } from 'lucide-react-native';
-import { useChats } from '../context/ChatsContext';
+import { useChats, RELOAD_CHAT_LIST_EVENT } from '../context/ChatsContext';
 import type { ConversationSummary } from '../context/ChatsContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { setStoryFeedRings } from '../data/storyFeedCache';
@@ -178,30 +179,40 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   // provisioned server-side so InboxScreen has a valid ID from the first render).
   const navigateInboxForPeer = useCallback(
     async ({ peerId, displayName, avatarUrl, chatId, senderPageId, senderPageName, senderPageImage }: PeerLinkPayload) => {
-      // Switch to page mode in Redux so InboxContext sends messages as the page.
-      if (senderPageId) {
-        dispatch(setActivePage({
-          id: senderPageId,
-          name: senderPageName ?? '',
-          image: senderPageImage ?? null,
-        }));
-      }
-
-      const existing = conversations.find(
-        c =>
-          !c.isGroup &&
-          c.peerUserId != null &&
-          normalizeChatUserId(c.peerUserId) === normalizeChatUserId(peerId),
-      );
+      // In page mode the current conversations list holds personal chats, not page
+      // chats — skip the local lookup and always provision via the API so the
+      // conversation is stored with the correct page identity on the server.
+      const existing = senderPageId
+        ? undefined
+        : conversations.find(
+            c =>
+              !c.isGroup &&
+              c.peerUserId != null &&
+              normalizeChatUserId(c.peerUserId) === normalizeChatUserId(peerId),
+          );
 
       let conversationId: string;
       if (existing) {
         conversationId = String(existing.id);
-      } else if (chatId) {
+      } else if (chatId && !senderPageId) {
         conversationId = chatId;
       } else {
         const realId = token ? await getOrCreatePeerChat(peerId, token, senderPageId ?? undefined) : null;
         conversationId = realId ?? peerId;
+        // Switch to page mode AFTER the chat is provisioned on the server so
+        // the inbox reload (triggered by activePage change) can immediately
+        // find the new conversation — avoids the race where reload runs before
+        // the chat row exists in the DB.
+        if (senderPageId) {
+          dispatch(setActivePage({
+            id: senderPageId,
+            name: senderPageName ?? '',
+            image: senderPageImage ?? null,
+          }));
+        }
+        // Belt-and-suspenders: emit reload event so the inbox refreshes even
+        // if the activePage dep-chain doesn't retrigger fast enough.
+        DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
       }
 
       // Build a reliable seed so InboxScreen always has the peer's info even

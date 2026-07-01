@@ -234,7 +234,10 @@ export async function fetchHopenityChatDirectory(
   if (params?.limit != null) searchParams.set('limit', String(params.limit));
   if (params?.status) searchParams.set('status', params.status);
   if (params?.pageId != null) searchParams.set('pageId', String(params.pageId));
-  const url = `${API_BASE_URL}${CHAT_LIST_ENDPOINT}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  // Page chats are stored in the v1 Chat table, not the v2 ChatThread table.
+  // When a pageId filter is requested, always hit the v1 endpoint.
+  const endpoint = params?.pageId != null ? V1_CHAT_LIST_ENDPOINT : CHAT_LIST_ENDPOINT;
+  const url = `${API_BASE_URL}${endpoint}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
