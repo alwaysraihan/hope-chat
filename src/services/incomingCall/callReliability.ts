@@ -12,36 +12,26 @@
  * issue, and never nagged again once the setting is fixed.
  */
 import { Alert, Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createMMKV, type MMKV } from 'react-native-mmkv';
 import notifee, { AuthorizationStatus } from '@notifee/react-native';
 
-const PROMPT_STATE_KEY = 'hopechat_call_reliability_prompts_v1';
+let _store: MMKV | null = null;
+function store(): MMKV {
+  if (!_store) _store = createMMKV({ id: 'hopechat-call-reliability-v1' });
+  return _store;
+}
+
+const K_NOTIFICATIONS_ASKED_AT = 'notifications_asked_at';
+const K_BATTERY_ASKED_AT = 'battery_asked_at';
 const REPROMPT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 
-type PromptState = {
-  notificationsAskedAt?: number;
-  batteryAskedAt?: number;
-};
-
-async function readPromptState(): Promise<PromptState> {
-  try {
-    const raw = await AsyncStorage.getItem(PROMPT_STATE_KEY);
-    return raw ? (JSON.parse(raw) as PromptState) : {};
-  } catch {
-    return {};
-  }
-}
-
-async function writePromptState(state: PromptState): Promise<void> {
-  try {
-    await AsyncStorage.setItem(PROMPT_STATE_KEY, JSON.stringify(state));
-  } catch {
-    /* best-effort */
-  }
-}
-
-function shouldPrompt(lastAskedAt: number | undefined): boolean {
+function shouldPrompt(key: string): boolean {
+  const lastAskedAt = store().getNumber(key);
   return lastAskedAt == null || Date.now() - lastAskedAt > REPROMPT_INTERVAL_MS;
+}
+
+function markPrompted(key: string): void {
+  store().set(key, Date.now());
 }
 
 function confirmOpenSettings(title: string, message: string, onOpen: () => void): void {
@@ -57,13 +47,11 @@ function confirmOpenSettings(title: string, message: string, onOpen: () => void)
  */
 export async function ensureCallReliability(): Promise<void> {
   try {
-    const state = await readPromptState();
-
     // ── 1. Notification permission ────────────────────────────────────────────
     const settings = await notifee.getNotificationSettings();
     if (settings.authorizationStatus === AuthorizationStatus.DENIED) {
-      if (shouldPrompt(state.notificationsAskedAt)) {
-        await writePromptState({ ...state, notificationsAskedAt: Date.now() });
+      if (shouldPrompt(K_NOTIFICATIONS_ASKED_AT)) {
+        markPrompted(K_NOTIFICATIONS_ASKED_AT);
         confirmOpenSettings(
           'Turn on notifications for calls',
           'Notifications are off, so HopeChat cannot ring when the app is closed. ' +
@@ -80,8 +68,8 @@ export async function ensureCallReliability(): Promise<void> {
 
     // ── 2. Battery optimization (stock Android) ───────────────────────────────
     const batteryOptimized = await notifee.isBatteryOptimizationEnabled();
-    if (batteryOptimized && shouldPrompt(state.batteryAskedAt)) {
-      await writePromptState({ ...state, batteryAskedAt: Date.now() });
+    if (batteryOptimized && shouldPrompt(K_BATTERY_ASKED_AT)) {
+      markPrompted(K_BATTERY_ASKED_AT);
       confirmOpenSettings(
         'Allow calls in the background',
         'Battery optimization can delay or block incoming calls when HopeChat is ' +
@@ -97,8 +85,8 @@ export async function ensureCallReliability(): Promise<void> {
     // Only reachable when battery optimization is already off, so users on
     // aggressive OEM skins get the vendor-specific auto-start screen next.
     const powerManagerInfo = await notifee.getPowerManagerInfo();
-    if (powerManagerInfo.activity && shouldPrompt(state.batteryAskedAt)) {
-      await writePromptState({ ...state, batteryAskedAt: Date.now() });
+    if (powerManagerInfo.activity && shouldPrompt(K_BATTERY_ASKED_AT)) {
+      markPrompted(K_BATTERY_ASKED_AT);
       confirmOpenSettings(
         'Allow HopeChat to auto-start',
         'Your phone restricts apps in the background, which can stop incoming ' +
