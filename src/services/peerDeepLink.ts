@@ -18,6 +18,12 @@ export type PeerLinkPayload = {
   chatId?: string | null;
   /** When true, HopeChat should navigate to the chat and hint that user wants to call. */
   autoCall?: boolean;
+  /**
+   * When set, the conversation targets this PAGE (peerId is the page owner's
+   * userId). The backend stores the page as the participant so the message
+   * lands in the page's inbox rather than the owner's personal DMs.
+   */
+  targetPageId?: string | null;
   /** When set, HopeChat switches to this page identity before opening the conversation. */
   senderPageId?: string | null;
   senderPageName?: string | null;

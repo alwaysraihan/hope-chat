@@ -37,8 +37,22 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'IncomingCall'>
 
 const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
   const t = useT();
-  const { callKind, displayName, liveKitRoom, avatarUrl, conversationId, callerId, autoAccept } =
-    route.params;
+  const {
+    callKind,
+    displayName,
+    liveKitRoom,
+    avatarUrl,
+    conversationId,
+    callerId,
+    autoAccept,
+    isGroupCall,
+    groupName,
+    groupPhotoUrl,
+  } = route.params;
+  // Group call: the group is the "who", the caller goes in the subtitle.
+  const isGroupRing = Boolean(isGroupCall && groupName);
+  const titleName = isGroupRing ? (groupName as string) : displayName;
+  const ringAvatarUrl = isGroupRing ? (groupPhotoUrl ?? avatarUrl) : avatarUrl;
   const pulse = useRef(new Animated.Value(1)).current;
   const acceptedRef = useRef(false);
 
@@ -58,8 +72,10 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     }
     // Tell the backend to cancel the caller's outgoing ring immediately — without
     // this the caller waits up to 60s for the no-answer timeout.
+    // Group calls: one member declining must NOT cancel the call — other members
+    // can still answer, so only dismiss locally.
     const token = store.getState().auth.token;
-    if (token && conversationId?.trim() && liveKitRoom) {
+    if (token && conversationId?.trim() && liveKitRoom && !isGroupRing) {
       void notifyPeerCallRejected({
         token,
         conversationId: conversationId.trim(),
@@ -74,6 +90,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     callerId,
     displayName,
     liveKitRoom,
+    isGroupRing,
   ]);
 
   const accept = useCallback(() => {
@@ -82,12 +99,14 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     Vibration.cancel();
     void cancelAndroidIncomingCallNotification();
     const params = {
-      displayName,
+      // Group call screens are titled by the group, not the caller.
+      displayName: isGroupRing ? (groupName as string) : displayName,
       liveKitRoom,
-      avatarUrl: avatarUrl ?? null,
+      avatarUrl: (isGroupRing ? (groupPhotoUrl ?? avatarUrl) : avatarUrl) ?? null,
       conversationId,
       peerUserId: callerId,
       callDirection: 'incoming' as const,
+      isGroupCall: isGroupRing || undefined,
     };
     const targetRoute = callKind === 'video' ? 'VideoCall' : 'AudioCall';
 
@@ -139,6 +158,9 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     avatarUrl,
     conversationId,
     callerId,
+    isGroupRing,
+    groupName,
+    groupPhotoUrl,
   ]);
 
   // When the user pressed "Accept" in the notification shade, skip the ringing UI.
@@ -216,13 +238,16 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <Text style={styles.small}>{callKind === 'video' ? t.incoming_video_call : t.incoming_audio_call}</Text>
-      <Text style={styles.name}>{displayName}</Text>
+      <Text style={styles.name}>{titleName}</Text>
+      {isGroupRing ? (
+        <Text style={styles.subtitle}>{`${displayName} started a call in ${groupName}`}</Text>
+      ) : null}
       <Animated.View
         style={[styles.avatarWrap, { transform: [{ scale: pulse }] }]}
       >
-        {avatarUrl ? (
+        {ringAvatarUrl ? (
           <FastImage
-            source={{ uri: avatarUrl }}
+            source={{ uri: ringAvatarUrl }}
             style={styles.avatarImage}
             resizeMode={FastImage.resizeMode.cover}
           />
@@ -274,6 +299,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
     marginBottom: 36,
+  },
+  subtitle: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 15,
+    textAlign: 'center',
+    marginTop: -24,
+    marginBottom: 36,
+    paddingHorizontal: 16,
   },
   avatarWrap: {
     width: 120,

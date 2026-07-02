@@ -41,13 +41,17 @@ export async function displayAndroidIncomingCallNotification(
   if (Platform.OS !== 'android') return;
   await ensureIncomingCallAndroidChannel();
 
+  const isGroupRing = Boolean(parsed.isGroupCall && parsed.groupName);
   await notifee.displayNotification({
     id: INCOMING_CALL_NOTIFICATION_ID,
-    title:
-      parsed.callKind === 'video'
-        ? 'Incoming video call'
-        : 'Incoming voice call',
-    body: parsed.displayName,
+    title: isGroupRing
+      ? parsed.groupName
+      : parsed.callKind === 'video'
+      ? 'Incoming video call'
+      : 'Incoming voice call',
+    body: isGroupRing
+      ? `${parsed.displayName} started a call in ${parsed.groupName}`
+      : parsed.displayName,
     data: {
       type: INCOMING_CALL_MESSAGE_TYPE,
       liveKitRoom: parsed.liveKitRoom,
@@ -56,6 +60,11 @@ export async function displayAndroidIncomingCallNotification(
       callerId: parsed.callerId ?? '',
       conversationId: parsed.conversationId ?? '',
       avatarUrl: parsed.avatarUrl ?? '',
+      // Group fields — a notification tap re-parses this data, so the ring
+      // screen keeps the group identity even on cold start.
+      isGroupCall: isGroupRing ? 'true' : '',
+      groupName: parsed.groupName ?? '',
+      groupPhotoUrl: parsed.groupPhotoUrl ?? '',
     },
     android: {
       channelId: INCOMING_CALL_ANDROID_CHANNEL_ID,

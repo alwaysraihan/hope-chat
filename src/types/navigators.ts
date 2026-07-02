@@ -155,6 +155,10 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     conversationId?: string;
     /** Skip ringing UI and accept immediately (used when Accept button pressed in notification). */
     autoAccept?: boolean;
+    /** Group call — ring screen shows the group name with "{caller} started a call in {group}". */
+    isGroupCall?: boolean;
+    groupName?: string;
+    groupPhotoUrl?: string | null;
   };
   /** Full-screen Story viewer (ring index into `setStoryFeedRings` cache). */
   StoryViewer: { ringIndex: number };

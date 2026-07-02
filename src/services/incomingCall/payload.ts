@@ -16,6 +16,10 @@ export type IncomingCallPayload = {
   conversationId?: string;
   /** When true IncomingCallScreen skips the ringing UI and accepts immediately */
   autoAccept?: boolean;
+  /** Group call — ring screen shows the group name instead of the caller */
+  isGroupCall?: boolean;
+  groupName?: string;
+  groupPhotoUrl?: string;
 };
 
 export const TYPE_KEY = 'type';
@@ -161,5 +165,22 @@ export function parseIncomingCallPayload(
     }
   }
 
-  return { callKind, liveKitRoom, displayName, callerId, avatarUrl, conversationId };
+  // Group-call fields — backend sends isGroupCall: "true" + groupName/groupPhotoUrl
+  // so the ring screen can show "{caller} started a call in {group}".
+  const groupFlag = pickString(data, 'isGroupCall', 'is_group_call')?.toLowerCase();
+  const isGroupCall = groupFlag === '1' || groupFlag === 'true' || groupFlag === 'yes';
+  const groupName = pickString(data, 'groupName', 'group_name');
+  const groupPhotoUrl = pickString(data, 'groupPhotoUrl', 'group_photo_url');
+
+  return {
+    callKind,
+    liveKitRoom,
+    displayName,
+    callerId,
+    avatarUrl,
+    conversationId,
+    isGroupCall: isGroupCall || undefined,
+    groupName,
+    groupPhotoUrl,
+  };
 }

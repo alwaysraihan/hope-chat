@@ -41,6 +41,7 @@ import {
   consumePendingAutoAcceptData,
   consumePendingRejectData,
 } from '../services/incomingCall/callRingtone';
+import { ensureCallReliability } from '../services/incomingCall/callReliability';
 import { navigationRef } from '../navigation/navigationRef';
 import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
 import {
@@ -84,13 +85,16 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
   stopIncomingCallRingtone();
   void cancelAndroidIncomingCallNotification();
 
+  const isGroupRing = Boolean(parsed.isGroupCall && parsed.groupName);
   const params = {
-    displayName: parsed.displayName ?? '',
+    // Group call screens are titled by the group, not the caller.
+    displayName: isGroupRing ? (parsed.groupName as string) : parsed.displayName ?? '',
     liveKitRoom: parsed.liveKitRoom,
-    avatarUrl: parsed.avatarUrl ?? null,
+    avatarUrl: (isGroupRing ? parsed.groupPhotoUrl ?? parsed.avatarUrl : parsed.avatarUrl) ?? null,
     conversationId: parsed.conversationId,
     peerUserId: parsed.callerId,
     callDirection: 'incoming' as const,
+    isGroupCall: isGroupRing || undefined,
   };
   const targetRoute = parsed.callKind === 'video' ? 'VideoCall' : 'AudioCall';
 
@@ -151,8 +155,10 @@ function processRejectPayload(raw: Record<string, string>): void {
   });
   // Signal the backend so it sends a call_cancelled FCM to the caller, stopping
   // their outgoing ring immediately instead of waiting up to 60s for the timeout.
+  // Group calls: one member declining must NOT cancel the call for everyone —
+  // other members can still answer, so only dismiss locally.
   const token = store.getState().auth.token;
-  if (token && parsed.liveKitRoom) {
+  if (token && parsed.liveKitRoom && !parsed.isGroupCall) {
     void notifyPeerCallRejected({
       token,
       conversationId: parsed.conversationId,
@@ -320,6 +326,14 @@ const IncomingCallListener = () => {
       ) {
         /* Incoming UI still mounts; ringing may rely on vibrations / Android channel */
       }
+
+      // Detect device settings that silently break background calls
+      // (notifications off, battery optimization) and guide the user to fix
+      // them — the same prompts WhatsApp shows. Delayed so it never competes
+      // with the OS permission dialog above.
+      setTimeout(() => {
+        void ensureCallReliability();
+      }, 4_000);
 
       await syncFcmToBackend();
 

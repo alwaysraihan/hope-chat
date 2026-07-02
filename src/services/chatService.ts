@@ -227,7 +227,14 @@ async function fetchV1ChatList(token: string): Promise<HopenityChatItem[]> {
  */
 export async function fetchHopenityChatDirectory(
   token?: string | null,
-  params?: { offset?: number; limit?: number; status?: 'inbox' | 'requested' | 'blocked'; pageId?: number },
+  params?: {
+    offset?: number;
+    limit?: number;
+    status?: 'inbox' | 'requested' | 'blocked';
+    pageId?: number;
+    /** Local user's user_id — lets the v1 merge classify chat sides (page chats, own sent requests). */
+    localUserId?: string;
+  },
 ): Promise<HopenityChatListEnvelope> {
   const searchParams = new URLSearchParams();
   if (params?.offset != null) searchParams.set('offset', String(params.offset));
@@ -303,13 +310,29 @@ export async function fetchHopenityChatDirectory(
         return v1Updated ? { ...c, updatedAt: v1Updated } : c;
       });
 
+      const localUid = params?.localUserId ? String(params.localUserId) : null;
       const v1Only = v1Chats.filter(c => {
+        // A request the local user themselves sent belongs in their inbox
+        // (Messenger-style) — only requests RECEIVED from others go to Requests.
+        const isOwnSentRequest =
+          c.status === 'REQUESTED' &&
+          localUid != null &&
+          c.requestedById != null &&
+          String(c.requestedById) === localUid;
         const matchesStatus = wantRequested
-          ? c.status === 'REQUESTED'
+          ? c.status === 'REQUESTED' && !isOwnSentRequest
           : wantBlocked
           ? c.status === 'BLOCKED'
-          : c.status === 'ACTIVE';
+          : c.status === 'ACTIVE' || isOwnSentRequest;
         if (!matchesStatus) return false;
+        // Personal inbox must not surface chats where the local user participates
+        // AS one of their pages — those belong in that page's inbox only.
+        if (localUid != null && !wantRequested && !wantBlocked) {
+          const localIsPageSide =
+            (String(c.userAId ?? '') === localUid && c.userAProfileType === 'PAGE') ||
+            (String(c.userBId ?? '') === localUid && c.userBProfileType === 'PAGE');
+          if (localIsPageSide) return false;
+        }
         // Always deduplicate by chat ID
         if (v2ChatIds.has(String(c.id ?? ''))) return false;
         const peerA = c.userAId;
@@ -320,6 +343,9 @@ export async function fetchHopenityChatDirectory(
         // out all v1 chats. ID-based dedup above is sufficient since v1/v2 use
         // different ID spaces.
         if (wantRequested || wantBlocked) return true;
+        // A conversation with a PAGE is distinct from a personal chat with the
+        // page's owner — never peer-dedupe it away.
+        if (c.userAProfileType === 'PAGE' || c.userBProfileType === 'PAGE') return true;
         return !v2PeerIds.has(peerA) && !v2PeerIds.has(peerB);
       });
 
@@ -462,10 +488,14 @@ export async function getOrCreatePeerChat(
   targetUserId: string,
   token: string,
   senderPageId?: string | null,
+  targetPageId?: string | null,
 ): Promise<string | null> {
   try {
     const body: Record<string, unknown> = { targetUserId };
     if (senderPageId) body.senderPageId = senderPageId;
+    // Messaging a page: targetUserId is the page owner, targetPageId marks the
+    // page as the real participant so the chat lands in the page's inbox.
+    if (targetPageId) body.targetPageId = targetPageId;
     const response = await fetch(`${API_BASE_URL}/api/v1/chats`, {
       method: 'POST',
       headers: {

@@ -178,11 +178,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   // conversationId before navigating (same pattern as FB Messenger — thread is
   // provisioned server-side so InboxScreen has a valid ID from the first render).
   const navigateInboxForPeer = useCallback(
-    async ({ peerId, displayName, avatarUrl, chatId, senderPageId, senderPageName, senderPageImage }: PeerLinkPayload) => {
+    async ({ peerId, displayName, avatarUrl, chatId, senderPageId, senderPageName, senderPageImage, targetPageId }: PeerLinkPayload) => {
       // In page mode the current conversations list holds personal chats, not page
       // chats — skip the local lookup and always provision via the API so the
       // conversation is stored with the correct page identity on the server.
-      const existing = senderPageId
+      // Same when TARGETING a page: peerId is the page owner's userId, so the
+      // local lookup would wrongly match a personal chat with the owner instead
+      // of the page conversation — always resolve via the API.
+      const existing = senderPageId || targetPageId
         ? undefined
         : conversations.find(
             c =>
@@ -194,10 +197,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       let conversationId: string;
       if (existing) {
         conversationId = String(existing.id);
-      } else if (chatId && !senderPageId) {
+      } else if (chatId && !senderPageId && !targetPageId) {
         conversationId = chatId;
       } else {
-        const realId = token ? await getOrCreatePeerChat(peerId, token, senderPageId ?? undefined) : null;
+        const realId = token
+          ? await getOrCreatePeerChat(peerId, token, senderPageId ?? undefined, targetPageId ?? undefined)
+          : null;
         conversationId = realId ?? peerId;
         // Switch to page mode AFTER the chat is provisioned on the server so
         // the inbox reload (triggered by activePage change) can immediately

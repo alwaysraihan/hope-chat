@@ -85,6 +85,9 @@ function openIncomingRoute(payload: IncomingCallPayload): void {
     avatarUrl: payload.avatarUrl,
     conversationId: payload.conversationId,
     autoAccept: payload.autoAccept,
+    isGroupCall: payload.isGroupCall,
+    groupName: payload.groupName,
+    groupPhotoUrl: payload.groupPhotoUrl,
   };
 
   if (current?.name === 'IncomingCall') {

@@ -575,18 +575,30 @@ export function mapChatItemToSummary(
   const time = formatChatTime(created);
 
   const isRequested = String(chat.status ?? '').toUpperCase() === 'REQUESTED';
-  // Incoming request: the other user initiated it and we haven't accepted yet.
-  const needsAcceptance =
-    isRequested &&
-    (
-      chat.requestedById == null ||
-      normalizeChatUserId(String(chat.requestedById)) !== localId
-    );
-  // Outgoing request: we initiated it and the other side hasn't accepted yet.
-  const isSentRequest =
-    isRequested &&
+  // Which side of the chat is "us"? In page mode localId is the page's numeric
+  // id while requestedById is always a USER id (a page's requests are recorded
+  // under its owner's user id), so a plain requestedById === localId comparison
+  // misclassifies every request the page itself sent as an incoming one.
+  // Resolve the local side first (matches page ids too), then compare
+  // requestedById against that side's userId.
+  const isLocalSideA =
+    matchesLocalId(chat.userAId, localId) || matchesLocalId(chat.userAPageId, localId);
+  const isLocalSideB =
+    matchesLocalId(chat.userBId, localId) || matchesLocalId(chat.userBPageId, localId);
+  const localSideUserId = isLocalSideA
+    ? chat.userAId
+    : isLocalSideB
+    ? chat.userBId
+    : null;
+  const requestedByLocal =
     chat.requestedById != null &&
-    normalizeChatUserId(String(chat.requestedById)) === localId;
+    (normalizeChatUserId(String(chat.requestedById)) === localId ||
+      (localSideUserId != null &&
+        sameChatParticipant(String(chat.requestedById), String(localSideUserId))));
+  // Incoming request: the other side initiated it and we haven't accepted yet.
+  const needsAcceptance = isRequested && !requestedByLocal;
+  // Outgoing request: we initiated it and the other side hasn't accepted yet.
+  const isSentRequest = isRequested && requestedByLocal;
 
   const ct = chat.chatTheme;
 
@@ -723,6 +735,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         status: 'inbox',
         limit: 50,
         offset: 0,
+        localUserId: String(localUser._id ?? ''),
         // When a page is active, fetch that page's conversations
         ...(activePage ? { pageId: Number(activePage.id) } : {}),
       });
@@ -755,7 +768,13 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         ...mapped.filter(c => c.pinned),
         ...mapped.filter(c => !c.pinned),
       ];
-      const newRequestCount = mapped.filter(c => c.needsAcceptance).length;
+      // Prefer the server's requested count — the inbox fetch excludes received
+      // requests (they live in the Requests folder), so counting needsAcceptance
+      // rows in this list always yielded 0 and the Requests badge never showed.
+      const newRequestCount =
+        typeof counts?.requested === 'number'
+          ? counts.requested
+          : mapped.filter(c => c.needsAcceptance).length;
       setPendingRequestCount(newRequestCount);
       setConversations(next);
       // Only cache personal-mode results — page inbox is transient and should
