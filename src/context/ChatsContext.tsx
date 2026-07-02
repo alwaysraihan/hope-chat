@@ -887,13 +887,34 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
           let finalMsg: ExtendedMessage = offlineMsg;
           let persistedToServer = false;
+          // Use conversationsRef to avoid a stale closure (this handler is not
+          // re-created when conversations changes).
+          const conv = conversationsRef.current.find(c => c.id === p.conversationId);
+          // 1:1 missed/unanswered outcomes are now written server-side at call-cancel
+          // (hopeChatCallStateService) so BOTH inboxes always get the row, even when
+          // this app is killed or its POST would fail. Persisting here too would
+          // duplicate it: the server row arrives moments later via the normal
+          // new_message socket event. call_completed stays client-persisted (the
+          // server never learns the duration of an answered call), and group calls
+          // stay client-persisted (group decline never hits the 1:1 cancel endpoint).
+          const serverOwnsOutcome =
+            !conv?.isGroup &&
+            (p.variant === 'outgoing_not_connected' ||
+              p.variant === 'incoming_missed');
+          if (serverOwnsOutcome) {
+            // The preview update above already gave instant chat-list feedback.
+            // If this was a first contact via call the row isn't in the inbox yet —
+            // refetch so the server-created call log surfaces the conversation.
+            if (!conv) {
+              DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+            }
+            return;
+          }
           if (token) {
             try {
               // Derive the API generation from the conversation summary so the
               // persisted call log hits the right endpoint (v1 returns 403 for
-              // groups AND v2-native DMs). Use conversationsRef to avoid a stale
-              // closure (this handler is not re-created when conversations changes).
-              const conv = conversationsRef.current.find(c => c.id === p.conversationId);
+              // groups AND v2-native DMs).
               const saved = await persistCallOutcomeChatMessage(
                 p,
                 line,

@@ -24,7 +24,10 @@ export async function postFcmTokenToHopenity(
       'Content-Type': 'application/json',
       Authorization: auth,
     },
-    body: JSON.stringify({ token: fcmToken.trim() }),
+    // app tag lets the backend tell HopeChat registrations apart from Hopenity ones:
+    // ring pushes stay data-only for HopeChat while Hopenity-only devices get a
+    // visible fallback banner instead of silence.
+    body: JSON.stringify({ token: fcmToken.trim(), app: 'hopechat' }),
   });
   return { ok: res.ok, status: res.status };
 }
