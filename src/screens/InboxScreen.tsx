@@ -428,6 +428,10 @@ const InboxScreenInner: React.FC<
           refreshTrigger={refreshTrigger}
           onPressReactions={() => navigation.navigate('Reactions')}
           onSenderPress={(senderId) => {
+            // resolvedUid falls back to the literal string 'unknown' when the
+            // sender couldn't be matched to local/peer — opening that as a
+            // deep link silently fails on Hopenity's side (no such user).
+            if (!senderId || senderId === 'unknown') return;
             openHopenityProfile(senderId).catch(() => {});
           }}
         />

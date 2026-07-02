@@ -45,6 +45,9 @@ import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
 import { fetchHopenityChatDirectory } from '../services/chatService';
 import { openHopenityProfile } from '../services/hopenityLinking';
+import { readThreadMessagesCache } from '../services/offlineCache';
+import { normalizeChatUserId } from '../utils/chatUserId';
+import { Toast } from '../components/Toast';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Profile'>;
 
@@ -69,6 +72,24 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
     route.params.peerUserId ??
     conversation?.peerUserId ??
     undefined;
+
+  // Last-resort fallback for a brand-new 1:1 chat opened before the directory
+  // sync populated peerUserId (e.g. straight from a "Message" tap on Hopenity):
+  // pull the real sender id off any peer message already cached for this thread.
+  // Using `chatId` (the HopeChat conversation id) here would silently open
+  // Hopenity to a profile that doesn't exist — that was the "tap Profile does
+  // nothing" bug.
+  const hopenityUserId = useMemo(() => {
+    if (peerUserId) return peerUserId;
+    const localId =
+      normalizeChatUserId(myProfile?.userId) || String(myProfile?.userId ?? '');
+    const cached = readThreadMessagesCache(chatId) ?? [];
+    for (const m of cached) {
+      const uid = normalizeChatUserId(m.user?._id);
+      if (uid && uid !== 'unknown' && uid !== localId) return uid;
+    }
+    return undefined;
+  }, [peerUserId, chatId, myProfile?.userId]);
 
   // Track blocked state — reload from server on focus so it stays fresh.
   const [isBlocked, setIsBlocked] = useState(false);
@@ -149,7 +170,13 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       id: 3,
       name: 'Profile',
       icon: <User fill="white" stroke="white" />,
-      onPress: () => { openHopenityProfile(peerUserId ?? chatId).catch(() => {}); },
+      onPress: () => {
+        if (!hopenityUserId) {
+          Toast.show("Can't open this profile right now", 'error');
+          return;
+        }
+        openHopenityProfile(hopenityUserId).catch(() => {});
+      },
     },
     // {
     //   id: 4,

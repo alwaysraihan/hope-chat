@@ -886,22 +886,27 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           };
 
           let finalMsg: ExtendedMessage = offlineMsg;
+          let persistedToServer = false;
           if (token) {
             try {
-              // Derive isGroup from the conversation summary so the persisted
-              // call log uses the v2 endpoint for group chats (v1 returns 403).
-              // Use conversationsRef to avoid stale closure (this handler is not
-              // re-created when conversations changes).
+              // Derive the API generation from the conversation summary so the
+              // persisted call log hits the right endpoint (v1 returns 403 for
+              // groups AND v2-native DMs). Use conversationsRef to avoid a stale
+              // closure (this handler is not re-created when conversations changes).
               const conv = conversationsRef.current.find(c => c.id === p.conversationId);
               const saved = await persistCallOutcomeChatMessage(
                 p,
                 line,
                 token,
                 localUser,
-                !!conv?.isGroup,
+                {
+                  isGroup: !!conv?.isGroup,
+                  useV2: conv ? !!(conv.isGroup || !conv.isV1Chat) : undefined,
+                },
               );
               if (saved) {
                 finalMsg = saved;
+                persistedToServer = true;
               }
             } catch (e) {
               console.warn('[ChatsProvider] persist call log failed', e);
@@ -913,6 +918,17 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
             conversationId: p.conversationId,
             message: finalMsg,
           });
+
+          // First contact via a call: the conversation row doesn't exist in the
+          // inbox yet, so the preview update above was a no-op. Now that the
+          // call log exists server-side, refetch the directory so the chat
+          // appears instead of silently vanishing.
+          if (
+            persistedToServer &&
+            !conversationsRef.current.some(c => c.id === p.conversationId)
+          ) {
+            DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+          }
         };
         persist().catch(e => {
           console.warn('[ChatsProvider] persist call log', e);

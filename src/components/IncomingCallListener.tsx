@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { AppState, DeviceEventEmitter, Platform } from 'react-native';
 import { RELOAD_CHAT_LIST_EVENT } from '../context/ChatsContext';
 import NetInfo from '@react-native-community/netinfo';
@@ -53,6 +53,7 @@ import { StackActions, CommonActions } from '@react-navigation/native';
 import { emitCallOutcome } from '../services/callOutcomeBus';
 import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
 import { callSocket } from '../services/callSocket';
+import CallReliabilityPrompt from './CallReliabilityPrompt';
 
 /**
  * If the IncomingCallScreen is currently showing for this room, dismiss it.
@@ -478,7 +479,7 @@ const IncomingCallListener = () => {
     };
   }, [loggedIn]);
 
-  return null;
+  return <CallReliabilityPrompt />;
 };
 
 export default IncomingCallListener;

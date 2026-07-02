@@ -45,8 +45,13 @@ export async function persistCallOutcomeChatMessage(
   line: string,
   token: string,
   localUser: { _id?: unknown; name?: string },
-  isGroup?: boolean,
+  opts?: {
+    isGroup?: boolean;
+    /** Groups AND v2-native DMs (no conversationKey) must use the v2 endpoint. */
+    useV2?: boolean;
+  },
 ): Promise<ExtendedMessage | null> {
+  const isGroup = !!opts?.isGroup;
   let wire = line;
   const peer = p.peerUserId?.trim();
   const loc =
@@ -61,8 +66,15 @@ export async function persistCallOutcomeChatMessage(
     }
   }
 
-  // Group chats require the v2 endpoint — v1 returns 403 for group conversation IDs.
-  const res = await sendHopenityChatMessage(p.conversationId, wire, token, null, isGroup);
+  // v1 rejects group / v2-native conversation IDs (403). When the conversation
+  // summary wasn't loaded we can't know the generation, so retry on the other
+  // version before giving up — otherwise the call log stays offline-only and
+  // the chat never appears in either user's inbox.
+  const useV2 = opts?.useV2 ?? isGroup;
+  let res = await sendHopenityChatMessage(p.conversationId, wire, token, null, useV2);
+  if (!res) {
+    res = await sendHopenityChatMessage(p.conversationId, wire, token, null, !useV2);
+  }
   if (!res) {
     return null;
   }

@@ -229,6 +229,73 @@ function stripIntro(descNewestFirst: ExtendedMessage[]): ExtendedMessage[] {
   return descNewestFirst.filter(m => m._id !== INTRO_MESSAGE_ID);
 }
 
+function createdAtMs(t: unknown): number {
+  return t instanceof Date
+    ? t.getTime()
+    : new Date(t as string | number).getTime();
+}
+
+/**
+ * True when `server` (fresh from the API) is the echo of a still-pending
+ * optimistic bubble: same sender, same visible content, within 2 minutes.
+ * Content matching is required because the optimistic _id is client-generated
+ * and the send ack that swaps it for the server id can lose the race against
+ * the thread poll — matching by _id alone rendered every sent message twice.
+ */
+function isServerEchoOfPending(
+  pending: ExtendedMessage,
+  server: ExtendedMessage,
+): boolean {
+  const pUid =
+    normalizeChatUserId(pending.user?._id) || String(pending.user?._id ?? '');
+  const sUid =
+    normalizeChatUserId(server.user?._id) || String(server.user?._id ?? '');
+  if (!pUid || !sUid) return false;
+  const sameSender =
+    pUid === sUid ||
+    (/^\d+$/.test(pUid) && /^\d+$/.test(sUid) && Number(pUid) === Number(sUid));
+  if (!sameSender) return false;
+  const dt = Math.abs(createdAtMs(server.createdAt) - createdAtMs(pending.createdAt));
+  if (!Number.isFinite(dt) || dt > 2 * 60 * 1000) return false;
+  const pText = String(pending.text ?? '').trim();
+  const sText = String(server.text ?? '').trim();
+  if (pText && sText && pText === sText) return true;
+  const pMediaUrl = pending.media?.remoteUri ?? pending.media?.url ?? '';
+  const sMediaUrl = server.media?.remoteUri ?? server.media?.url ?? '';
+  if (pMediaUrl && sMediaUrl && pMediaUrl === sMediaUrl) return true;
+  // Media messages travel as a bare URL in `content`.
+  if (pMediaUrl && sText && pMediaUrl === sText) return true;
+  return false;
+}
+
+/**
+ * Merge freshly fetched messages into `prev` (both ascending). Rows whose id we
+ * already have are dropped; a server row that matches a still-pending optimistic
+ * bubble REPLACES it in place instead of appearing next to it.
+ * Returns null when nothing changed.
+ */
+function mergeFetchedAsc(
+  prev: ExtendedMessage[],
+  fetchedAsc: ExtendedMessage[],
+): ExtendedMessage[] | null {
+  const existingIds = new Set(prev.map(m => String(m._id)));
+  const fresh = fetchedAsc.filter(m => !existingIds.has(String(m._id)));
+  if (fresh.length === 0) return null;
+  const next = [...prev];
+  const appended: ExtendedMessage[] = [];
+  for (const srv of fresh) {
+    const i = next.findIndex(
+      m => (m.pending || m.failed) && isServerEchoOfPending(m, srv),
+    );
+    if (i >= 0) next[i] = srv;
+    else appended.push(srv);
+  }
+  if (appended.length === 0) return next;
+  const combined = [...next, ...appended];
+  combined.sort((a, b) => createdAtMs(a.createdAt) - createdAtMs(b.createdAt));
+  return combined;
+}
+
 /** Gifted Chat is newest-first; intro is oldest timestamp so it appears at top visually. */
 function mergeIntroDesc(
   descNewestFirst: ExtendedMessage[],
@@ -677,33 +744,30 @@ export function InboxProvider({
         // doesn't include the not-yet-processed message → it disappears.
         // By keeping pending entries that aren't already in the server response
         // (matched by _id) we prevent the optimistic message from vanishing.
+        // A pending bubble whose echo is already in the server response (matched
+        // by content — the ack may not have swapped its client id yet) must be
+        // dropped, not kept, or the message shows twice.
+        const keepPending = (m: ExtendedMessage, serverIds: Set<string>) =>
+          (m.pending || m.failed) &&
+          !serverIds.has(String(m._id)) &&
+          !mergedAsc.some(s => isServerEchoOfPending(m, s));
         setAllMessages(prev => {
           const serverIds = new Set(mergedAsc.map(m => String(m._id)));
-          const pendingToKeep = prev.filter(
-            m => (m.pending || m.failed) && !serverIds.has(String(m._id)),
-          );
+          const pendingToKeep = prev.filter(m => keepPending(m, serverIds));
           if (pendingToKeep.length === 0) return mergedAsc;
           const combined = [...mergedAsc, ...pendingToKeep];
-          combined.sort((a, b) => {
-            const toMs = (t: unknown) =>
-              t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
-            return toMs(a.createdAt) - toMs(b.createdAt);
-          });
+          combined.sort((a, b) => createdAtMs(a.createdAt) - createdAtMs(b.createdAt));
           return combined;
         });
         setMessages(prev => {
           const serverIds = new Set(mergedAsc.map(m => String(m._id)));
           const pendingToKeep = (prev as ExtendedMessage[]).filter(
-            (m: ExtendedMessage) => (m.pending || m.failed) && !serverIds.has(String(m._id)),
+            (m: ExtendedMessage) => keepPending(m, serverIds),
           );
           const desc = [...mergedAsc].reverse();
           if (pendingToKeep.length === 0) return mergeIntroDesc(desc, threadIntroPeer);
           const combined = [...mergedAsc, ...pendingToKeep];
-          combined.sort((a, b) => {
-            const toMs = (t: unknown) =>
-              t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
-            return toMs(a.createdAt) - toMs(b.createdAt);
-          });
+          combined.sort((a, b) => createdAtMs(a.createdAt) - createdAtMs(b.createdAt));
           return mergeIntroDesc([...combined].reverse(), threadIntroPeer);
         });
         setHasMore(
@@ -744,32 +808,16 @@ export function InboxProvider({
           return toMs(a.createdAt) - toMs(b.createdAt);
         });
         setAllMessages(prev => {
-          const existingIds = new Set(prev.map(m => String(m._id)));
-          const newOnes = mapped.filter(m => !existingIds.has(String(m._id)));
-          if (newOnes.length === 0) return prev;
-          const combined = [...prev, ...newOnes];
-          combined.sort((a, b) => {
-            const toMs = (t: unknown) =>
-              t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
-            return toMs(a.createdAt) - toMs(b.createdAt);
-          });
-          writeThreadMessagesCache(_conversationId, combined);
-          return combined;
+          const merged = mergeFetchedAsc(prev, mapped);
+          if (!merged) return prev;
+          writeThreadMessagesCache(_conversationId, merged);
+          return merged;
         });
         setMessages(prev => {
-          const existingIds = new Set((prev as ExtendedMessage[]).map((m: ExtendedMessage) => String(m._id)));
-          const newOnes = mapped.filter(m => !existingIds.has(String(m._id)));
-          if (newOnes.length === 0) return prev;
-          const combined = [
-            ...(prev as ExtendedMessage[]).filter((m: ExtendedMessage) => m._id !== INTRO_MESSAGE_ID),
-            ...newOnes,
-          ];
-          combined.sort((a, b) => {
-            const toMs = (t: unknown) =>
-              t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
-            return toMs(b.createdAt) - toMs(a.createdAt);
-          });
-          return mergeIntroDesc(combined, threadIntroPeer);
+          const prevAsc = [...stripIntro(prev as ExtendedMessage[])].reverse();
+          const merged = mergeFetchedAsc(prevAsc, mapped);
+          if (!merged) return prev;
+          return mergeIntroDesc([...merged].reverse(), threadIntroPeer);
         });
       } catch { /* silent — stale UI is fine, next poll will retry */ }
     };
@@ -865,6 +913,31 @@ export function InboxProvider({
         mergeIntroDesc(stripIntro(prev).map(apply), threadIntroPeer),
       );
       setAllMessages(prev => prev.map(apply));
+      bumpRefresh();
+    },
+    [bumpRefresh, threadIntroPeer],
+  );
+
+  /**
+   * Send-ack: swap the optimistic client id for the server id. If the poll
+   * already inserted the server copy, drop the optimistic bubble instead of
+   * ending up with two rows sharing one _id.
+   */
+  const confirmMessage = useCallback(
+    (localId: string | number, patch: Partial<ExtendedMessage>) => {
+      const serverId = patch._id != null ? String(patch._id) : null;
+      const apply = (list: ExtendedMessage[]) => {
+        const serverCopyExists =
+          serverId != null &&
+          serverId !== String(localId) &&
+          list.some(m => String(m._id) === serverId);
+        if (serverCopyExists) return list.filter(m => m._id !== localId);
+        return list.map(m => (m._id === localId ? { ...m, ...patch } : m));
+      };
+      setMessages(prev =>
+        mergeIntroDesc(apply(stripIntro(prev)), threadIntroPeer),
+      );
+      setAllMessages(prev => apply(prev));
       bumpRefresh();
     },
     [bumpRefresh, threadIntroPeer],
@@ -1003,7 +1076,7 @@ export function InboxProvider({
               const ackName =
                 (res.sender as { name?: string } | undefined)?.name ??
                 (typeof stamped.user?.name === 'string' ? stamped.user.name : user.name);
-              updateMessage(stamped._id, {
+              confirmMessage(stamped._id, {
                 pending: false,
                 _id: String(res.id ?? stamped._id),
                 createdAt: res.createdAt ? new Date(res.createdAt) : stamped.createdAt,
@@ -1031,6 +1104,7 @@ export function InboxProvider({
       replyTo,
       appendMessage,
       updateMessage,
+      confirmMessage,
       dispatch,
       _conversationId,
       token,
@@ -1078,13 +1152,14 @@ export function InboxProvider({
         try {
           const remoteUri = await uploadChatMedia(audioPath, 'voice', token);
           if (remoteUri) {
+            // Stay `pending` until the server ack so the thread poll can still
+            // recognise this bubble as the echo of the sent message.
             updateMessage(msg._id, {
               media: {
                 ...msg.media!,
                 remoteUri,
                 uploading: false,
               },
-              pending: false,
             });
             let wire = remoteUri;
             if (shouldEncryptOutgoing) {
@@ -1114,12 +1189,15 @@ export function InboxProvider({
               const ackName =
                 (sent.sender as { name?: string } | undefined)?.name ??
                 (typeof user.name === 'string' ? user.name : 'You');
-              updateMessage(msg._id, {
+              confirmMessage(msg._id, {
+                pending: false,
                 _id: String(sent.id),
                 createdAt: sent.createdAt ? new Date(sent.createdAt) : msg.createdAt,
                 user: { _id: ackUid, name: ackName },
                 ...(p.delivery ? { delivery: p.delivery } : {}),
               });
+            } else {
+              updateMessage(msg._id, { pending: false });
             }
             return;
           }
@@ -1139,6 +1217,7 @@ export function InboxProvider({
       user.name,
       appendMessage,
       updateMessage,
+      confirmMessage,
       updateConversationPreview,
       _conversationId,
       token,
@@ -1182,6 +1261,8 @@ export function InboxProvider({
         try {
           const remoteUri = await uploadChatMedia(localUri, mediaType, token);
           if (remoteUri) {
+            // Stay `pending` until the server ack so the thread poll can still
+            // recognise this bubble as the echo of the sent message.
             updateMessage(msg._id, {
               media: {
                 ...msg.media!,
@@ -1189,7 +1270,6 @@ export function InboxProvider({
                 url: remoteUri,
                 uploading: false,
               },
-              pending: false,
             });
             let wire = remoteUri;
             if (shouldEncryptOutgoing) {
@@ -1219,12 +1299,15 @@ export function InboxProvider({
               const ackName =
                 (sent.sender as { name?: string } | undefined)?.name ??
                 (typeof user.name === 'string' ? user.name : 'You');
-              updateMessage(msg._id, {
+              confirmMessage(msg._id, {
+                pending: false,
                 _id: String(sent.id),
                 createdAt: sent.createdAt ? new Date(sent.createdAt) : msg.createdAt,
                 user: { _id: ackUid, name: ackName },
                 ...(p.delivery ? { delivery: p.delivery } : {}),
               });
+            } else {
+              updateMessage(msg._id, { pending: false });
             }
             return;
           }
@@ -1244,6 +1327,7 @@ export function InboxProvider({
       user.name,
       appendMessage,
       updateMessage,
+      confirmMessage,
       updateConversationPreview,
       _conversationId,
       token,
