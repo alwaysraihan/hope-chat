@@ -282,8 +282,20 @@ export async function fetchHopenityChatDirectory(
     try {
       const v1Chats = await fetchV1ChatList(token);
 
-      // Build a set of IDs already in v2 result (deduplicate by chat id + peer ids).
-      const v2ChatIds = new Set<string>(base.chats.map(c => String(c.id ?? '')));
+      // Build a set of IDs already in the response — but only from rows that are
+      // themselves v1-sourced (server-merged legacy rows carry `_source: "v1"` /
+      // a conversationKey). v1 Chat and v2 ChatThread ids COLLIDE (independent
+      // autoincrement sequences), so matching a v1 chat id against v2-native
+      // thread ids silently drops unrelated v1 conversations from the inbox.
+      const v2ChatIds = new Set<string>(
+        base.chats
+          .filter(
+            c =>
+              (c as { _source?: string })._source === 'v1' ||
+              (c as { conversationKey?: unknown }).conversationKey != null,
+          )
+          .map(c => String(c.id ?? '')),
+      );
       const v2PeerIds = new Set<string>(
         base.chats.flatMap(c => {
           if (c.participants?.length) return [];
@@ -636,16 +648,24 @@ export async function fetchChatRequests(
   }
 }
 
-/** Mark inbound messages read (server PATCH). Handles both DMs (v1) and group threads (v2). */
+/**
+ * Mark inbound messages read (server PATCH).
+ * Groups → v2 groups endpoint. 1:1 → route by the chat's generation (`useV2Dm`
+ * for v2-native DMs): v1/v2 ids collide, so sending a v2-native DM's id to the
+ * v1 endpoint can mark an unrelated v1 chat read and leave the real thread unread.
+ */
 export async function markHopenityChatRead(
   chatId: string | number,
   token?: string | null,
   isGroup?: boolean,
+  useV2Dm?: boolean,
 ): Promise<boolean> {
   if (!token) return false;
   const id = encodeURIComponent(String(chatId));
   const url = isGroup
     ? `${API_BASE_URL}/api/v2/groups/${id}/read`
+    : useV2Dm
+    ? `${API_BASE_URL}/api/v2/chats/${id}/read`
     : `${API_BASE_URL}/api/v1/chats/${id}/read`;
   const response = await fetch(url, {
     method: 'PATCH',
@@ -661,15 +681,20 @@ export async function markHopenityChatRead(
 /**
  * Accept an incoming chat request.
  *
- * Tries v1 first; if the chatId is a v2-format string (no conversationKey
- * is present to know for sure) and v1 returns 404, retries with v2 so
- * chats that came in through the v2 path are also correctly accepted.
+ * v1 Chat and v2 ChatThread ids collide (shared numeric id space), so blind
+ * "v1 first, v2 on 404" routing can hit an unrelated v1 chat: it answers 403
+ * (not yours) or — worst case — 200 "already accepted" without touching the real
+ * request, which then sits in the Requests folder forever. Callers that know the
+ * row's origin (v1 rows carry a conversationKey / `_source: "v1"`) must pass
+ * `preferV2` so the right endpoint is tried first; the other generation stays as
+ * a fallback on ANY failure since the server now cross-delegates.
  *
  * Returns { ok, message } so the caller can surface API errors to the user.
  */
 export async function acceptHopenityChatRequest(
   chatId: string | number,
   token?: string | null,
+  opts?: { preferV2?: boolean },
 ): Promise<{ ok: boolean; message: string | null }> {
   if (!token) return { ok: false, message: 'Not signed in.' };
 
@@ -679,33 +704,28 @@ export async function acceptHopenityChatRequest(
     Authorization: `Bearer ${token}`,
   };
 
-  // Try v1 endpoint first (covers the majority of DM request chats)
-  try {
-    const r1 = await fetch(
-      `${API_BASE_URL}/api/v1/chats/${cid}/request/accept`,
-      { method: 'PATCH', headers },
-    );
-    if (r1.ok) return { ok: true, message: null };
-
-    // 404 might mean this is a v2-format chat — fall through to v2 attempt
-    if (r1.status !== 404 && r1.status !== 405) {
-      const j = await r1.json().catch(() => null);
+  const attempt = async (
+    version: 'v1' | 'v2',
+  ): Promise<{ ok: boolean; message: string | null }> => {
+    try {
+      const r = await fetch(
+        `${API_BASE_URL}/api/${version}/chats/${cid}/request/accept`,
+        { method: 'PATCH', headers },
+      );
+      if (r.ok) return { ok: true, message: null };
+      const j = await r.json().catch(() => null);
       return { ok: false, message: (j?.message ?? j?.error ?? null) as string | null };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : 'Network error.' };
     }
-  } catch { /* network error — try v2 below */ }
+  };
 
-  // v2 fallback for chats with v2-style IDs
-  try {
-    const r2 = await fetch(
-      `${API_BASE_URL}/api/v2/chats/${cid}/request/accept`,
-      { method: 'PATCH', headers },
-    );
-    if (r2.ok) return { ok: true, message: null };
-    const j = await r2.json().catch(() => null);
-    return { ok: false, message: (j?.message ?? j?.error ?? null) as string | null };
-  } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : 'Network error.' };
-  }
+  const order: Array<'v1' | 'v2'> = opts?.preferV2 ? ['v2', 'v1'] : ['v1', 'v2'];
+  const first = await attempt(order[0]);
+  if (first.ok) return first;
+  const second = await attempt(order[1]);
+  if (second.ok) return second;
+  return { ok: false, message: first.message ?? second.message };
 }
 
 export async function sendHopenityChatMessage(

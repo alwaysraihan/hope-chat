@@ -6,10 +6,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  ScrollView,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, MoreVertical } from 'lucide-react-native';
+import { ArrowLeft } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import FastImage from '@d11/react-native-fast-image';
@@ -30,6 +30,7 @@ import {
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
 import { mapChatItemToSummary, useChats } from '../context/ChatsContext';
+import type { ConversationSummary } from '../context/ChatsContext';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { AppColors, useAppTheme } from '../context/ThemeContext';
@@ -48,17 +49,96 @@ function isIncoming(chat: HopenityChatItem, localUserId: string): boolean {
   return rid !== lid;
 }
 
+type RequestRowData = {
+  summary: ConversationSummary;
+  incoming: boolean;
+  /** v1 rows carry a conversationKey; v2-merged rows are tagged `_source: "v2"`. */
+  preferV2: boolean;
+  previewText: string;
+  secondaryTime: string;
+};
+
+type RequestRowProps = {
+  row: RequestRowData;
+  busy: boolean;
+  styles: ReturnType<typeof stylesFunc>;
+  acceptLabel: string;
+  onAccept: (row: RequestRowData) => void;
+  onOpen: (row: RequestRowData) => void;
+  onLongPress: (row: RequestRowData) => void;
+};
+
+/**
+ * Memoized row: the screen re-renders on every accept-spinner tick and requests
+ * refetch — without memo every FastImage/label in the list re-rendered each time,
+ * which is what made opening Message Requests feel slow on long request lists.
+ */
+const RequestRow = React.memo(function RequestRow({
+  row,
+  busy,
+  styles,
+  acceptLabel,
+  onAccept,
+  onOpen,
+  onLongPress,
+}: RequestRowProps) {
+  const { summary, incoming, previewText, secondaryTime } = row;
+  return (
+    <View style={styles.item}>
+      {summary.avatarUrl ? (
+        <FastImage source={{ uri: summary.avatarUrl }} style={styles.avatar} />
+      ) : (
+        <View style={[styles.avatar, styles.avatarInitialWrap]}>
+          <Text style={styles.avatarInitial}>
+            {(summary.name ?? '?').trim().charAt(0).toUpperCase() || '?'}
+          </Text>
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={styles.itemContent}
+        onLongPress={() => onLongPress(row)}
+        onPress={() => onOpen(row)}
+      >
+        <Text style={styles.itemName}>{summary.name}</Text>
+        <Text style={styles.itemMsg} numberOfLines={1}>
+          {previewText}{' '}
+          {secondaryTime ? (
+            <Text style={styles.itemTime}>· {secondaryTime}</Text>
+          ) : null}
+        </Text>
+      </TouchableOpacity>
+
+      {incoming ? (
+        <TouchableOpacity
+          style={[styles.acceptPill, busy && styles.acceptPillDisabled]}
+          onPress={() => onAccept(row)}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.acceptPillLabel}>{acceptLabel}</Text>
+          )}
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.pendingPill}>
+          <Text style={styles.pendingPillLabel}>Pending</Text>
+        </View>
+      )}
+    </View>
+  );
+});
+
 const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
   const { colors } = useAppTheme();
-  const styles = stylesFunc(colors);
+  const styles = useMemo(() => stylesFunc(colors), [colors]);
   const t = useT();
   const dispatch = useAppDispatch();
   const token = useAppSelector(selectAuthToken);
   const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
   const profile = useAppSelector(selectHopenityProfile);
   const activePage = useAppSelector(selectActivePage);
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const localUser = useMemo(
     () => ({
       _id:
@@ -115,30 +195,117 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, loadRequested]);
 
-  const rows = useMemo(() => {
-    return requested.map(chat => ({
-      summary: mapChatItemToSummary(chat, localUser),
-      raw: chat,
-    }));
+  const rows = useMemo<RequestRowData[]>(() => {
+    return requested.map(chat => {
+      const summary = mapChatItemToSummary(chat, localUser);
+      const incoming = isIncoming(chat, localUser._id);
+      const lastTs = chat.messages?.[0]?.createdAt ?? chat.messages?.[0]?.created_at;
+      const previewText =
+        summary.preview ||
+        chat.messages?.[0]?.content ||
+        (incoming ? 'Sent you a message request' : 'Your request is pending');
+      return {
+        summary,
+        incoming,
+        preferV2:
+          (chat as { _source?: string })._source === 'v2' ||
+          (chat as { conversationKey?: unknown }).conversationKey == null,
+        previewText,
+        secondaryTime: formatChatTime(lastTs),
+      };
+    });
   }, [requested, localUser]);
 
-  const onAccept = async (chatId: string) => {
-    if (!token) return;
-    setAcceptingId(chatId);
-    try {
-      const { ok, message } = await acceptHopenityChatRequest(chatId, token);
-      if (ok) {
-        await Promise.all([loadRequested(), reloadConversations()]);
-      } else {
-        Alert.alert(
-          'Could not accept',
-          message ?? 'The request could not be accepted. Please try again.',
+  const onAccept = useCallback(
+    async (row: RequestRowData) => {
+      if (!token) return;
+      setAcceptingId(row.summary.id);
+      try {
+        const { ok, message } = await acceptHopenityChatRequest(
+          row.summary.id,
+          token,
+          { preferV2: row.preferV2 },
         );
+        if (ok) {
+          await Promise.all([loadRequested(), reloadConversations()]);
+        } else {
+          Alert.alert(
+            'Could not accept',
+            message ?? 'The request could not be accepted. Please try again.',
+          );
+        }
+      } finally {
+        setAcceptingId(null);
       }
-    } finally {
-      setAcceptingId(null);
-    }
-  };
+    },
+    [token, loadRequested, reloadConversations],
+  );
+
+  const onOpen = useCallback(
+    (row: RequestRowData) => {
+      navigation.navigate('Inbox', {
+        conversationId: row.summary.id,
+        displayName: row.summary.name,
+        avatarUrl: row.summary.avatarUrl,
+        liveKitRoom: resolveLiveKitRoomName({
+          conversationId: row.summary.id,
+          peerUserId: row.summary.peerUserId,
+          localUserId: localUser._id,
+          isGroup: row.summary.isGroup,
+        }),
+        seedConversation: { ...row.summary, messages: [] },
+      });
+    },
+    [navigation, localUser._id],
+  );
+
+  const onRowLongPress = useCallback(
+    (row: RequestRowData) => {
+      Alert.alert(row.summary.name, '', [
+        ...(row.incoming
+          ? [{ text: t.accept, onPress: () => onAccept(row) }]
+          : []),
+        {
+          text: t.delete_request,
+          style: 'destructive' as const,
+          onPress: () =>
+            setRequested(prev =>
+              prev.filter(c => String(c.id) !== row.summary.id),
+            ),
+        },
+        { text: t.cancel, style: 'cancel' as const },
+      ]);
+    },
+    [t, onAccept],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: RequestRowData }) => (
+      <RequestRow
+        row={item}
+        busy={acceptingId === item.summary.id}
+        styles={styles}
+        acceptLabel={t.accept}
+        onAccept={onAccept}
+        onOpen={onOpen}
+        onLongPress={onRowLongPress}
+      />
+    ),
+    [acceptingId, styles, t.accept, onAccept, onOpen, onRowLongPress],
+  );
+
+  const keyExtractor = useCallback(
+    (item: RequestRowData) => item.summary.id,
+    [],
+  );
+
+  const Separator = useMemo(
+    () =>
+      function RequestRowSeparator() {
+        return <View style={styles.divider} />;
+      },
+    [styles],
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -209,127 +376,30 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
           <Text style={styles.emptyText}>{t.spam_empty}</Text>
         </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <View style={styles.infoBanner}>
-            <Text style={styles.infoText}>{t.requests_info}</Text>
-          </View>
-
-          {rows.length === 0 && !loading ? (
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>{t.no_pending_requests}</Text>
+        <FlatList
+          data={rows}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          extraData={acceptingId}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={12}
+          windowSize={7}
+          removeClippedSubviews
+          ItemSeparatorComponent={Separator}
+          ListHeaderComponent={
+            <View style={styles.infoBanner}>
+              <Text style={styles.infoText}>{t.requests_info}</Text>
             </View>
-          ) : null}
-
-          {rows.map((row, index) => {
-            const busy = acceptingId === row.summary.id;
-            const incoming = isIncoming(row.raw, localUser._id);
-            const lastTs =
-              row.raw.messages?.[0]?.createdAt ??
-              row.raw.messages?.[0]?.created_at;
-            const secondaryTime = formatChatTime(lastTs);
-            const previewText =
-              row.summary.preview ||
-              row.raw.messages?.[0]?.content ||
-              (incoming
-                ? 'Sent you a message request'
-                : 'Your request is pending');
-            return (
-              <React.Fragment key={row.summary.id}>
-                <View style={styles.item}>
-                  {row.summary.avatarUrl ? (
-                    <FastImage
-                      source={{ uri: row.summary.avatarUrl }}
-                      style={styles.avatar}
-                    />
-                  ) : (
-                    <View style={[styles.avatar, styles.avatarInitialWrap]}>
-                      <Text style={styles.avatarInitial}>
-                        {(row.summary.name ?? '?')
-                          .trim()
-                          .charAt(0)
-                          .toUpperCase() || '?'}
-                      </Text>
-                    </View>
-                  )}
-
-                  <TouchableOpacity
-                    style={styles.itemContent}
-                    onLongPress={() => {
-                      Alert.alert(row.summary.name, '', [
-                        ...(incoming
-                          ? [
-                              {
-                                text: t.accept,
-                                onPress: () => onAccept(row.summary.id),
-                              },
-                            ]
-                          : []),
-                        {
-                          text: t.delete_request,
-                          style: 'destructive' as const,
-                          onPress: () =>
-                            setRequested(prev =>
-                              prev.filter(c => String(c.id) !== row.summary.id),
-                            ),
-                        },
-                        { text: t.cancel, style: 'cancel' as const },
-                      ]);
-                    }}
-                    onPress={() =>
-                      navigation.navigate('Inbox', {
-                        conversationId: row.summary.id,
-                        displayName: row.summary.name,
-                        avatarUrl: row.summary.avatarUrl,
-                        liveKitRoom: resolveLiveKitRoomName({
-                          conversationId: row.summary.id,
-                          peerUserId: row.summary.peerUserId,
-                          localUserId: localUser._id,
-                          isGroup: row.summary.isGroup,
-                        }),
-                        seedConversation: { ...row.summary, messages: [] },
-                      })
-                    }
-                  >
-                    <Text style={styles.itemName}>{row.summary.name}</Text>
-                    <Text style={styles.itemMsg}>
-                      {previewText}{' '}
-                      {secondaryTime ? (
-                        <Text style={styles.itemTime}>· {secondaryTime}</Text>
-                      ) : null}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {incoming ? (
-                    <TouchableOpacity
-                      style={[
-                        styles.acceptPill,
-                        busy && styles.acceptPillDisabled,
-                      ]}
-                      onPress={() => onAccept(row.summary.id)}
-                      disabled={busy}
-                    >
-                      {busy ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Text style={styles.acceptPillLabel}>{t.accept}</Text>
-                      )}
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={styles.pendingPill}>
-                      <Text style={styles.pendingPillLabel}>Pending</Text>
-                    </View>
-                  )}
-                </View>
-
-                {index < rows.length - 1 ? (
-                  <View style={styles.divider} />
-                ) : null}
-              </React.Fragment>
-            );
-          })}
-
-          <View style={{ height: 30 }} />
-        </ScrollView>
+          }
+          ListEmptyComponent={
+            !loading ? (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyText}>{t.no_pending_requests}</Text>
+              </View>
+            ) : null
+          }
+          ListFooterComponent={<View style={{ height: 30 }} />}
+        />
       )}
     </SafeAreaView>
   );

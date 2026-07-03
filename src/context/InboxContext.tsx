@@ -775,7 +775,9 @@ export function InboxProvider({
             fetched.length >= PAGE_SIZE,
         );
         writeThreadMessagesCache(_conversationId, mergedAsc);
-        markHopenityChatRead(_conversationId, token, isGroup).catch(() => undefined);
+        // Route by generation: v2-native DMs must hit the v2 read endpoint or a
+        // colliding v1 chat id gets marked read instead (shared numeric id space).
+        markHopenityChatRead(_conversationId, token, isGroup, useV2Messages).catch(() => undefined);
       } catch (err) {
         console.error('[InboxProvider] load chat messages error:', err);
       }
