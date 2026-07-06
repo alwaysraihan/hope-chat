@@ -286,11 +286,17 @@ export function resolveChatTitleForPeer(
   chat: HopenityChatItem,
   localUserId: string | number,
 ): { name: string; avatarUrl: string | null; isGroup: boolean } {
-  // Use the explicit isGroup flag when present (returned by the v2/groups endpoint).
-  // Fall back to participants array detection: ≥ 2 participants means a group
-  // (a 1:1 thread uses userA/userB and never has a participants array).
+  // Trust the explicit isGroup flag whenever the server sends one — a 2-person
+  // group is still a group and a 1:1 is still a 1:1 regardless of participant
+  // count. Only fall back to participant-count when isGroup is entirely absent
+  // (legacy data shape), and even then require > 2 (not >= 2): a real 1:1 thread
+  // is never a group just because a participants array of length 2 is present.
+  // (The old `>= 2` fallback made a 1:1 misclassify as a group whenever any
+  // participants array showed up — wrong encryption key + wrong send endpoint.)
   const isGroup =
-    Boolean(chat.isGroup) || (chat.participants?.length ?? 0) >= 2;
+    typeof chat.isGroup === 'boolean'
+      ? chat.isGroup
+      : (chat.participants?.length ?? 0) > 2;
   const groupName =
     (chat as any).groupName ||
     chat.participants?.map(p => p.name).filter(Boolean).join(', ');
