@@ -162,6 +162,9 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     return (cached as HopenityChatItem[] | null) ?? [];
   });
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const loadRequested = useCallback(async (silent = false) => {
     if (!token) {
@@ -171,13 +174,16 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     if (!silent) setLoading(true);
     try {
       const pageId = activePage?.id ? Number(activePage.id) : undefined;
-      const { chats, httpStatus } = await fetchChatRequests(token, pageId);
+      const { chats, httpStatus, hasMore: more, nextOffset: nOffset } =
+        await fetchChatRequests(token, pageId, 0, 100);
       if (httpStatus === 401) {
         dispatch(clearAuth());
         setRequested([]);
         return;
       }
       setRequested(chats);
+      setHasMore(more);
+      setNextOffset(nOffset);
       writeRequestsCache(localUser._id, chats);
     } catch (e) {
       console.error('[MessageRequestsScreen] load requested:', e);
@@ -185,6 +191,35 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
       if (!silent) setLoading(false);
     }
   }, [dispatch, token, localUser._id, activePage?.id]);
+
+  // Requests screen used to silently show only the first 100 pending requests —
+  // the backend hard-capped there with no way to page further. It now supports
+  // offset/limit, so keep fetching further pages as the user scrolls.
+  const loadMoreRequested = useCallback(async () => {
+    if (!token || !hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const pageId = activePage?.id ? Number(activePage.id) : undefined;
+      const { chats, httpStatus, hasMore: more, nextOffset: nOffset } =
+        await fetchChatRequests(token, pageId, nextOffset, 100);
+      if (httpStatus === 401) {
+        dispatch(clearAuth());
+        return;
+      }
+      setRequested(prev => {
+        const seen = new Set(prev.map(c => String(c.id)));
+        const merged = [...prev, ...chats.filter(c => !seen.has(String(c.id)))];
+        writeRequestsCache(localUser._id, merged);
+        return merged;
+      });
+      setHasMore(more);
+      setNextOffset(nOffset);
+    } catch (e) {
+      console.error('[MessageRequestsScreen] load more requested:', e);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [token, hasMore, loadingMore, activePage?.id, nextOffset, dispatch, localUser._id]);
 
   useEffect(() => {
     if (activeTab === 'know') {
@@ -398,7 +433,17 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             ) : null
           }
-          ListFooterComponent={<View style={{ height: 30 }} />}
+          onEndReached={loadMoreRequested}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.loading}>
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : (
+              <View style={{ height: 30 }} />
+            )
+          }
         />
       )}
     </SafeAreaView>

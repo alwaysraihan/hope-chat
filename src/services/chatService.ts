@@ -627,10 +627,20 @@ export async function deleteHopenityChatMessage(
 export async function fetchChatRequests(
   token?: string | null,
   pageId?: number,
-): Promise<{ chats: HopenityChatItem[]; total: number; httpStatus: number }> {
-  if (!token) return { chats: [], total: 0, httpStatus: 401 };
+  offset?: number,
+  limit?: number,
+): Promise<{
+  chats: HopenityChatItem[];
+  total: number;
+  httpStatus: number;
+  hasMore: boolean;
+  nextOffset: number;
+}> {
+  if (!token) return { chats: [], total: 0, httpStatus: 401, hasMore: false, nextOffset: 0 };
   const params = new URLSearchParams();
   if (pageId != null) params.set('pageId', String(pageId));
+  if (offset != null) params.set('offset', String(offset));
+  if (limit != null) params.set('limit', String(limit));
   const url = `${API_BASE_URL}/api/v1/chats/requests${params.toString() ? `?${params.toString()}` : ''}`;
   try {
     const response = await fetch(url, {
@@ -642,9 +652,20 @@ export async function fetchChatRequests(
     const payload = json?.responseObject ?? json?.data ?? json;
     const chats: HopenityChatItem[] = Array.isArray(payload?.chats) ? payload.chats : [];
     const total: number = typeof payload?.total === 'number' ? payload.total : chats.length;
-    return { chats, total, httpStatus };
+    // Server used to hard-cap at 100 with no pagination — accounts with more than 100
+    // pending requests silently lost everything past #100. It now paginates via
+    // offset/limit; surface that here so the screen can page through the rest.
+    const hasMore: boolean =
+      typeof payload?.pagination?.hasMore === 'boolean'
+        ? payload.pagination.hasMore
+        : (offset ?? 0) + chats.length < total;
+    const nextOffset: number =
+      typeof payload?.pagination?.nextOffset === 'number'
+        ? payload.pagination.nextOffset
+        : (offset ?? 0) + chats.length;
+    return { chats, total, httpStatus, hasMore, nextOffset };
   } catch {
-    return { chats: [], total: 0, httpStatus: 0 };
+    return { chats: [], total: 0, httpStatus: 0, hasMore: false, nextOffset: offset ?? 0 };
   }
 }
 
