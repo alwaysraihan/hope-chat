@@ -39,7 +39,7 @@ export interface ExtendedMessage extends IMessage {
     avatarUrl?: string | null;
   };
   /** Server-originated category — drives timeline styling for calls / voice / donation. */
-  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request';
+  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request' | 'system';
   donationRequest?: DonationRequestPayload;
   /** When the API returns receipts (outgoing messages). */
   delivery?: {

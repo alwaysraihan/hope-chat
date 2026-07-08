@@ -108,25 +108,10 @@ export async function openHopenityProfile(userId: string | number): Promise<void
   const id = String(userId ?? '').trim();
   if (!id) { await openHopenityBestEffort(); return; }
 
-  // iOS: Hopenity registers `applinks:hopenity.com` (Universal Links), so the
-  // correct deep link is https://hopenity.com/user/{id}. The custom scheme
-  // hopenity://user/{id} would parse "user" as the hostname and Hopenity's
-  // parseDeepLinkUrl would reject it (host doesn't include "hopenity.com").
-  // Android: hopenity://hopenity.com/user/{id} matches the intent filter
-  // (scheme=hopenity, host=hopenity.com, pathPrefix=/). On Android 11+ if
-  // canOpenURL returns false (missing <queries>), fall through to HTTPS which
-  // is also caught by Hopenity's autoVerify intent filter.
-  const deepLink =
-    Platform.OS === 'ios'
-      ? `https://hopenity.com/user/${id}`
-      : `hopenity://hopenity.com/user/${id}`;
-
-  try {
-    const ok = await Linking.canOpenURL(deepLink);
-    if (ok) { await Linking.openURL(deepLink); return; }
-  } catch { /* fall through */ }
-
-  // Fallback: open the web profile (also caught by Hopenity's intent filters).
+  // App-to-app deep links (hopenity:// scheme / canOpenURL) proved unreliable
+  // across devices, so open the plain web profile URL directly — it always
+  // works, and when Hopenity is installed the OS still routes it into the app
+  // via Universal Links (iOS) / autoVerify app links (Android).
   try {
     await Linking.openURL(`https://hopenity.com/user/${id}`);
   } catch { /* nothing else to try */ }

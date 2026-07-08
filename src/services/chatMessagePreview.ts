@@ -161,7 +161,7 @@ export function formatChatListPreview(
 
 export type ParsedApiMessage = {
   text: string;
-  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request';
+  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request' | 'system';
   donationRequest?: DonationRequestPayload;
   delivery?: {
     state: 'sent' | 'delivered' | 'read';
@@ -243,6 +243,12 @@ export function mapApiMessageToTimeline(
     if (s.includes('essential')) return 'essential';
     if (s.includes('product')) return 'product';
     return 'general';
+  }
+
+  // Backend membership announcements ("X added Y", "X joined via invite link")
+  // arrive with messageType "system" — render as a centered timeline row.
+  if (rawType === 'system') {
+    return { text: messageText, messageKind: 'system' };
   }
 
   // Web-generated structured messages use content "JSON:{...}" with a plain text type.

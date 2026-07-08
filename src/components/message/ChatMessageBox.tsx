@@ -324,6 +324,18 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     />
   ) : null;
 
+  // ── System (membership announcements: "X added Y") ────────────────────────
+
+  if (msg.messageKind === 'system') {
+    return (
+      <View style={styles.systemRow}>
+        <Text style={[styles.systemText, { color: isDark ? '#9aa0a6' : '#8e8e93' }]}>
+          {msg.text}
+        </Text>
+      </View>
+    );
+  }
+
   // ── Donation request ───────────────────────────────────────────────────────
 
   if (msg.messageKind === 'donation_request') {
@@ -574,6 +586,16 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 const styles = StyleSheet.create({
   alignLeft: { alignSelf: 'flex-start', marginLeft: 12 },
   alignRight: { alignSelf: 'flex-end', marginRight: 12 },
+  systemRow: {
+    alignSelf: 'center',
+    maxWidth: SCREEN_WIDTH * 0.8,
+    marginVertical: 8,
+    paddingHorizontal: 12,
+  },
+  systemText: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
   mediaWrapper: { maxWidth: MAX_BUBBLE_WIDTH, marginVertical: 2 },
   senderRow: {
     flexDirection: 'row',
