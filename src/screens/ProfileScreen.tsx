@@ -210,10 +210,10 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
             ? navigation.navigate('GroupSetup', { selectedUserIds: [peerUserId], selectedNames: [peerName] })
             : navigation.navigate('NewGroup'),
         },
-        { id: 2, title: 'View media, files, and links', image: <ImageIcon size={22} color={colorss.primary} />,     type: 'switch', onPress: () => navigation.navigate('MediaTab', { screen: 'Media' }) },
+        // { id: 2, title: 'View media, files, and links', image: <ImageIcon size={22} color={colorss.primary} />,     type: 'switch', onPress: () => navigation.navigate('MediaTab', { screen: 'Media' }) },
         { id: 3, title: 'Auto-save photos',             image: <ArrowDownToLine size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('AutoSavePhotos') },
         { id: 4, title: 'Pinned messages',              image: <Pin size={22} color={colorss.primary} />,            type: 'switch', onPress: () => navigation.navigate('PinnedMessages') },
-        { id: 5, title: 'Notification & sounds',        image: <Bell size={22} color={colorss.primary} />,           type: 'switch', onPress: () => navigation.navigate('NotificationsSounds') },
+        // { id: 5, title: 'Notification & sounds',        image: <Bell size={22} color={colorss.primary} />,           type: 'switch', onPress: () => navigation.navigate('NotificationsSounds') },
       ],
     },
     {
@@ -221,8 +221,8 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       title: 'Privacy & support',
       data: [
         { id: 1, title: 'Message permissions',   image: <Shield fill={colorss.primary} size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('MessagePermissions') },
-        { id: 2, title: 'Read receipts',         image: <Eye size={22} color={colorss.primary} />,         type: 'switch', onPress: () => navigation.navigate('ReadReceipts') },
-        { id: 3, title: 'Disappearing messages', image: <ClockFading size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('DisappearingMessages', { conversationId: chatId }) },
+        // { id: 2, title: 'Read receipts',         image: <Eye size={22} color={colorss.primary} />,         type: 'switch', onPress: () => navigation.navigate('ReadReceipts') },
+        // { id: 3, title: 'Disappearing messages', image: <ClockFading size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('DisappearingMessages', { conversationId: chatId }) },
         { id: 4, title: 'Restrict',              image: <CircleSlash size={22} color={colorss.primary} />, type: 'switch', onPress: () => navigation.navigate('RestrictUser', { conversationId: chatId, peerName, peerUserId }) },
         {
           id: 5,
