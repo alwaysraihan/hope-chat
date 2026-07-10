@@ -399,9 +399,14 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colorss.textPrimary,
     fontSize: 15,
+    lineHeight: 20,
     paddingVertical: 8,
     minHeight: 36,
-    maxHeight: 96,
+    // ~5 lines before it scrolls — matches maxComposerHeight in InboxScreen
+    // and keeps at least 3 lines comfortably visible for a long message,
+    // WhatsApp-style, instead of clipping after ~1.5 lines.
+    maxHeight: 132,
+    textAlignVertical: 'top',
   },
   emojiBtn: { marginLeft: 8, padding: 2, paddingBottom: 6 },
   actionBtn: { padding: 6, paddingBottom: 9 },

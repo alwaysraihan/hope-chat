@@ -49,7 +49,7 @@ import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
 import { selectActivePage } from '../redux/features/auth/authSlice';
 import { openHopenityProfile } from '../services/hopenityLinking';
-import { SellerProductSheet } from '../components/message/SellerProductSheet';
+import { ShopSheet } from '../components/message/ShopSheet';
 
 const PRESET_IMAGES: Record<number, number> = {
   1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
@@ -650,7 +650,7 @@ const InboxScreenInner: React.FC<
             renderTime={renderTime}
             renderAvatar={() => null}
             minComposerHeight={36}
-            maxComposerHeight={108}
+            maxComposerHeight={132}
             alwaysShowSend
             renderInputToolbar={renderInputToolbar}
             renderMessage={renderMessage}
@@ -703,7 +703,7 @@ const InboxScreenInner: React.FC<
       {forwardingMessage && (
         <ForwardModal message={forwardingMessage} onClose={clearForwarding} />
       )}
-      <SellerProductSheet
+      <ShopSheet
         visible={sellerSheetVisible}
         hopenityToken={token}
         onClose={closeSellerSheet}
