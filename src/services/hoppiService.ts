@@ -1,6 +1,10 @@
-import { API_BASE_URL } from '../config/env';
+ import { API_BASE_URL } from '../config/env';
 
+// hoppi.live is the Next.js storefront (for user-facing share links only —
+// it 404s on every API route). The actual backend lives on the api subdomain;
+// all fetch() calls in this file must use HOPPI_API_URL, not HOPPI_BASE_URL.
 export const HOPPI_BASE_URL = 'https://hoppi.live';
+const HOPPI_API_URL = 'https://api.hoppi.live';
 
 export interface HoppiSession {
   hoppiToken: string;
@@ -18,7 +22,7 @@ export async function getHoppiSession(
   if (cached && cached.expiresAt > Date.now()) return cached.session;
 
   try {
-    const res = await fetch(`${HOPPI_BASE_URL}/auth/customer-token`, {
+    const res = await fetch(`${HOPPI_API_URL}/auth/customer-token`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${hopenityToken}` },
     });
@@ -78,7 +82,7 @@ export async function fetchMySellerProfile(
   hoppiToken: string,
 ): Promise<HoppiSeller | null> {
   try {
-    const res = await fetch(`${HOPPI_BASE_URL}/seller/my-profile`, {
+    const res = await fetch(`${HOPPI_API_URL}/seller/my-profile`, {
       headers: { Authorization: `Bearer ${hoppiToken}` },
     });
     if (!res.ok) return null;
@@ -97,7 +101,7 @@ export async function fetchSellerProducts(
 ): Promise<HoppiProduct[]> {
   try {
     const res = await fetch(
-      `${HOPPI_BASE_URL}/add-product/by-seller/${sellerId}?page=${page}&limit=20`,
+      `${HOPPI_API_URL}/add-product/by-seller/${sellerId}?page=${page}&limit=20`,
       { headers: { Authorization: `Bearer ${hoppiToken}` } },
     );
     const data = await res.json();
@@ -111,7 +115,7 @@ export async function fetchProductBySlug(
   slug: string,
 ): Promise<HoppiProduct | null> {
   try {
-    const res = await fetch(`${HOPPI_BASE_URL}/add-product/by-slug/${slug}`);
+    const res = await fetch(`${HOPPI_API_URL}/add-product/by-slug/${slug}`);
     const data = await res.json();
     const p = data?.product ?? data?.data ?? data;
     return p?._id || p?.title ? p : null;
@@ -149,7 +153,7 @@ export interface HoppiCartItem {
 export async function fetchMyCart(session: HoppiSession): Promise<HoppiCartItem[]> {
   try {
     const res = await fetch(
-      `${HOPPI_BASE_URL}/cart?userId=${encodeURIComponent(session.hoppiUserId)}`,
+      `${HOPPI_API_URL}/cart?userId=${encodeURIComponent(session.hoppiUserId)}`,
       { headers: { Authorization: `Bearer ${session.hoppiToken}` } },
     );
     const data = await res.json();
@@ -175,7 +179,7 @@ export async function fetchMyPurchases(
   page = 1,
 ): Promise<HoppiPurchasedProduct[]> {
   try {
-    const res = await fetch(`${HOPPI_BASE_URL}/orders?page=${page}&limit=20`, {
+    const res = await fetch(`${HOPPI_API_URL}/orders?page=${page}&limit=20`, {
       headers: { Authorization: `Bearer ${session.hoppiToken}` },
     });
     const data = await res.json();

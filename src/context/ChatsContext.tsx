@@ -30,6 +30,11 @@ import {
   deriveConversationMessageKey,
   maybeDecryptContent,
 } from '../services/e2ee/conversationCrypto';
+import {
+  deriveGroupMessageKey,
+  maybeDecryptGroupContent,
+} from '../services/e2ee/groupConversationCrypto';
+import { isE2eeEnabled } from '../services/chatPrefs';
 import type { ExtendedMessage } from '../components/types/chat';
 import {
   appendCallLogToThreadCache,
@@ -574,6 +579,24 @@ export function mapChatItemToSummary(
     lastForPreview = {
       ...lastForPreview,
       content: maybeDecryptContent(lastForPreview.content, key),
+    };
+  } else if (
+    isGroup &&
+    isE2eeEnabled() &&
+    typeof lastForPreview.content === 'string' &&
+    lastForPreview.content.startsWith('HCG1:') &&
+    chat.participants?.length
+  ) {
+    // The list endpoint already includes the full member roster, so the
+    // group key can be derived synchronously here — no extra network
+    // round-trip needed just to preview the last message.
+    const key = deriveGroupMessageKey(
+      String(chat.id ?? ''),
+      chat.participants.map(p => String(p.user_id ?? '')).filter(Boolean),
+    );
+    lastForPreview = {
+      ...lastForPreview,
+      content: maybeDecryptGroupContent(lastForPreview.content, key),
     };
   }
 

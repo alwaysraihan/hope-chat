@@ -49,6 +49,13 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const { isDark, colors } = useAppTheme();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // gifted-chat's bundled Composer only auto-grows the TextInput on web
+  // (see Composer.tsx: onContentSizeChange is a no-op on native), so on
+  // iOS/Android we have to track content height ourselves to get the
+  // WhatsApp-style grow-with-content behaviour.
+  const MIN_COMPOSER_HEIGHT = 36;
+  const MAX_COMPOSER_HEIGHT = 132;
+  const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT);
   const { bottom } = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardVisible();
 
@@ -125,6 +132,11 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   // Expand when the user starts typing
   useEffect(() => {
     if (props.text?.trim()) setIsExpanded(true);
+  }, [props.text]);
+
+  // Collapse the composer back down once the text is cleared (e.g. after send)
+  useEffect(() => {
+    if (!props.text) setComposerHeight(MIN_COMPOSER_HEIGHT);
   }, [props.text]);
 
   // Animate expand / collapse
@@ -313,11 +325,17 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
             {...props}
             text={props.text}
             textInputProps={{
-              style: styles.input,
+              style: [styles.input, { height: composerHeight }],
               placeholderTextColor: colorss.placeholder,
               multiline: true,
               placeholder: 'Type here…',
               onChangeText: props?.textInputProps?.onChangeText,
+              onContentSizeChange: (e: any) => {
+                const contentHeight = e?.nativeEvent?.contentSize?.height ?? MIN_COMPOSER_HEIGHT;
+                setComposerHeight(
+                  Math.max(MIN_COMPOSER_HEIGHT, Math.min(MAX_COMPOSER_HEIGHT, contentHeight)),
+                );
+              },
             }}
           />
           <TouchableOpacity

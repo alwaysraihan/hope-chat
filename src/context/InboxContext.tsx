@@ -627,7 +627,13 @@ export function InboxProvider({
         replyTo: replyToMapped,
       };
     },
-    [_conversationId, dmCryptoKey, localUserIdStr, peerUserId, isGroup],
+    // groupCryptoKey is intentionally a dependency: it resolves asynchronously
+    // (after an extra fetchGroupInfo round-trip), and this memo must be
+    // recreated once it's available — otherwise every call after that point
+    // keeps closing over the earlier `null`, decryption is silently skipped,
+    // and messages that had already been decrypted (via the retro-decrypt
+    // pass below) flip back to raw ciphertext on the next 15s poll.
+    [_conversationId, dmCryptoKey, groupCryptoKey, localUserIdStr, peerUserId, isGroup],
   );
 
   const messagesForUi = useMemo(() => {
