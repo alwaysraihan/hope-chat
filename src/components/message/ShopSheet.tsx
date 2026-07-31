@@ -63,9 +63,12 @@ export const ShopSheet: React.FC<Props> = ({
   const [purchases, setPurchases] = useState<HoppiPurchasedProduct[] | null>(null);
   const [products, setProducts] = useState<HoppiProduct[] | null>(null);
   const [tabLoading, setTabLoading] = useState(false);
+  const [sessionRetryCount, setSessionRetryCount] = useState(0);
+  const retrySession = useCallback(() => setSessionRetryCount(n => n + 1), []);
 
   // Establish the hoppi.live session and seller status each time the sheet
-  // opens; per-tab data resets so the sheet always shows fresh content.
+  // opens (or the user taps Retry); per-tab data resets so the sheet always
+  // shows fresh content.
   useEffect(() => {
     if (!visible || !hopenityToken) return;
     let cancelled = false;
@@ -92,7 +95,7 @@ export const ShopSheet: React.FC<Props> = ({
     });
 
     return () => { cancelled = true; };
-  }, [visible, hopenityToken]);
+  }, [visible, hopenityToken, sessionRetryCount]);
 
   // Load the active tab's data lazily, once per sheet-open.
   useEffect(() => {
@@ -172,7 +175,14 @@ export const ShopSheet: React.FC<Props> = ({
 
   const renderTabContent = () => {
     if (sessionError) {
-      return <View style={styles.center}><Text style={[styles.errorText, { color: subColor }]}>{sessionError}</Text></View>;
+      return (
+        <View style={styles.center}>
+          <Text style={[styles.errorText, { color: subColor }]}>{sessionError}</Text>
+          <TouchableOpacity onPress={retrySession} style={styles.retryBtn}>
+            <Text style={[styles.retryBtnText, { color: colorss.primary }]}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
     }
     if (!session || tabLoading) {
       return (
@@ -325,6 +335,8 @@ const styles = StyleSheet.create({
   tabLabel: { fontSize: 13, fontWeight: '600' },
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48 },
   errorText: { fontSize: 14, textAlign: 'center', paddingHorizontal: 24 },
+  retryBtn: { marginTop: 14, paddingVertical: 8, paddingHorizontal: 20 },
+  retryBtnText: { fontSize: 14, fontWeight: '700' },
   item: {
     flexDirection: 'row',
     alignItems: 'center',

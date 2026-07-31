@@ -213,6 +213,7 @@ const InboxScreenInner: React.FC<
     registerScrollToMessage,
     sellerSheetVisible,
     closeSellerSheet,
+    peerIsTyping,
   } = useInbox();
 
   // ── GiftedChat FlatList ref for reply-tap scroll ───────────────────────────
@@ -654,6 +655,7 @@ const InboxScreenInner: React.FC<
             alwaysShowSend
             renderInputToolbar={renderInputToolbar}
             renderMessage={renderMessage}
+            isTyping={peerIsTyping}
             loadEarlier={hasMore}
             infiniteScroll
             renderLoadEarlier={() => <></>}

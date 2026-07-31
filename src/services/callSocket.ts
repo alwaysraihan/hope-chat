@@ -16,6 +16,7 @@ type CallSocketListener = (data: Record<string, string>) => void;
 
 type MessageDeletedListener = (data: { messageId: number; chatId: number }) => void;
 type NewMessageListener = (data: { chatId: number }) => void;
+type TypingListener = (data: { chatId: number; userId: string }) => void;
 
 class CallSocketService {
   private socket: any = null;
@@ -26,6 +27,8 @@ class CallSocketService {
   private ringingListeners: Set<CallSocketListener> = new Set();
   private messageDeletedListeners: Set<MessageDeletedListener> = new Set();
   private newMessageListeners: Set<NewMessageListener> = new Set();
+  private userTypingListeners: Set<TypingListener> = new Set();
+  private userStoppedTypingListeners: Set<TypingListener> = new Set();
 
   connect(authToken: string, userId?: string): void {
     if (this.socket?.connected && this.token === authToken) return;
@@ -95,6 +98,18 @@ class CallSocketService {
         const payload = { chatId: Number(d.chatId) };
         this.newMessageListeners.forEach(l => { try { l(payload); } catch { /* */ } });
       });
+      this.socket.on('user_typing', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const payload = { chatId: Number(d.chatId), userId: String(d.userId ?? '') };
+        this.userTypingListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
+      this.socket.on('user_stopped_typing', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const payload = { chatId: Number(d.chatId), userId: String(d.userId ?? '') };
+        this.userStoppedTypingListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
     } catch (e) {
       if (__DEV__) console.warn('[CallSocket] connect error', e);
       this.socket = null;
@@ -156,6 +171,26 @@ class CallSocketService {
   onNewMessage(listener: NewMessageListener): () => void {
     this.newMessageListeners.add(listener);
     return () => this.newMessageListeners.delete(listener);
+  }
+
+  emitTyping(chatId: string | number, userId: string): void {
+    if (!this.socket?.connected) return;
+    try { this.socket.emit('typing', { chatId: Number(chatId), userId }); } catch { /* */ }
+  }
+
+  emitStopTyping(chatId: string | number, userId: string): void {
+    if (!this.socket?.connected) return;
+    try { this.socket.emit('stop_typing', { chatId: Number(chatId), userId }); } catch { /* */ }
+  }
+
+  onUserTyping(listener: TypingListener): () => void {
+    this.userTypingListeners.add(listener);
+    return () => this.userTypingListeners.delete(listener);
+  }
+
+  onUserStoppedTyping(listener: TypingListener): () => void {
+    this.userStoppedTypingListeners.add(listener);
+    return () => this.userStoppedTypingListeners.delete(listener);
   }
 
   isConnected(): boolean {

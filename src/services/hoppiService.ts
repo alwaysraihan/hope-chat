@@ -22,15 +22,30 @@ export async function getHoppiSession(
       method: 'POST',
       headers: { Authorization: `Bearer ${hopenityToken}` },
     });
+    if (!res.ok) {
+      if (__DEV__) {
+        console.warn(
+          `[hoppiService] customer-token exchange failed: HTTP ${res.status}` +
+          (res.status === 401 || res.status === 403
+            ? ' — hopenityToken rejected (stale/expired session)'
+            : ''),
+        );
+      }
+      return null;
+    }
     const data = await res.json() as { success?: boolean; token?: string; userId?: string };
-    if (!data.success || !data.token || !data.userId) return null;
+    if (!data.success || !data.token || !data.userId) {
+      if (__DEV__) console.warn('[hoppiService] customer-token response missing token/userId', data);
+      return null;
+    }
     const session: HoppiSession = { hoppiToken: data.token, hoppiUserId: data.userId };
     sessionCache.set(hopenityToken, {
       session,
       expiresAt: Date.now() + 5 * 60 * 60 * 1000, // 5-hour cache
     });
     return session;
-  } catch {
+  } catch (e) {
+    if (__DEV__) console.warn('[hoppiService] customer-token network error', e);
     return null;
   }
 }

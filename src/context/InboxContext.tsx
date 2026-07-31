@@ -117,6 +117,8 @@ interface InboxContextValue {
   loadingMore: boolean;
   hasMore: boolean;
   replyTo: ExtendedMessage | null;
+  /** True while the other participant is actively typing in this conversation. */
+  peerIsTyping: boolean;
 
   // ── Message CRUD
   onSend: (msgs: ExtendedMessage[]) => void;
@@ -414,8 +416,13 @@ export function InboxProvider({
   const pageRef = useRef(1);
 
   // ── Input state
-  const [text, setText] = useState('');
+  const [text, setTextRaw] = useState('');
   const [initialText, setInitialText] = useState('');
+
+  // ── Typing indicator
+  const [peerIsTyping, setPeerIsTyping] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const peerTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -793,39 +800,42 @@ export function InboxProvider({
     mergeLocalCallLogsFromCache,
   ]);
 
-  // ─── Live poll: fetch new messages every 15 s while this chat is open ─────
+  // ─── Live poll: fetch new messages, on-demand (socket push) and every 15 s
+  // as a fallback while this chat is open ────────────────────────────────────
+  const pollMessagesNow = useCallback(async () => {
+    if (!_conversationId || !token) return;
+    try {
+      const page = await fetchHopenityChatMessages(_conversationId, token, {
+        limit: PAGE_SIZE,
+        isGroup: useV2Messages,
+      });
+      const fetched = page.messages ?? [];
+      const mapped = fetched.map(mapHopenityMessage);
+      mapped.sort((a, b) => {
+        const toMs = (t: unknown) =>
+          t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
+        return toMs(a.createdAt) - toMs(b.createdAt);
+      });
+      setAllMessages(prev => {
+        const merged = mergeFetchedAsc(prev, mapped);
+        if (!merged) return prev;
+        writeThreadMessagesCache(_conversationId, merged);
+        return merged;
+      });
+      setMessages(prev => {
+        const prevAsc = [...stripIntro(prev as ExtendedMessage[])].reverse();
+        const merged = mergeFetchedAsc(prevAsc, mapped);
+        if (!merged) return prev;
+        return mergeIntroDesc([...merged].reverse(), threadIntroPeer);
+      });
+    } catch { /* silent — stale UI is fine, next poll will retry */ }
+  }, [_conversationId, token, useV2Messages, mapHopenityMessage, threadIntroPeer]);
+
   useEffect(() => {
     if (!_conversationId || !token) return;
-    const poll = async () => {
-      try {
-        const page = await fetchHopenityChatMessages(_conversationId, token, {
-          limit: PAGE_SIZE,
-          isGroup: useV2Messages,
-        });
-        const fetched = page.messages ?? [];
-        const mapped = fetched.map(mapHopenityMessage);
-        mapped.sort((a, b) => {
-          const toMs = (t: unknown) =>
-            t instanceof Date ? t.getTime() : new Date(t as string | number).getTime();
-          return toMs(a.createdAt) - toMs(b.createdAt);
-        });
-        setAllMessages(prev => {
-          const merged = mergeFetchedAsc(prev, mapped);
-          if (!merged) return prev;
-          writeThreadMessagesCache(_conversationId, merged);
-          return merged;
-        });
-        setMessages(prev => {
-          const prevAsc = [...stripIntro(prev as ExtendedMessage[])].reverse();
-          const merged = mergeFetchedAsc(prevAsc, mapped);
-          if (!merged) return prev;
-          return mergeIntroDesc([...merged].reverse(), threadIntroPeer);
-        });
-      } catch { /* silent — stale UI is fine, next poll will retry */ }
-    };
-    const id = setInterval(poll, 15_000);
+    const id = setInterval(pollMessagesNow, 15_000);
     return () => clearInterval(id);
-  }, [_conversationId, token, useV2Messages, mapHopenityMessage, threadIntroPeer]);
+  }, [_conversationId, token, pollMessagesNow]);
 
   // ─── Fetch messages ────────────────────────────────────────────────────────
 
@@ -988,10 +998,12 @@ export function InboxProvider({
       deleteMessage(messageId);
     });
 
-    // Trigger an immediate poll when a new_message event arrives so the chat list
-    // and inbox refresh without waiting for the 15/30-second polling cycle.
+    // Fetch the new message immediately when the socket event arrives, instead
+    // of waiting for the 15s poll — this is what made incoming messages feel
+    // slower than the sender's own optimistic echo.
     const unsubNew = callSocket.onNewMessage(({ chatId }) => {
       if (String(chatId) !== String(_conversationId)) return;
+      pollMessagesNow();
       DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
     });
 
@@ -1000,13 +1012,85 @@ export function InboxProvider({
       unsubDeleted();
       unsubNew();
     };
-  }, [_conversationId, deleteMessage]);
+  }, [_conversationId, deleteMessage, pollMessagesNow]);
+
+  // ─── Retro-decrypt: groupCryptoKey is derived asynchronously (after an
+  // extra fetchGroupInfo round-trip), so any group message mapped before it
+  // resolved was stored with its raw "HCG1:…" ciphertext still in `.text` and
+  // never re-processed. Once the key becomes available, sweep the messages
+  // already in state and decrypt anything still ciphertext-shaped.
+  useEffect(() => {
+    if (!isGroup || !groupCryptoKey) return;
+    const decryptPass = (list: ExtendedMessage[]) =>
+      list.map(m => {
+        const t = String(m.text ?? '');
+        if (!t.startsWith('HCG1:')) return m;
+        const plain = maybeDecryptGroupContent(t, groupCryptoKey);
+        return plain === t ? m : { ...m, text: plain };
+      });
+    setAllMessages(prev => decryptPass(prev));
+    setMessages(prev => mergeIntroDesc(decryptPass(stripIntro(prev)), threadIntroPeer));
+  }, [groupCryptoKey, isGroup, threadIntroPeer]);
+
+  // ─── Socket: typing indicator ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!_conversationId) return;
+
+    const unsubTyping = callSocket.onUserTyping(({ chatId, userId }) => {
+      if (String(chatId) !== String(_conversationId)) return;
+      if (localUserIdStr && String(userId) === String(localUserIdStr)) return;
+      setPeerIsTyping(true);
+      if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+      // Safety net in case a stop_typing event is dropped.
+      peerTypingTimeoutRef.current = setTimeout(() => setPeerIsTyping(false), 5000);
+    });
+
+    const unsubStoppedTyping = callSocket.onUserStoppedTyping(({ chatId, userId }) => {
+      if (String(chatId) !== String(_conversationId)) return;
+      if (localUserIdStr && String(userId) === String(localUserIdStr)) return;
+      if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+      setPeerIsTyping(false);
+    });
+
+    return () => {
+      unsubTyping();
+      unsubStoppedTyping();
+      if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+      setPeerIsTyping(false);
+    };
+  }, [_conversationId, localUserIdStr]);
+
+  const setText = useCallback(
+    (t: string) => {
+      setTextRaw(t);
+      if (!_conversationId || !localUserIdStr) return;
+
+      callSocket.emitTyping(_conversationId, localUserIdStr);
+
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        callSocket.emitStopTyping(_conversationId, localUserIdStr);
+      }, 1000);
+    },
+    [_conversationId, localUserIdStr],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    };
+  }, []);
 
   // ─── Send text / media ─────────────────────────────────────────────────────
 
   const onSend = useCallback(
     (outgoing: ExtendedMessage[] = []) => {
       if (!outgoing.length) return;
+
+      if (_conversationId && localUserIdStr) {
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        callSocket.emitStopTyping(_conversationId, localUserIdStr);
+      }
 
       const currentReplyTo = replyTo
         ? {
@@ -1565,6 +1649,7 @@ export function InboxProvider({
     loadingMore,
     hasMore,
     replyTo,
+    peerIsTyping,
 
     // Message CRUD
     onSend,
