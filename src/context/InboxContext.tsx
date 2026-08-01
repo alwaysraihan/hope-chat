@@ -636,6 +636,16 @@ export function InboxProvider({
     [_conversationId, dmCryptoKey, groupCryptoKey, localUserIdStr, peerUserId, isGroup],
   );
 
+  // Always-fresh handle to mapHopenityMessage that doesn't itself trigger
+  // effects. Needed so the initial-load effect below can call the up-to-date
+  // (correctly decrypting) mapper without depending on it directly — if it
+  // did, the effect would re-run the instant groupCryptoKey resolves, which
+  // synchronously resets messages to the (still-ciphertext) session cache
+  // before the subsequent fetch re-decrypts them: a visible
+  // decrypted → ciphertext → decrypted flicker.
+  const mapHopenityMessageRef = useRef(mapHopenityMessage);
+  mapHopenityMessageRef.current = mapHopenityMessage;
+
   const messagesForUi = useMemo(() => {
     if (disappearingTtlSec <= 0) return messages;
     const now = Date.now();
@@ -739,7 +749,7 @@ export function InboxProvider({
           isGroup: useV2Messages,
         });
         const fetched = page.messages ?? [];
-        const mapped = fetched.map(mapHopenityMessage);
+        const mapped = fetched.map((raw: any) => mapHopenityMessageRef.current(raw));
         // Normalise to ascending order (oldest first) before storing.
         // v2 groups return messages newest-first; v1 DMs return oldest-first.
         // Without this sort, group messages render in reverse (newest at top).
@@ -797,11 +807,14 @@ export function InboxProvider({
     };
 
     load();
+    // mapHopenityMessage is intentionally NOT a dependency — see
+    // mapHopenityMessageRef above. This effect should only run on a genuine
+    // conversation switch / reconnect, not every time the group crypto key
+    // resolves (that's handled by the retro-decrypt pass + fresh polls).
   }, [
     _conversationId,
     seedMessages,
     token,
-    mapHopenityMessage,
     threadIntroPeer,
     mergeLocalCallLogsFromCache,
   ]);
@@ -1465,17 +1478,30 @@ export function InboxProvider({
   const handleReply = useCallback(
     (message: IMessage) => {
       const msg = message as ExtendedMessage;
+      // The message list normally holds already-decrypted text, but if the
+      // group/DM key hadn't resolved yet when this particular message was
+      // mapped, `.text` can still be raw ciphertext. Since the reply preview
+      // snapshots `.text` once into redux (it isn't reactive to later
+      // retro-decrypt passes), a stale snapshot would show ciphertext
+      // forever — so re-attempt decryption right here with whatever key is
+      // available now, on the way in.
+      let text = msg.text ?? '';
+      if (text.startsWith('HC1:') && dmCryptoKey) {
+        text = maybeDecryptContent(text, dmCryptoKey);
+      } else if (text.startsWith('HCG1:') && groupCryptoKey) {
+        text = maybeDecryptGroupContent(text, groupCryptoKey);
+      }
       dispatch(
         setReplayTo({
           _id: msg._id,
-          text: msg.text ?? '',
+          text,
           media: msg.media,
           user: msg.user,
           createdAt: new Date(msg.createdAt as Date).toISOString(),
         }),
       );
     },
-    [dispatch],
+    [dispatch, dmCryptoKey, groupCryptoKey],
   );
 
   const clearReply = useCallback(() => {

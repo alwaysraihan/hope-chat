@@ -589,15 +589,31 @@ export function mapChatItemToSummary(
   ) {
     // The list endpoint already includes the full member roster, so the
     // group key can be derived synchronously here — no extra network
-    // round-trip needed just to preview the last message.
+    // round-trip needed just to preview the last message. Field name varies
+    // across API versions (matches the same fallback as normalizeGroupInfo
+    // in groupService.ts), so check all known variants defensively.
     const key = deriveGroupMessageKey(
       String(chat.id ?? ''),
-      chat.participants.map(p => String(p.user_id ?? '')).filter(Boolean),
+      chat.participants
+        .map(p => String((p as any).userId ?? p.user_id ?? (p as any).id ?? ''))
+        .filter(Boolean),
     );
     lastForPreview = {
       ...lastForPreview,
       content: maybeDecryptGroupContent(lastForPreview.content, key),
     };
+  }
+
+  // Safety net: never surface raw ciphertext in the list preview. If it's
+  // still wire-format after the attempts above (key not derivable yet, wrong
+  // member roster, etc.), show a neutral placeholder instead of leaking the
+  // undecrypted payload — matches what the thread view does while its own
+  // key is still resolving.
+  if (
+    typeof lastForPreview.content === 'string' &&
+    (lastForPreview.content.startsWith('HC1:') || lastForPreview.content.startsWith('HCG1:'))
+  ) {
+    lastForPreview = { ...lastForPreview, content: '🔒 Encrypted message' };
   }
 
   const preview = formatChatListPreview(lastForPreview, localId);

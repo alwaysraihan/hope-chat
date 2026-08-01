@@ -184,7 +184,11 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
     if (isReplyVoice) return '🎤 Voice message';
     if (isReplyVideo) return '🎬 Video';
     if (isReplyImage) return '📷 Photo';
-    return replyTo?.text ?? '';
+    const text = replyTo?.text ?? '';
+    // Never surface raw ciphertext — if it wasn't decryptable at capture
+    // time (key not resolved yet), show a neutral placeholder instead.
+    if (text.startsWith('HC1:') || text.startsWith('HCG1:')) return '🔒 Encrypted message';
+    return text;
   };
 
   const hasText = Boolean(props.text?.trim());
