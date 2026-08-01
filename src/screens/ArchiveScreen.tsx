@@ -5,8 +5,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import React, { useMemo } from 'react';
+import React, { useCallback, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { fonts, radius, spacing } from '../theme';
 import { useT } from '../hooks/useT';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -14,16 +15,56 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 import { ArrowLeft, EllipsisVertical, X } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import type { ConversationSummary } from '../context/ChatsContext';
+import { useChats } from '../context/ChatsContext';
 import { AppColors, useAppTheme } from '../context/ThemeContext';
+import { useAppSelector } from '../hooks/redux';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { patchConversationArchive } from '../services/userSettingsService';
+import {
+  getArchivedConversations,
+  removeArchivedConversation,
+  removeHiddenConversation,
+} from '../services/offlineCache';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Archive'>;
 
-/** Placeholder until archive folder is wired to the Hopenity API. */
 const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
-  const archived: ConversationSummary[] = useMemo(() => [], []);
+  const token = useAppSelector(selectAuthToken);
+  const { setConversations } = useChats();
+  const [archived, setArchived] = useState<ConversationSummary[]>([]);
   const { colors } = useAppTheme();
   const styles = stylesFunc(colors);
+
+  // Reload every time the screen gains focus, so a chat archived from the
+  // action sheet a moment ago (or unarchived from here) is always current.
+  useFocusEffect(
+    useCallback(() => {
+      setArchived(getArchivedConversations());
+    }, []),
+  );
+
+  const handleOpenChat = (item: ConversationSummary) => {
+    navigation.navigate('Inbox', {
+      conversationId: item.id,
+      displayName: item.name,
+      avatarUrl: item.avatarUrl ?? undefined,
+      seedConversation: item,
+    });
+  };
+
+  const handleUnarchive = (item: ConversationSummary) => {
+    // Optimistic: drop from this list and restore to the main inbox immediately.
+    removeArchivedConversation(item.id);
+    removeHiddenConversation(item.id);
+    setArchived(prev => prev.filter(c => c.id !== item.id));
+    setConversations(prev =>
+      prev.some(c => c.id === item.id) ? prev : [item, ...prev],
+    );
+    if (token) {
+      patchConversationArchive(item.id, false, token).catch(() => {});
+    }
+  };
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
@@ -51,7 +92,11 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
         }
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.container} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.container}
+            activeOpacity={0.7}
+            onPress={() => handleOpenChat(item)}
+          >
             <View style={styles.avatarWrap}>
               {item.avatarUrl ? (
                 <FastImage
@@ -89,7 +134,11 @@ const ArchiveScreen: React.FC<Props> = ({ navigation }) => {
             </View>
 
             <View style={styles.rightAction}>
-              <TouchableOpacity style={styles.closeBtn}>
+              <TouchableOpacity
+                style={styles.closeBtn}
+                onPress={() => handleUnarchive(item)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
                 <X size={18} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>

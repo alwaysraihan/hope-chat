@@ -45,6 +45,7 @@ import {
   setMutedConversation,
 } from '../services/chatPrefs';
 import {
+  addArchivedConversation,
   addHiddenConversation,
   writeChatDirectoryCache,
 } from '../services/offlineCache';
@@ -85,7 +86,7 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const token = useAppSelector(selectAuthToken);
   const profile = useSel(selectHopenityProfile);
-  const { setConversations } = useChats();
+  const { conversations, setConversations } = useChats();
   const [busy, setBusy] = useState<string | null>(null);
   const [muted, setMuted] = useState(initialMuted);
   const [pinned, setPinned] = useState(initialPinned);
@@ -173,6 +174,10 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
       {
         text: 'Archive',
         onPress: () => {
+          // Snapshot the row so the Archive screen can render it without a
+          // network round-trip, and so unarchiving can restore it exactly.
+          const existing = conversations.find(c => c.id === conversationId);
+          if (existing) addArchivedConversation(existing);
           // Optimistic: hide immediately, fire API best-effort.
           removeConversationLocally();
           patchConversationArchive(conversationId, true, token).catch(() => {});

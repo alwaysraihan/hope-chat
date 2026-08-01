@@ -129,6 +129,46 @@ export function getHiddenConversationIds(): string[] {
   }
 }
 
+// ─── Archived conversations ─────────────────────────────────────────────────
+// Archiving hides a chat from the main inbox via the generic hidden-list above,
+// but that list only stores bare ids — not enough to render a row on the
+// Archive screen. This stores a full snapshot (taken at archive time) per
+// conversation so Archive can render without an extra network round-trip,
+// and be reversed (unarchive) without losing the row.
+
+const ARCHIVED_CONVS_KEY = 'archived_conversations_v1';
+
+export function addArchivedConversation(conv: ConversationSummary): void {
+  if (!conv?.id) return;
+  try {
+    const existing = getArchivedConversations();
+    const next = [conv, ...existing.filter(c => c.id !== conv.id)];
+    storage().set(ARCHIVED_CONVS_KEY, JSON.stringify(next));
+  } catch { /* best-effort */ }
+}
+
+export function removeArchivedConversation(id: string): void {
+  if (!id) return;
+  try {
+    const existing = getArchivedConversations();
+    storage().set(
+      ARCHIVED_CONVS_KEY,
+      JSON.stringify(existing.filter(c => c.id !== id)),
+    );
+  } catch { /* best-effort */ }
+}
+
+export function getArchivedConversations(): ConversationSummary[] {
+  try {
+    const raw = storage().getString(ARCHIVED_CONVS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as ConversationSummary[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 // ─── Story feed cache ─────────────────────────────────────────────────────────
 
 function storyFeedKey(userId: string): string {
