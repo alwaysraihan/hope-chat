@@ -7,6 +7,8 @@ import {
   Text,
   Animated,
   ScrollView,
+  TextInput,
+  TextInputProps,
 } from 'react-native';
 import {
   Camera,
@@ -20,7 +22,6 @@ import {
   ThumbsUp,
 } from 'lucide-react-native';
 import {
-  Composer,
   Send as GiftedSend,
   InputToolbarProps,
   IMessage,
@@ -29,12 +30,166 @@ import FastImage from '@d11/react-native-fast-image';
 
 import VoiceRecorder from './VoiceRecorder';
 import { useInbox } from '../../context/InboxContext';
+import { ExtendedMessage } from '../types/chat';
 import { colorss } from '../../theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useKeyboardVisible from '../../hooks/useKeyboardVisible';
 import { useAppTheme } from '../../context/ThemeContext';
 
-const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
+// gifted-chat's bundled InputToolbar wires up more props than its own
+// `InputToolbarProps` type declares (see GiftedChat/index.tsx), so we
+// extend it with the fields we actually rely on here.
+type CustomInputToolbarProps = InputToolbarProps<IMessage> & {
+  text?: string;
+  textInputProps?: TextInputProps;
+  onSend?: (
+    messages: Partial<IMessage> | Partial<IMessage>[],
+    shouldResetInputToolbar?: boolean,
+  ) => void;
+};
+
+const MIN_COMPOSER_HEIGHT = 36;
+const MAX_COMPOSER_HEIGHT = 132;
+
+const COMMON_EMOJIS = [
+  '😀', '😂', '😍', '😊', '🥰', '😎', '😭', '😅', '🤣', '😢',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '💕',
+  '👍', '👎', '👋', '🙌', '👏', '🤝', '🙏', '💪', '✌️', '🤞',
+  '🎉', '🎊', '🔥', '⭐', '✨', '💫', '🌟', '🎵', '🎶', '💯',
+  '😴', '🤔', '😤', '😱', '🤯', '🥳', '🤩', '😏', '😒', '🙄',
+  '🐶', '🐱', '🦁', '🐸', '🐧', '🦋', '🌹', '🌺', '🍕', '🍔',
+];
+
+// Never surface raw ciphertext in the reply preview — if it wasn't
+// decryptable at capture time (key not resolved yet), show a neutral
+// placeholder instead.
+const isCiphertext = (text: string) =>
+  text.startsWith('HC1:') || text.startsWith('HCG1:');
+
+const getReplyPreviewText = (replyTo: ExtendedMessage): string => {
+  if (replyTo.media?.type === 'voice') return '🎤 Voice message';
+  if (replyTo.media?.type === 'video') return '🎬 Video';
+  if (replyTo.media?.type === 'image') return '📷 Photo';
+  const text = replyTo.text ?? '';
+  return isCiphertext(text) ? '🔒 Encrypted message' : text;
+};
+
+const ReplyPreviewBar: React.FC<{
+  replyTo: ExtendedMessage | null;
+  animatedHeight: Animated.Value;
+  onClear: () => void;
+}> = ({ replyTo, animatedHeight, onClear }) => {
+  const isImage = replyTo?.media?.type === 'image';
+  const isVideo = replyTo?.media?.type === 'video';
+  const isVoice = replyTo?.media?.type === 'voice';
+  const thumbUri =
+    isImage || isVideo
+      ? replyTo?.media?.url ?? replyTo?.media?.remoteUri ?? replyTo?.media?.localUri
+      : undefined;
+
+  return (
+    <Animated.View
+      style={[
+        styles.replyBar,
+        {
+          maxHeight: animatedHeight.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, 72],
+          }),
+          opacity: animatedHeight,
+        },
+      ]}
+    >
+      {replyTo && (
+        <View style={styles.replyInner}>
+          <View style={styles.replyAccentLine} />
+          <View style={styles.replyContent}>
+            <Text style={styles.replyName} numberOfLines={1}>
+              {replyTo.user?.name ?? 'User'}
+            </Text>
+            <Text style={styles.replyText} numberOfLines={1}>
+              {getReplyPreviewText(replyTo)}
+            </Text>
+          </View>
+          {thumbUri ? (
+            <FastImage
+              source={{ uri: thumbUri }}
+              style={styles.replyThumb}
+              resizeMode={FastImage.resizeMode.cover}
+            />
+          ) : isVoice ? (
+            <Text style={styles.replyVoiceEmoji}>🎤</Text>
+          ) : null}
+          <Pressable
+            onPress={onClear}
+            style={styles.replyClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <X size={16} color={colorss.placeholder} />
+          </Pressable>
+        </View>
+      )}
+    </Animated.View>
+  );
+};
+
+const EmojiPicker: React.FC<{ onSelect: (emoji: string) => void }> = ({
+  onSelect,
+}) => (
+  <View style={styles.emojiPanel}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.emojiScroll}
+    >
+      {COMMON_EMOJIS.map(emoji => (
+        <TouchableOpacity
+          key={emoji}
+          style={styles.emojiItem}
+          onPress={() => onSelect(emoji)}
+        >
+          <Text style={styles.emojiChar}>{emoji}</Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  </View>
+);
+
+const ComposerActions: React.FC<{
+  visible: boolean;
+  opacity: Animated.AnimatedInterpolation<number>;
+  onCameraPress: () => void;
+  onGalleryPress: () => void;
+  onVoicePress: () => void;
+  onSellerPress: () => void;
+}> = ({
+  visible,
+  opacity,
+  onCameraPress,
+  onGalleryPress,
+  onVoicePress,
+  onSellerPress,
+}) => {
+  if (!visible) return null;
+  return (
+    <Animated.View style={[styles.leftIcons, { opacity }]}>
+      <TouchableOpacity style={styles.iconBtn} onPress={onCameraPress}>
+        <Camera size={22} color={colorss.primary} />
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.iconBtn} onPress={onGalleryPress}>
+        <Image size={22} color={colorss.primary} />
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.iconBtn} onPress={onVoicePress}>
+        <Mic size={22} color={colorss.primary} />
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.iconBtn} onPress={onSellerPress}>
+        <ShoppingBag size={22} color={colorss.primary} />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
+const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const {
     isRecording,
     replyTo,
@@ -49,85 +204,17 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
   const { isDark, colors } = useAppTheme();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  // gifted-chat's bundled Composer only auto-grows the TextInput on web
-  // (see Composer.tsx: onContentSizeChange is a no-op on native), so on
-  // iOS/Android we have to track content height ourselves to get the
-  // WhatsApp-style grow-with-content behaviour.
-  const MIN_COMPOSER_HEIGHT = 36;
-  const MAX_COMPOSER_HEIGHT = 132;
   const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT);
   const { bottom } = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardVisible();
 
-  const COMMON_EMOJIS = [
-    '😀',
-    '😂',
-    '😍',
-    '😊',
-    '🥰',
-    '😎',
-    '😭',
-    '😅',
-    '🤣',
-    '😢',
-    '❤️',
-    '🧡',
-    '💛',
-    '💚',
-    '💙',
-    '💜',
-    '🖤',
-    '🤍',
-    '💔',
-    '💕',
-    '👍',
-    '👎',
-    '👋',
-    '🙌',
-    '👏',
-    '🤝',
-    '🙏',
-    '💪',
-    '✌️',
-    '🤞',
-    '🎉',
-    '🎊',
-    '🔥',
-    '⭐',
-    '✨',
-    '💫',
-    '🌟',
-    '🎵',
-    '🎶',
-    '💯',
-    '😴',
-    '🤔',
-    '😤',
-    '😱',
-    '🤯',
-    '🥳',
-    '🤩',
-    '😏',
-    '😒',
-    '🙄',
-    '🐶',
-    '🐱',
-    '🦁',
-    '🐸',
-    '🐧',
-    '🦋',
-    '🌹',
-    '🌺',
-    '🍕',
-    '🍔',
-  ];
+  const expandAnim = useRef(new Animated.Value(0)).current;
+  const replyHeight = useRef(new Animated.Value(0)).current;
 
   const appendEmoji = (emoji: string) => {
     const current = props.text ?? '';
     props.textInputProps?.onChangeText?.(current + emoji);
   };
-  const expandAnim = useRef(new Animated.Value(0)).current;
-  const replyHeight = useRef(new Animated.Value(0)).current;
 
   // Expand when the user starts typing
   useEffect(() => {
@@ -169,30 +256,9 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
     );
   }
 
-  // ── Reply preview helpers
-  const isReplyImage = replyTo?.media?.type === 'image';
-  const isReplyVideo = replyTo?.media?.type === 'video';
-  const isReplyVoice = replyTo?.media?.type === 'voice';
-  const replyThumbUri =
-    isReplyImage || isReplyVideo
-      ? replyTo?.media?.url ??
-        replyTo?.media?.remoteUri ??
-        replyTo?.media?.localUri
-      : undefined;
-
-  const getReplyPreviewText = (): string => {
-    if (isReplyVoice) return '🎤 Voice message';
-    if (isReplyVideo) return '🎬 Video';
-    if (isReplyImage) return '📷 Photo';
-    const text = replyTo?.text ?? '';
-    // Never surface raw ciphertext — if it wasn't decryptable at capture
-    // time (key not resolved yet), show a neutral placeholder instead.
-    if (text.startsWith('HC1:') || text.startsWith('HCG1:')) return '🔒 Encrypted message';
-    return text;
-  };
-
   const hasText = Boolean(props.text?.trim());
   const bottomPadding = isKeyboardVisible ? 10 : bottom;
+
   return (
     <View
       style={[
@@ -203,112 +269,28 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
         },
       ]}
     >
-      {/* Reply Preview Bar */}
-      <Animated.View
-        style={[
-          styles.replyBar,
-          {
-            maxHeight: replyHeight.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 72],
-            }),
-            opacity: replyHeight,
-            overflow: 'hidden',
-          },
-        ]}
-      >
-        {replyTo && (
-          <View style={styles.replyInner}>
-            <View style={styles.replyAccentLine} />
-            <View style={styles.replyContent}>
-              <Text style={styles.replyName} numberOfLines={1}>
-                {replyTo.user?.name ?? 'User'}
-              </Text>
-              <Text style={styles.replyText} numberOfLines={1}>
-                {getReplyPreviewText()}
-              </Text>
-            </View>
-            {replyThumbUri ? (
-              <FastImage
-                source={{ uri: replyThumbUri }}
-                style={styles.replyThumb}
-                resizeMode={FastImage.resizeMode.cover}
-              />
-            ) : isReplyVoice ? (
-              <Text style={styles.replyVoiceEmoji}>🎤</Text>
-            ) : null}
-            <Pressable
-              onPress={clearReply}
-              style={styles.replyClose}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <X size={16} color={colorss.placeholder} />
-            </Pressable>
-          </View>
-        )}
-      </Animated.View>
+      <ReplyPreviewBar
+        replyTo={replyTo}
+        animatedHeight={replyHeight}
+        onClear={clearReply}
+      />
 
-      {/* Emoji Picker Panel */}
-      {showEmojiPicker && (
-        <View style={styles.emojiPanel}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.emojiScroll}
-          >
-            {COMMON_EMOJIS.map(emoji => (
-              <TouchableOpacity
-                key={emoji}
-                style={styles.emojiItem}
-                onPress={() => appendEmoji(emoji)}
-              >
-                <Text style={styles.emojiChar}>{emoji}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+      {showEmojiPicker && <EmojiPicker onSelect={appendEmoji} />}
 
       {/* Input Row */}
       <View style={styles.inputRow}>
-        {/* Left icons or collapse arrow */}
         {!isExpanded ? (
-          <Animated.View
-            style={[
-              styles.leftIcons,
-              {
-                opacity: expandAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [1, 0],
-                }),
-              },
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={handleCameraPress}
-            >
-              <Camera size={22} color={colorss.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={handleGalleryPress}
-            >
-              <Image size={22} color={colorss.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={handleVoiceRecordingStart}
-            >
-              <Mic size={22} color={colorss.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={openSellerSheet}
-            >
-              <ShoppingBag size={22} color={colorss.primary} />
-            </TouchableOpacity>
-          </Animated.View>
+          <ComposerActions
+            visible
+            opacity={expandAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [1, 0],
+            })}
+            onCameraPress={handleCameraPress}
+            onGalleryPress={handleGalleryPress}
+            onVoicePress={handleVoiceRecordingStart}
+            onSellerPress={openSellerSheet}
+          />
         ) : (
           <Pressable
             onPress={() => setIsExpanded(false)}
@@ -322,24 +304,33 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
         <View
           style={[
             styles.inputWrapper,
-            { backgroundColor: colors.surface },
+            {
+              backgroundColor: colors.surface,
+              minHeight: composerHeight + 16,
+            },
           ]}
         >
-          <Composer
-            {...props}
-            text={props.text}
-            textInputProps={{
-              style: [styles.input, { height: composerHeight }],
-              placeholderTextColor: colorss.placeholder,
-              multiline: true,
-              placeholder: 'Type here…',
-              onChangeText: props?.textInputProps?.onChangeText,
-              onContentSizeChange: (e: any) => {
-                const contentHeight = e?.nativeEvent?.contentSize?.height ?? MIN_COMPOSER_HEIGHT;
-                setComposerHeight(
-                  Math.max(MIN_COMPOSER_HEIGHT, Math.min(MAX_COMPOSER_HEIGHT, contentHeight)),
-                );
-              },
+          <TextInput
+            {...props.textInputProps}
+            value={props.text}
+            onChangeText={props.textInputProps?.onChangeText}
+            style={[
+              styles.input,
+              styles.composerInput,
+              { color: colors.textPrimary },
+            ]}
+            placeholderTextColor={colorss.placeholder}
+            multiline
+            placeholder="Type here…"
+            onContentSizeChange={e => {
+              const contentHeight =
+                e?.nativeEvent?.contentSize?.height ?? MIN_COMPOSER_HEIGHT;
+              setComposerHeight(
+                Math.max(
+                  MIN_COMPOSER_HEIGHT,
+                  Math.min(MAX_COMPOSER_HEIGHT, contentHeight),
+                ),
+              );
             }}
           />
           <TouchableOpacity
@@ -355,13 +346,13 @@ const CustomInputToolbar: React.FC<InputToolbarProps<IMessage>> = props => {
 
         {/* Send or Mic */}
         {hasText ? (
-          <GiftedSend {...props} style={styles.actionBtn}>
+          <GiftedSend {...props} containerStyle={styles.actionBtn}>
             <Send size={22} color={colorss.primary} />
           </GiftedSend>
         ) : (
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={() => props?.onSend?.({ text: '👍' } as any)}
+            onPress={() => props.onSend?.({ text: '👍' })}
           >
             <ThumbsUp size={22} color={colorss.primary} />
           </TouchableOpacity>
@@ -381,7 +372,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  replyBar: { marginBottom: 4 },
+  replyBar: { marginBottom: 4, overflow: 'hidden' },
   replyInner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -411,11 +402,17 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     borderRadius: 24,
     paddingHorizontal: 14,
     paddingVertical: 6,
     minHeight: 52,
+  },
+  composerInput: {
+    minHeight: 40,
+    maxHeight: 140,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   input: {
     flex: 1,
