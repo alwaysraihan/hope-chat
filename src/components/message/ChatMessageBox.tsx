@@ -71,9 +71,15 @@ function openHopenityDeepOrWeb(url: string): void {
     Linking.openURL(url).catch(() => {});
     return;
   }
+  // Preserve the original host — Hopenity's parseDeepLinkUrl() branches on
+  // hostname to tell a hoppi.live product/shop link apart from a hopenity.com
+  // post/profile link. Collapsing both to the same host (as this used to do)
+  // made every hoppi.live link parse as an unrecognized hopenity.com path and
+  // silently fall through to opening the app on its home screen instead of
+  // the product/seller/shop screen.
   const deepLink = url
     .replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
-    .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hopenity.com');
+    .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hoppi.live');
   Linking.canOpenURL(deepLink)
     .then(ok => Linking.openURL(ok ? deepLink : url))
     .catch(() => Linking.openURL(url).catch(() => {}));
