@@ -307,6 +307,7 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
             {
               backgroundColor: colors.surface,
               minHeight: composerHeight + 16,
+              alignItems:'center'
             },
           ]}
         >

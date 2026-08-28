@@ -56,6 +56,7 @@ import {
   fetchUserPremiumProfile,
   createBooking,
   createWalletTopupCheckout,
+  waitForWalletTopup,
   type PremiumCallProfile,
 } from '../services/premiumCallService';
 import {
@@ -332,9 +333,17 @@ export default function BookCallScreen({ navigation, route }: Props) {
     returnUrlPrefix: string | null;
   } | null>(null);
   const [topping, setTopping] = useState(false);
+  // USD the pending top-up needs to cover — drives the post-payment wait.
+  const [pendingTopupUSD, setPendingTopupUSD] = useState<number | null>(null);
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [webViewUrl, setWebViewUrl] = useState<string | null>(null);
   const [webViewReturnUrlPrefix, setWebViewReturnUrlPrefix] = useState<string | null>(null);
   const autoSelectedRef = useRef(false);
+  // Once the user picks a date themselves, stop auto-advancing underneath them.
+  const userPickedDateRef = useRef(false);
+  // Bounds the auto-advance scan so an expert with no free slots at all can't
+  // spin the effect forward forever.
+  const autoAdvanceCountRef = useRef(0);
   // Date the user is hovering over inside the DatePickerSheet (not yet confirmed).
   // Drives availableSlots so slots load as soon as a day is tapped in the sheet.
   const [sheetPickedDate, setSheetPickedDate] = useState<Date | null>(null);
@@ -506,6 +515,66 @@ export default function BookCallScreen({ navigation, route }: Props) {
     }
   }, [profile, isDateAvailable]);
 
+  /**
+   * Keep the chosen time honest, and pick one when the user hasn't.
+   *
+   * Slots shift as the day advances and as other people book, so a time that
+   * was valid a moment ago can vanish — leaving a selection the backend would
+   * reject. Drop it, then take the first genuinely available slot.
+   */
+  useEffect(() => {
+    if (slotsLoading) return;
+    if (selectedTime && !availableSlots.includes(selectedTime)) {
+      setSelectedTime(null);
+      return;
+    }
+    if (!selectedTime && availableSlots.length > 0) {
+      setSelectedTime(availableSlots[0]);
+    }
+  }, [availableSlots, selectedTime, slotsLoading]);
+
+  /**
+   * A date can pass isDateAvailable (the expert works that weekday) yet still
+   * have nothing bookable — every slot already taken or already past. Walk
+   * forward to the first day that actually has a slot, but only while the user
+   * hasn't picked a date themselves.
+   */
+  useEffect(() => {
+    if (!profile || !selectedDuration || slotsLoading) return;
+    if (userPickedDateRef.current || selectedDay == null) return;
+    if (availableSlots.length > 0) return;
+    if (autoAdvanceCountRef.current >= 14) return;
+
+    const current = new Date(calendarYear, calendarMonth, selectedDay);
+    for (let i = 1; i <= 14; i++) {
+      const d = new Date(
+        current.getFullYear(),
+        current.getMonth(),
+        current.getDate() + i,
+      );
+      if (maxBookingDate && d > maxBookingDate) break;
+      if (isDateAvailable(d.getFullYear(), d.getMonth(), d.getDate())) {
+        autoAdvanceCountRef.current += 1;
+        setCalendarYear(d.getFullYear());
+        setCalendarMonth(d.getMonth());
+        setSelectedDay(d.getDate());
+        return;
+      }
+    }
+    // Nothing bookable in range — stop scanning.
+    autoAdvanceCountRef.current = 14;
+  }, [
+    availableSlots.length,
+    calendarMonth,
+    calendarYear,
+    isDateAvailable,
+    maxBookingDate,
+    profile,
+    selectedDay,
+    selectedDuration,
+    slotsLoading,
+  ]);
+
   const canBook =
     !!selectedDuration &&
     !!selectedDate &&
@@ -513,7 +582,7 @@ export default function BookCallScreen({ navigation, route }: Props) {
     totalPriceUSD != null &&
     termsChecked;
 
-  const handleBook = async () => {
+  const handleBook = async (): Promise<void> => {
     if (!token || !profile || !selectedDate || !selectedTime || !selectedDuration) return;
     setBooking(true);
     const d = new Date(selectedDate);
@@ -580,6 +649,7 @@ export default function BookCallScreen({ navigation, route }: Props) {
       const checkout = await createWalletTopupCheckout(requiredUSD, token);
       setTopping(false);
       if (checkout) {
+        setPendingTopupUSD(requiredUSD);
         setPaymentSheet({ checkoutUrl: checkout.checkoutUrl, amountDisplay, returnUrlPrefix: checkout.returnUrlPrefix });
       } else {
         Toast.error('Could not open payment. Please top up your wallet from the app settings.');
@@ -798,6 +868,7 @@ export default function BookCallScreen({ navigation, route }: Props) {
           initialDate={selectedDate}
           onClose={() => { setDateSheetOpen(false); setSheetPickedDate(null); }}
           onConfirm={({ date, time }) => {
+            userPickedDateRef.current = true;
             setCalendarYear(date.getFullYear());
             setCalendarMonth(date.getMonth());
             setSelectedDay(date.getDate());
@@ -882,10 +953,32 @@ export default function BookCallScreen({ navigation, route }: Props) {
         title="Top Up Wallet"
         matchUrlPrefix={webViewReturnUrlPrefix}
         onClose={() => { setWebViewUrl(null); setWebViewReturnUrlPrefix(null); }}
-        onPaymentComplete={() => {
+        onPaymentComplete={async () => {
           setWebViewUrl(null);
           setWebViewReturnUrlPrefix(null);
-          Toast.success('Payment complete! You can now retry booking.');
+
+          const required = pendingTopupUSD;
+          setPendingTopupUSD(null);
+          if (required == null || !token) {
+            Toast.success('Payment complete! You can now retry booking.');
+            return;
+          }
+
+          // PayStation redirects back before the wallet is credited, so wait
+          // for the balance to land rather than making the user retry into a
+          // stale "insufficient balance".
+          setConfirmingPayment(true);
+          const credited = await waitForWalletTopup(required, token);
+          setConfirmingPayment(false);
+
+          if (!credited) {
+            Toast.info(
+              "Payment received — we're still confirming it. Try booking again in a moment.",
+            );
+            return;
+          }
+          Toast.success('Wallet topped up — completing your booking…');
+          await handleBook();
         }}
       />
 
@@ -893,17 +986,17 @@ export default function BookCallScreen({ navigation, route }: Props) {
       <Modal
         transparent
         animationType="slide"
-        visible={!!paymentSheet || topping}
+        visible={!!paymentSheet || topping || confirmingPayment}
         onRequestClose={() => setPaymentSheet(null)}
       >
         <Pressable style={s.payBackdrop} onPress={() => setPaymentSheet(null)} />
         <View style={[s.paySheet, { paddingBottom: insets.bottom + 16 }]}>
           <View style={s.payHandle} />
-          {topping ? (
+          {topping || confirmingPayment ? (
             <View style={{ alignItems: 'center', paddingVertical: 32 }}>
               <ActivityIndicator size="large" color={colorss.primary} />
               <Text style={{ marginTop: 14, color: colorss.textSecondary, fontSize: 14 }}>
-                Preparing payment…
+                {confirmingPayment ? 'Confirming payment…' : 'Preparing payment…'}
               </Text>
             </View>
           ) : paymentSheet ? (

@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DeviceEventEmitter,
-  Image,
   View,
   Text,
+  Image,
   FlatList,
+  ScrollView,
   StyleSheet,
   Alert,
   RefreshControl,
+  ActivityIndicator,
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { IC_PROFILE } from '../assets';
 import Header from '../components/home/Header';
 import StoryItem from '../components/home/StoryItem';
 import ConversationItem from '../components/home/ConversationItem';
@@ -24,11 +27,13 @@ import {
 } from '../types/navigators';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ChevronRight, PlayCircle } from 'lucide-react-native';
+import { PlayCircle } from 'lucide-react-native';
 import { useChats, RELOAD_CHAT_LIST_EVENT } from '../context/ChatsContext';
 import type { ConversationSummary } from '../context/ChatsContext';
 import { useFocusEffect } from '@react-navigation/native';
+import FastImage from '@d11/react-native-fast-image';
 import { setStoryFeedRings } from '../data/storyFeedCache';
+import { fetchMyFriends, type HopenityFriend } from '../services/friendsService';
 import { storyRingsFromConversations } from '../services/story/buildStoryRings';
 import {
   conversationHasStoryRing,
@@ -41,7 +46,6 @@ import {
   setActivePage,
 } from '../redux/features/auth/authSlice';
 import { useT } from '../hooks/useT';
-import { IC_HOPENITY } from '../assets';
 import { fetchMyBookings } from '../services/premiumCallService';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
@@ -56,6 +60,24 @@ type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Home'>,
   NativeStackScreenProps<RootStackNavigatorParamList, 'Search'>
 >;
+
+type ChatFilter = 'all' | 'unread' | 'friends';
+
+/**
+ * Tabs are a mix of in-place filters and shortcuts: Booking and Requests own
+ * full screens already, so tapping them navigates instead of filtering.
+ */
+type ChatTab =
+  | { key: ChatFilter; label: string; kind: 'filter' }
+  | { key: 'booking' | 'requests'; label: string; kind: 'route' };
+
+const TABS: ChatTab[] = [
+  { key: 'all', label: 'All', kind: 'filter' },
+  { key: 'unread', label: 'Unread', kind: 'filter' },
+  { key: 'booking', label: 'Booking', kind: 'route' },
+  { key: 'requests', label: 'Requests', kind: 'route' },
+  { key: 'friends', label: 'Friends', kind: 'filter' },
+];
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const colorss = useColors();
@@ -78,6 +100,13 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   // ── Active booking banner ─────────────────────────────────────────────────
   const [activeBookingCount, setActiveBookingCount] = useState(0);
 
+  // ── Chat list filter tabs ─────────────────────────────────────────────────
+  const [activeFilter, setActiveFilter] = useState<ChatFilter>('all');
+  const [friends, setFriends] = useState<HopenityFriend[]>([]);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  /** null until the first page lands; false once the server runs out. */
+  const [friendsHasMore, setFriendsHasMore] = useState(true);
+
   useFocusEffect(
     useCallback(() => {
       reloadConversations().catch(() => undefined);
@@ -89,10 +118,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         fetchMyBookings('caller', token).catch(() => []),
         fetchMyBookings('callee', token).catch(() => []),
       ]).then(([booked, received]) => {
-        const count =
-          booked.filter(b => ACTIVE.has(b.status)).length +
-          received.filter(b => ACTIVE.has(b.status)).length;
-        setActiveBookingCount(count);
+        const active = [...booked, ...received].filter(b => ACTIVE.has(b.status));
+        setActiveBookingCount(active.length);
       });
 
       return undefined;
@@ -281,6 +308,49 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [conversations, navigation]);
 
+  /** Open the viewer positioned on one specific friend's ring. */
+  const openStoryViewerFor = useCallback(
+    (conversationId: string) => {
+      const rings = storyRingsFromConversations(conversations);
+      if (rings.length === 0) {
+        Alert.alert(t.stories_title, t.no_stories_chats);
+        return;
+      }
+      setStoryFeedRings(rings);
+
+      // friendsStrip is sorted online-first while rings keep conversation
+      // order, so resolve by id rather than trusting the tapped index.
+      const idx = rings.findIndex(r => String(r.id) === String(conversationId));
+
+      const parentNav = navigation.getParent();
+      if (parentNav) {
+        (
+          parentNav as { navigate: (n: string, p: object) => void }
+        ).navigate('StoryViewer', { ringIndex: idx >= 0 ? idx : 0 });
+      }
+    },
+    [conversations, navigation, t.no_stories_chats, t.stories_title],
+  );
+
+  /** "Your story" tile — own avatar with a + badge, opens the composer. */
+  const myStoryTile = useMemo(
+    () => ({
+      isAdd: true as const,
+      id: 'my_story',
+      name: 'Your story',
+      avatarUrl: profile?.avatarUrl ?? null,
+    }),
+    [profile?.avatarUrl],
+  );
+
+  const openCreateStory = useCallback(() => {
+    const parentNav = navigation.getParent();
+    const target = (parentNav ?? navigation) as {
+      navigate: (n: string) => void;
+    };
+    target.navigate('CreateStory');
+  }, [navigation]);
+
   const renderStoryViewerTile = useCallback(
     () => (
       <TouchableOpacity
@@ -317,32 +387,88 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     [navigation, navigateInbox],
   );
 
-  const showStoryStrips = activePeers.length > 0 || friendsStrip.length > 0;
+  const unreadChatCount = useMemo(
+    () => conversations.filter(c => (c.unreadCount ?? 0) > 0).length,
+    [conversations],
+  );
+
+  const filteredConversations = useMemo(() => {
+    switch (activeFilter) {
+      case 'unread':
+        return conversations.filter(c => (c.unreadCount ?? 0) > 0);
+      default:
+        return conversations;
+    }
+  }, [activeFilter, conversations]);
+
+  const FRIENDS_PAGE_SIZE = 30;
+
+  /**
+   * Friends load a page at a time and append on scroll. Guarded by a loading
+   * flag so onEndReached — which fires repeatedly while the list settles —
+   * can't stack duplicate requests for the same offset.
+   */
+  const loadFriends = useCallback(
+    async (reset: boolean) => {
+      const myId = normalizeChatUserId(profile?.userId);
+      if (!myId || friendsLoading) return;
+      if (!reset && !friendsHasMore) return;
+
+      setFriendsLoading(true);
+      try {
+        const offset = reset ? 0 : friends.length;
+        const page = await fetchMyFriends(myId, token, {
+          limit: FRIENDS_PAGE_SIZE,
+          offset,
+        });
+
+        setFriends(prev => {
+          const next = reset ? page.friends : [...prev, ...page.friends];
+          // The endpoint can repeat rows across pages when the underlying
+          // order shifts; dedupe so keys stay unique and nobody appears twice.
+          const seen = new Set<string>();
+          return next.filter(f =>
+            seen.has(f.userId) ? false : (seen.add(f.userId), true),
+          );
+        });
+
+        const received = offset + page.friends.length;
+        setFriendsHasMore(
+          page.friends.length >= FRIENDS_PAGE_SIZE &&
+            (page.total == null || received < page.total),
+        );
+      } finally {
+        setFriendsLoading(false);
+      }
+    },
+    [friends.length, friendsHasMore, friendsLoading, profile?.userId, token],
+  );
+
+  // First page loads when the tab is opened.
+  useEffect(() => {
+    if (activeFilter !== 'friends') return;
+    if (friends.length > 0 || friendsLoading) return;
+    void loadFriends(true);
+  }, [activeFilter, friends.length, friendsLoading, loadFriends]);
+
+  const openFriendChat = useCallback(
+    (friend: HopenityFriend) => {
+      void navigateInboxForPeer({
+        peerId: friend.userId,
+        displayName: friend.name,
+        avatarUrl: friend.avatarUrl ?? undefined,
+      });
+    },
+    [navigateInboxForPeer],
+  );
+
+  // The Stories row always renders — it holds the user's own "Your story" tile.
+  const showStoryStrips = true;
 
   const ListHeader = useCallback(
     () => (
       <>
-        {/* ── Active booking banner ── */}
-        {activeBookingCount > 0 ? (
-          <TouchableOpacity
-            style={styles.bookingBanner}
-            onPress={() => navigation.navigate('MyBookings')}
-            activeOpacity={0.85}
-          >
-            <Image source={IC_HOPENITY} style={styles.bookingLogo} resizeMode="contain" />
-            <View style={styles.bookingBannerText}>
-              <Text style={styles.bookingBannerTitle}>Your Booking</Text>
-              <Text style={styles.bookingBannerSub}>
-                {activeBookingCount === 1
-                  ? '1 active booking'
-                  : `${activeBookingCount} active bookings`}
-              </Text>
-            </View>
-            <ChevronRight size={18} color={colorss.primary} />
-          </TouchableOpacity>
-        ) : null}
-
-        {showStoryStrips ? (
+        {/* {showStoryStrips ? (
           <>
             {activePeers.length > 0 ? (
               <View style={styles.storySection}>
@@ -362,68 +488,134 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                     style={styles.storyStripFlex}
                     contentContainerStyle={styles.storiesListInner}
                   />
-                  {/* {renderStoryViewerTile()} */}
+                  {renderStoryViewerTile()}
                 </View>
               </View>
-            ) : null}
+            ) : null} */}
 
-            {friendsStrip.length > 0 ? (
-              <View style={styles.storySection}>
-                <Text style={styles.stripSectionLabel}>{t.stories}</Text>
-                <View style={styles.storyStripRow}>
-                  <FlatList
-                    data={friendsStrip}
-                    renderItem={({ item }) => (
-                      <StoryItem
-                        item={toStoryShape(item)}
-                        onPress={() => navigateInbox(item)}
-                      />
-                    )}
-                    keyExtractor={item => `friend_${item.id}`}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.storyStripFlex}
-                    contentContainerStyle={styles.storiesListInner}
-                  />
-                  {/* {activePeers.length === 0 ? renderStoryViewerTile() : null} */}
-                </View>
+            {/* <View style={styles.storySection}>
+              <Text style={styles.stripSectionLabel}>{t.stories}</Text>
+              <View style={styles.storyStripRow}>
+                <StoryItem item={myStoryTile} onPress={openCreateStory} />
+                <FlatList
+                  data={friendsStrip}
+                  renderItem={({ item }) => (
+                    <StoryItem
+                      item={toStoryShape(item)}
+                      onPress={() => openStoryViewerFor(item.id)}
+                    />
+                  )}
+                  keyExtractor={item => `friend_${item.id}`}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.storyStripFlex}
+                  contentContainerStyle={styles.storiesListInner}
+                />
               </View>
-            ) : null}
+            </View>
           </>
+        ) : null} */}
+
+        {/* ── Filter tabs ── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {TABS.map(tab => {
+            const selected = tab.kind === 'filter' && activeFilter === tab.key;
+            const badge =
+              tab.key === 'requests'
+                ? pendingRequestCount
+                : tab.key === 'unread'
+                  ? unreadChatCount
+                  : 0;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                onPress={() => {
+                  if (tab.kind === 'route') {
+                    navigation.navigate(
+                      tab.key === 'booking' ? 'MyBookings' : 'MessageRequests',
+                    );
+                    return;
+                  }
+                  setActiveFilter(tab.key);
+                }}
+                style={[styles.filterChip, selected && styles.filterChipOn]}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    selected && styles.filterChipTextOn,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+                {badge > 0 ? (
+                  <View
+                    style={[
+                      styles.chipBadge,
+                      selected && styles.chipBadgeOnSelected,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipBadgeText,
+                        selected && styles.chipBadgeTextOnSelected,
+                      ]}
+                    >
+                      {badge > 99 ? '99+' : badge}
+                    </Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* ── Active booking banner ── */}
+        {activeBookingCount > 0 ? (
+          <TouchableOpacity
+            style={styles.bookingBanner}
+            onPress={() => navigation.navigate('MyBookings')}
+            activeOpacity={0.85}
+          >
+            <Image
+              source={IC_PROFILE}
+              style={styles.bookingAvatar}
+              resizeMode="cover"
+            />
+            <View style={styles.bookingBannerText}>
+              <Text style={styles.bookingTitle} numberOfLines={1}>
+                Hopechat Booking
+              </Text>
+              <Text style={styles.bookingSub} numberOfLines={1}>
+                {activeBookingCount === 1
+                  ? 'You have 1 active booking'
+                  : `You have ${activeBookingCount} active bookings`}
+              </Text>
+            </View>
+          </TouchableOpacity>
         ) : null}
 
-        <View style={styles.messagesHeaderRow}>
-          <View style={styles.messagesHeaderLeft}>
-            <Text style={styles.sectionLabel}>{t.messages}</Text>
-            {/* <BellOff size={18} color={colorss.textPrimary} />  */}
-          </View>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Message requests"
-            onPress={() => navigation.navigate('MessageRequests')}
-            style={styles.requestsPillRow}
-          >
-            <Text style={[styles.sectionLabel, styles.requestsLabel]}>
-              {t.requests}
-            </Text>
-            {pendingRequestCount > 0 ? (
-              <View style={styles.requestBadge}>
-                <Text style={styles.requestBadgeText}>
-                  {pendingRequestCount > 99 ? '99+' : pendingRequestCount}
-                </Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
-        </View>
       </>
     ),
     [
       activeBookingCount,
       activePeers,
       friendsStrip,
+      activeFilter,
+      myStoryTile,
       navigateInbox,
       navigation,
+      openCreateStory,
+      openStoryViewerFor,
       pendingRequestCount,
+      unreadChatCount,
       renderStoryViewerTile,
       showStoryStrips,
       toStoryShape,
@@ -431,6 +623,83 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const styles = useMemo(() => StyleSheet.create({
+    filterRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 20,
+      paddingTop: 4,
+      paddingBottom: 10,
+    },
+    filterChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colorss.bubbleIn,
+    },
+    chipBadge: {
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      paddingHorizontal: 5,
+      backgroundColor: colorss.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    chipBadgeOnSelected: {
+      backgroundColor: '#FFFFFF',
+    },
+    chipBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    chipBadgeTextOnSelected: {
+      color: colorss.primary,
+    },
+    filterChipOn: {
+      backgroundColor: colorss.primary,
+    },
+    filterChipText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colorss.textPrimary,
+    },
+    filterChipTextOn: {
+      color: '#FFFFFF',
+    },
+    friendRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingHorizontal: 20,
+      paddingVertical: 8,
+    },
+    friendAvatar: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: colorss.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    friendInitial: {
+      color: '#FFFFFF',
+      fontSize: 17,
+      fontWeight: '700',
+    },
+    friendsFooter: {
+      paddingVertical: 16,
+    },
+    friendName: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: '600',
+      color: colorss.textPrimary,
+    },
     safeArea: {
       flex: 1,
       backgroundColor: colorss.white,
@@ -439,37 +708,33 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       flex: 1,
       backgroundColor: colorss.white,
     },
+    // Styled to match ConversationItem so it reads as the first chat row,
+    // not a banner bolted above the list.
     bookingBanner: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      marginHorizontal: 16,
-      marginTop: 10,
-      marginBottom: 6,
-      backgroundColor: `${colorss.primary}0E`,
-      borderWidth: 1,
-      borderColor: `${colorss.primary}30`,
-      borderRadius: 14,
-      paddingHorizontal: 14,
-      paddingVertical: 12,
+      paddingHorizontal: 20,
+      paddingVertical: 8,
     },
-    bookingLogo: {
-      width: 36,
-      height: 36,
-      borderRadius: 8,
+    bookingAvatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
     },
     bookingBannerText: {
       flex: 1,
+      minWidth: 0,
     },
-    bookingBannerTitle: {
-      fontSize: 14,
-      fontWeight: '700' as const,
+    bookingTitle: {
+      fontSize: 15,
+      fontWeight: fonts.semibold,
       color: colorss.textPrimary,
+      marginBottom: 3,
     },
-    bookingBannerSub: {
-      fontSize: 12,
+    bookingSub: {
+      fontSize: 13,
       color: colorss.textSecondary,
-      marginTop: 2,
     },
     storySection: {
       paddingBottom: 4,
@@ -566,6 +831,34 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     },
   }), [colorss]);
 
+  const renderFriend = useCallback(
+    ({ item }: { item: HopenityFriend }) => (
+      <TouchableOpacity
+        style={styles.friendRow}
+        onPress={() => openFriendChat(item)}
+        activeOpacity={0.7}
+      >
+        {item.avatarUrl ? (
+          <FastImage
+            source={{ uri: item.avatarUrl }}
+            style={styles.friendAvatar}
+          />
+        ) : (
+          <View style={styles.friendAvatar}>
+            <Text style={styles.friendInitial}>
+              {item.name.trim().charAt(0).toUpperCase() || '?'}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.friendName} numberOfLines={1}>
+          {item.name}
+        </Text>
+      </TouchableOpacity>
+    ),
+    [openFriendChat, styles.friendAvatar, styles.friendInitial, styles.friendName, styles.friendRow],
+  );
+
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
@@ -574,26 +867,64 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       />
       <SearchBar onSearchPress={() => navigation.navigate('Search')} />
       <View style={styles.container}>
-        <FlatList
-          data={conversations}
-          renderItem={renderConversation}
-          keyExtractor={item => String(item.id)}
-          extraData={conversations}
-          ListHeaderComponent={ListHeader}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={listLoading}
-              onRefresh={reloadConversations}
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>{t.no_conversations}</Text>
-            </View>
-          }
-        />
+        {activeFilter === 'friends' ? (
+          <FlatList<HopenityFriend>
+            data={friends}
+            renderItem={renderFriend}
+            keyExtractor={item => `friend_${item.userId}`}
+            ListHeaderComponent={ListHeader}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            onEndReached={() => void loadFriends(false)}
+            onEndReachedThreshold={0.4}
+            refreshControl={
+              <RefreshControl
+                refreshing={friendsLoading && friends.length === 0}
+                onRefresh={() => void loadFriends(true)}
+              />
+            }
+            ListFooterComponent={
+              friendsLoading && friends.length > 0 ? (
+                <ActivityIndicator
+                  style={styles.friendsFooter}
+                  color={colorss.primary}
+                />
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>
+                  {friendsLoading ? '…' : 'No friends found.'}
+                </Text>
+              </View>
+            }
+          />
+        ) : (
+          <FlatList<ConversationSummary>
+            data={filteredConversations}
+            renderItem={renderConversation}
+            keyExtractor={item => String(item.id)}
+            extraData={filteredConversations}
+            ListHeaderComponent={ListHeader}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={listLoading}
+                onRefresh={reloadConversations}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>
+                  {activeFilter === 'all'
+                    ? t.no_conversations
+                    : 'Nothing here yet.'}
+                </Text>
+              </View>
+            }
+          />
+        )}
       </View>
     </SafeAreaView>
   );

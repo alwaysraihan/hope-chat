@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -26,6 +27,7 @@ import {
   LucideMessageCircleMore,
   LucideSettings,
   LucideUsers,
+  Moon,
   Phone,
 } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
@@ -56,7 +58,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
   const activePage = useAppSelector(selectActivePage);
   const isVerified = !!profile?.isVerified;
   const { lang, setLang } = useLanguage();
-  const { colors } = useAppTheme();
+  const { colors, isDark, toggleDarkMode } = useAppTheme();
   const [pages, setPages] = useState<OwnedPage[]>([]);
   const [pagesLoading, setPagesLoading] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
@@ -381,6 +383,29 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.rowLabel}>{item.title}</Text>
           </TouchableOpacity>
         ))}
+
+        <View style={styles.divider} />
+
+        {/* Dark mode toggle */}
+        <TouchableOpacity
+          style={styles.row}
+          onPress={toggleDarkMode}
+          activeOpacity={0.65}
+        >
+          <View style={styles.iconWrap}>
+            <Moon size={20} color={colors.textPrimary} />
+          </View>
+          <Text style={styles.rowLabel}>
+            {isDark ? 'Dark mode' : 'Light mode'}
+          </Text>
+          <Switch
+            value={isDark}
+            onValueChange={toggleDarkMode}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor="#FFFFFF"
+            ios_backgroundColor={colors.border}
+          />
+        </TouchableOpacity>
 
         <View style={styles.divider} />
 

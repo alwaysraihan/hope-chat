@@ -75,6 +75,8 @@ const STATUS_CONFIG: Record<
   COMPLETED: { label: 'Completed', color: '#374151', bg: '#F3F4F6' },
   CANCELLED: { label: 'Cancelled', color: '#DC2626', bg: '#FEE2E2' },
   NO_SHOW: { label: 'No Show', color: '#DC2626', bg: '#FEE2E2' },
+  // Ended by a participant — finished, but distinct from a refund.
+  CLOSED: { label: 'Ended', color: '#4B5563', bg: '#F3F4F6' },
 };
 
 function formatDate(iso: string): string {
@@ -747,9 +749,9 @@ export default function MyBookingsScreen({ navigation }: Props) {
     activeTab === 'booked' ? loadingBooked : loadingReceived;
 
   return (
-    <View style={[s.safe, { paddingTop: insets.top }]}>
+    <View style={[s.safe,]}>
       {/* Nav */}
-      <View style={s.nav}>
+      <View style={[s.nav, { paddingTop: insets.top }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}

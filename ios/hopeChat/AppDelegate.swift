@@ -2,7 +2,7 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
-import LivekitReactNative
+import livekit_react_native
 import RNBootSplash
 
 import FirebaseCore
@@ -18,7 +18,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
-    FirebaseApp.configure()
+    // React Native Firebase already configures the default app from
+    // GoogleService-Info.plist; configuring twice raises an exception.
+    if FirebaseApp.app() == nil {
+      FirebaseApp.configure()
+    }
     LivekitReactNative.setup()
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
@@ -40,8 +44,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 
 class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
-  override func customizeRootView(_ rootView: RCTRootView!) {
-    super.customizeRootView(rootView)
+  @objc func customizeRootView(_ rootView: RCTRootView) {
     RNBootSplash.initWithStoryboard("BootSplash", rootView: rootView)
   }
 

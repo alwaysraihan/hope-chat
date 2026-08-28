@@ -111,17 +111,34 @@ export async function fetchSellerProducts(
   }
 }
 
+/**
+ * Resolve the trailing segment of a `hoppi.live/product/<ref>` URL.
+ *
+ * That segment is usually a Mongo ObjectId (24 hex chars), which only
+ * `/add-product/:id` serves — `/add-product/by-slug/:slug` 404s for it. Human
+ * readable slugs still exist for older links, so try the shape that matches and
+ * fall back to the other before giving up.
+ */
 export async function fetchProductBySlug(
-  slug: string,
+  ref: string,
 ): Promise<HoppiProduct | null> {
-  try {
-    const res = await fetch(`${HOPPI_API_URL}/add-product/by-slug/${slug}`);
-    const data = await res.json();
-    const p = data?.product ?? data?.data ?? data;
-    return p?._id || p?.title ? p : null;
-  } catch {
-    return null;
+  const looksLikeObjectId = /^[a-f\d]{24}$/i.test(ref);
+  const paths = looksLikeObjectId
+    ? [`/add-product/${ref}`, `/add-product/by-slug/${ref}`]
+    : [`/add-product/by-slug/${ref}`, `/add-product/${ref}`];
+
+  for (const path of paths) {
+    try {
+      const res = await fetch(`${HOPPI_API_URL}${path}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const p = data?.data ?? data?.product ?? data;
+      if (p?._id || p?.title) return p as HoppiProduct;
+    } catch {
+      // try the next shape
+    }
   }
+  return null;
 }
 
 export function formatHoppiPrice(product: HoppiProduct): string | null {

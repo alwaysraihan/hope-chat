@@ -1,4 +1,10 @@
-import type { DonationRequestPayload, DonationRequestType, MediaPayload } from '../components/types/chat';
+import type {
+  BookingCardPayload,
+  BookingCardStatus,
+  DonationRequestPayload,
+  DonationRequestType,
+  MediaPayload,
+} from '../components/types/chat';
 import { normalizeChatUserId } from '../utils/chatUserId';
 
 /** Last message row from chat list API — extend as backend adds fields. */
@@ -161,14 +167,65 @@ export function formatChatListPreview(
 
 export type ParsedApiMessage = {
   text: string;
-  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request' | 'system';
+  messageKind?:
+    | 'call_log'
+    | 'voice_note'
+    | 'text'
+    | 'donation_request'
+    | 'booking_card'
+    | 'system';
   donationRequest?: DonationRequestPayload;
+  bookingCard?: BookingCardPayload;
   delivery?: {
     state: 'sent' | 'delivered' | 'read';
     readAt?: string;
   };
   media?: MediaPayload;
 };
+
+
+/**
+ * Booking / Hope Wish confirmation cards are sent as human-readable multi-line
+ * text (see `formatBookingCardMessage`) so that web and older clients still
+ * show something sensible. We parse that text back into a structured payload
+ * to render a real card, and fall through to plain text if it doesn't match.
+ */
+export function parseBookingCardText(
+  text: string,
+): BookingCardPayload | null {
+  const isWish = text.startsWith('\u{1F31F} HOPE WISH CONFIRMED');
+  const isCall = text.startsWith('\u{1F4DE} CALL BOOKING CONFIRMED');
+  if (!isWish && !isCall) return null;
+
+  const grab = (re: RegExp): string | undefined => re.exec(text)?.[1]?.trim();
+
+  const bookingId = Number(grab(/Booking #(\d+)/) ?? NaN);
+  if (!Number.isFinite(bookingId)) return null;
+
+  const rawStatus = (grab(/Status:\s*([A-Z_]+)/) ?? 'PENDING').toUpperCase();
+  const known: BookingCardStatus[] = [
+    'PENDING', 'CONFIRMED', 'IN_CALL', 'COMPLETED', 'CANCELLED', 'NO_SHOW',
+  ];
+  const status = (known as string[]).includes(rawStatus)
+    ? (rawStatus as BookingCardStatus)
+    : 'PENDING';
+
+  const amountRaw = grab(/(?:Paid|Amount):\s*\$([\d.,]+)/);
+  const amount = amountRaw ? Number(amountRaw.replace(/,/g, '')) : undefined;
+
+  const durationRaw = grab(/Duration:\s*(\d+)\s*min/);
+
+  return {
+    bookingId,
+    isHopeWish: isWish,
+    peerName: grab(/(?:Creator|With):\s*(.+)/) ?? '',
+    whenLabel: grab(/(?:Deliver by|Date):\s*(.+)/) ?? '',
+    timeLabel: grab(/Time:\s*(.+)/),
+    durationMinutes: durationRaw ? Number(durationRaw) : undefined,
+    amount: Number.isFinite(amount) ? amount : undefined,
+    status,
+  };
+}
 
 /** Build inbox bubble text + flags from a raw API message row. */
 export function mapApiMessageToTimeline(
@@ -275,6 +332,12 @@ export function mapApiMessageToTimeline(
         };
       }
     } catch { /* not valid JSON — fall through */ }
+  }
+
+  // Booking / Hope Wish confirmation cards (plain-text wire format).
+  const bookingCard = parseBookingCardText(messageText);
+  if (bookingCard) {
+    return { text: messageText, messageKind: 'booking_card', bookingCard, delivery };
   }
 
   if (rawType === 'donation_request') {

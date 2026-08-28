@@ -38,6 +38,7 @@ import {
   selectAuthToken,
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
+import { ensureCallPermissions } from '../utils/permissions';
 import { useAppSelector } from '../hooks/redux';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
@@ -106,6 +107,7 @@ const InboxScreenInner: React.FC<
   );
   // Booking-linked chat: track whether messaging is allowed.
   // Re-synced on every focus so admin toggles from ConversationAction are reflected.
+  const [bookingClosed, setBookingClosed] = useState(false);
   const [bookingMessagingEnabled, setBookingMessagingEnabled] = useState(
     route.params.messagingEnabled ?? true,
   );
@@ -158,7 +160,14 @@ const InboxScreenInner: React.FC<
       ]).then(([booked, received]) => {
         const asCallee = received.find(b => b.id === bookingId);
         const booking = asCallee ?? booked.find(b => b.id === bookingId);
-        if (booking != null) setBookingMessagingEnabled(booking.messagingEnabled);
+        if (booking != null) {
+          setBookingMessagingEnabled(booking.messagingEnabled);
+          // A closed or cancelled booking is history — distinguish it from a
+          // plain messaging toggle so the banner can say why.
+          setBookingClosed(
+            booking.status === 'CLOSED' || booking.status === 'CANCELLED',
+          );
+        }
         setIsBookingCallee(!!asCallee);
       });
       return undefined;
@@ -476,7 +485,7 @@ const InboxScreenInner: React.FC<
         // the chat must be accepted before voice/video calls are allowed.
         // Booking callers (the person who booked) also cannot initiate calls —
         // only the callee (expert) can call when the scheduled time arrives.
-        onAudioCall={needsAcceptance || isSentRequest ? undefined : () => {
+        onAudioCall={needsAcceptance || isSentRequest ? undefined : async () => {
           if (isBlocked) {
             Toast.info("You can't call this user — you've blocked them.");
             return;
@@ -485,6 +494,9 @@ const InboxScreenInner: React.FC<
             Toast.info("You can't call directly. The expert will call you at the scheduled time.");
             return;
           }
+          // Ask before ringing the peer — a denial here must not leave them
+          // with a ringing call we can never join.
+          if (!(await ensureCallPermissions('audio'))) return;
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
           if (isGroupDispatch) {
             if (token) {
@@ -514,7 +526,7 @@ const InboxScreenInner: React.FC<
             isGroupCall: isGroupDispatch,
           });
         }}
-        onVideoCall={needsAcceptance || isSentRequest ? undefined : () => {
+        onVideoCall={needsAcceptance || isSentRequest ? undefined : async () => {
           if (isBlocked) {
             Toast.info("You can't call this user — you've blocked them.");
             return;
@@ -523,6 +535,9 @@ const InboxScreenInner: React.FC<
             Toast.info("You can't call directly. The expert will call you at the scheduled time.");
             return;
           }
+          // Ask before ringing the peer — a denial here must not leave them
+          // with a ringing call we can never join.
+          if (!(await ensureCallPermissions('video'))) return;
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
           if (isGroupDispatch) {
             if (token) {
@@ -619,7 +634,9 @@ const InboxScreenInner: React.FC<
         const messagingRestrictedBanner = !bookingMessagingEnabled ? (
           <View style={acceptStyles.banner}>
             <Text style={acceptStyles.bannerText}>
-              🚫 Messaging has been restricted for this booking.
+              {bookingClosed
+                ? '✓ This booking has ended. The conversation is read-only history.'
+                : '🚫 Messaging has been restricted for this booking.'}
             </Text>
           </View>
         ) : null;
@@ -635,7 +652,9 @@ const InboxScreenInner: React.FC<
                 : sentRequestLocked
                   ? 'Waiting for acceptance…'
                   : !bookingMessagingEnabled
-                    ? 'Messaging restricted for this booking…'
+                    ? bookingClosed
+                      ? 'This booking has ended…'
+                      : 'Messaging restricted for this booking…'
                     : 'Type here…'
             }
             textInputProps={{ editable: !inputLocked }}

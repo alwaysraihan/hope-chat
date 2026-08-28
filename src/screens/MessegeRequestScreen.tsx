@@ -150,7 +150,12 @@ const MessageRequestsScreen: React.FC<Props> = ({ navigation }) => {
     [giftedChatUser, profile],
   );
 
-  const { reloadConversations } = useChats();
+  const { reloadConversations, markRequestsSeen } = useChats();
+
+  // Opening the folder clears the badge — the user has now seen these.
+  useEffect(() => {
+    markRequestsSeen();
+  }, [markRequestsSeen]);
   const [activeTab, setActiveTab] = useState<'know' | 'spam'>('know');
   const [loading, setLoading] = useState(false);
   const [requested, setRequested] = useState<HopenityChatItem[]>(() => {

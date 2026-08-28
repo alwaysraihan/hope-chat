@@ -12,6 +12,9 @@ import {
   Ban,
   Bell,
   BellOff,
+  CircleCheck,
+  Flag,
+  XCircle,
   LogOut,
   LucidePin,
   MessageSquareOff,
@@ -36,7 +39,13 @@ import {
   patchConversationPin,
 } from '../services/userSettingsService';
 import { fetchHopenityChatDirectory } from '../services/chatService';
-import { toggleBookingMessaging } from '../services/premiumCallService';
+import PromptModal from '../components/PromptModal';
+import {
+  closeBooking,
+  reportBooking,
+  requestBookingCancellation,
+  toggleBookingMessaging,
+} from '../services/premiumCallService';
 import { leaveGroup } from '../services/groupService';
 import { useChats } from '../context/ChatsContext';
 import {
@@ -88,6 +97,8 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
   const profile = useSel(selectHopenityProfile);
   const { conversations, setConversations } = useChats();
   const [busy, setBusy] = useState<string | null>(null);
+  const [bookingClosed, setBookingClosed] = useState(false);
+  const [prompt, setPrompt] = useState<'cancel' | 'report' | null>(null);
   const [muted, setMuted] = useState(initialMuted);
   const [pinned, setPinned] = useState(initialPinned);
   const [messagingEnabled, setMessagingEnabled] = useState(initialMessagingEnabled);
@@ -229,6 +240,68 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
+  /**
+   * End the booking. This is not a cancellation — no money moves. The thread
+   * becomes read-only history and the booking leaves the active list.
+   */
+  const handleCloseBooking = () => {
+    if (!token || !bookingId) return;
+    Alert.alert(
+      'End this booking?',
+      'The conversation becomes read-only history and the booking is no longer active. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End booking',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy('close');
+            const res = await closeBooking(bookingId, token);
+            setBusy(null);
+            if (res.ok) {
+              setBookingClosed(true);
+              Alert.alert('Booking ended', 'This chat is now read-only history.');
+              navigation.goBack();
+            } else {
+              Alert.alert('Error', res.message ?? 'Could not end the booking.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  /** Ask an admin to cancel and refund. Full amount is returned on approval. */
+  const handleRequestCancellation = () => {
+    if (!token || !bookingId) return;
+    setPrompt('cancel');
+  };
+
+  const handleReportBooking = () => {
+    if (!token || !bookingId) return;
+    setPrompt('report');
+  };
+
+  const submitPrompt = async (value: string) => {
+    if (!token || !bookingId || !prompt) return;
+    setBusy(prompt);
+    const res =
+      prompt === 'cancel'
+        ? await requestBookingCancellation(bookingId, value, token)
+        : await reportBooking(bookingId, { reason: value }, token);
+    setBusy(null);
+    setPrompt(null);
+
+    const fallback =
+      prompt === 'cancel'
+        ? 'An admin will review your cancellation request.'
+        : 'Thanks — an admin will look into this.';
+    Alert.alert(
+      res.ok ? (prompt === 'cancel' ? 'Request sent' : 'Report submitted') : 'Error',
+      res.message ?? (res.ok ? fallback : 'Something went wrong. Please try again.'),
+    );
+  };
+
   const handleBlock = () => {
     navigation.navigate('BlockedUser', {
       chatId: conversationId,
@@ -329,7 +402,35 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
           ? <MessageSquareOff size={22} color={colorss.primary} />
           : <MessageSquare size={22} color={colorss.primary} />,
       onPress: handleToggleMessaging,
-      show: !!bookingId && isBookingCallee,
+      show: !!bookingId && isBookingCallee && !bookingClosed,
+    },
+    {
+      id: 'close-booking',
+      title: 'End this booking',
+      icon: busy === 'close'
+        ? <ActivityIndicator size="small" color={colorss.error} />
+        : <CircleCheck size={22} color={colorss.error} />,
+      onPress: handleCloseBooking,
+      destructive: true,
+      show: !!bookingId && !bookingClosed,
+    },
+    {
+      id: 'cancel-booking',
+      title: 'Request cancellation',
+      icon: busy === 'cancel'
+        ? <ActivityIndicator size="small" color={colorss.primary} />
+        : <XCircle size={22} color={colorss.primary} />,
+      onPress: handleRequestCancellation,
+      show: !!bookingId && !bookingClosed,
+    },
+    {
+      id: 'report-booking',
+      title: 'Report this booking',
+      icon: busy === 'report'
+        ? <ActivityIndicator size="small" color={colorss.primary} />
+        : <Flag size={22} color={colorss.primary} />,
+      onPress: handleReportBooking,
+      show: !!bookingId,
     },
     {
       id: 'block',
@@ -354,6 +455,21 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
 
   return (
     <Animated.View style={styles.sheet}>
+      <PromptModal
+        visible={prompt !== null}
+        title={prompt === 'cancel' ? 'Request cancellation' : 'Report this booking'}
+        message={
+          prompt === 'cancel'
+            ? 'An admin will review this. If approved, the full amount is refunded to the person who booked.'
+            : 'Tell us what went wrong. An admin will review the booking.'
+        }
+        placeholder={prompt === 'cancel' ? 'Reason (optional)' : 'What went wrong?'}
+        submitLabel={prompt === 'cancel' ? 'Send request' : 'Submit'}
+        requireText={prompt === 'report'}
+        submitting={busy === prompt}
+        onCancel={() => setPrompt(null)}
+        onSubmit={submitPrompt}
+      />
       <View style={styles.handle} />
       <Text style={styles.chatName} numberOfLines={1}>{conversationName}</Text>
       <View style={styles.body}>

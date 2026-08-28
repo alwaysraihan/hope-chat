@@ -5,6 +5,7 @@ import { useColors } from '../../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 import { Pin } from 'lucide-react-native';
 
+
 type Item = {
   id: string;
   name: string;
@@ -16,6 +17,8 @@ type Item = {
   isUnread?: boolean;
   avatarUrl?: string | null;
   pinned?: boolean;
+  /** Peer presence (DMs only — undefined for groups). */
+  isOnline?: boolean;
 };
 
 const ConversationItem = ({
@@ -45,6 +48,18 @@ const ConversationItem = ({
       borderRadius: radius.full,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    onlineDot: {
+      position: 'absolute',
+      // Bottom-right of the circle, overlapping the edge slightly.
+      bottom: 1,
+      right: 1,
+      width: 14,
+      height: 14,
+      borderRadius: 7,
+      backgroundColor: colors.online,
+      borderWidth: 2,
+      borderColor: colorss.background,
     },
     avatarInitialWrap: {
       backgroundColor: colorss.primary,
@@ -129,6 +144,7 @@ const ConversationItem = ({
             </Text>
           </View>
         )}
+        {item.isOnline === true ? <View style={styles.onlineDot} /> : null}
       </View>
 
       <View style={styles.body}>

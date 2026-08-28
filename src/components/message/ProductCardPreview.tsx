@@ -15,11 +15,12 @@ import { colorss } from '../../theme';
 interface Props {
   slug: string;
   onPress: () => void;
+  /** Retained for call-site symmetry; the card no longer tints to the bubble. */
   isOwn?: boolean;
   isDark?: boolean;
 }
 
-export const ProductCardPreview: React.FC<Props> = ({ slug, onPress, isOwn, isDark }) => {
+export const ProductCardPreview: React.FC<Props> = ({ slug, onPress, isDark }) => {
   const [product, setProduct] = useState<HoppiProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -39,16 +40,19 @@ export const ProductCardPreview: React.FC<Props> = ({ slug, onPress, isOwn, isDa
 
   if (failed) return null;
 
-  const cardBg = isOwn
-    ? 'rgba(0,0,0,0.18)'
-    : isDark ? '#1e1e2e' : '#f5f5fa';
-  const titleColor = isOwn ? '#fff' : isDark ? '#f0f0f0' : '#111';
-  const subColor = isOwn ? 'rgba(255,255,255,0.7)' : isDark ? '#aaa' : '#666';
+  // The card always gets its own neutral surface rather than a tint of the
+  // bubble. Inside an outgoing (brand-pink) bubble the translucent overlay left
+  // the pink price and pink CTA sitting on pink — unreadable. A solid surface
+  // also makes the preview read as a distinct card rather than bubble chrome.
+  const cardBg = isDark ? '#1E1E2E' : '#FFFFFF';
+  const cardBorder = isDark ? '#33334A' : '#E6E6EF';
+  const titleColor = isDark ? '#F0F0F0' : '#111827';
+  const subColor = isDark ? '#9A9AB0' : '#6B7280';
 
   if (loading) {
     return (
       <TouchableOpacity
-        style={[styles.card, { backgroundColor: cardBg }]}
+        style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}
         onPress={onPress}
         activeOpacity={0.8}
       >
@@ -63,7 +67,7 @@ export const ProductCardPreview: React.FC<Props> = ({ slug, onPress, isOwn, isDa
 
   return (
     <TouchableOpacity
-      style={[styles.card, { backgroundColor: cardBg }]}
+      style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}
       onPress={onPress}
       activeOpacity={0.8}
     >
@@ -83,10 +87,13 @@ export const ProductCardPreview: React.FC<Props> = ({ slug, onPress, isOwn, isDa
         {priceStr ? (
           <Text style={styles.price}>{priceStr}</Text>
         ) : null}
-        <View style={styles.ctaRow}>
-          <ExternalLink size={11} color={subColor} />
-          <Text style={[styles.cta, { color: subColor }]}>View on hoppi.live</Text>
+        <View style={styles.viewBtn}>
+          <ExternalLink size={12} color="#fff" />
+          <Text style={styles.viewBtnText}>View product</Text>
         </View>
+        <Text style={[styles.cta, { color: subColor }]} numberOfLines={1}>
+          hoppi.live
+        </Text>
       </View>
     </TouchableOpacity>
   );
@@ -98,12 +105,29 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginTop: 6,
     width: 210,
+    borderWidth: StyleSheet.hairlineWidth,
+    // Lifts the card off the bubble it sits in.
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
   },
   img: { width: '100%', height: 130 },
   imgPlaceholder: { backgroundColor: '#ddd' },
   info: { padding: 10, gap: 3 },
   title: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
   price: { fontSize: 14, fontWeight: '700', color: colorss.primary },
-  ctaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  cta: { fontSize: 11 },
+  viewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 6,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: colorss.primary,
+  },
+  viewBtnText: { fontSize: 12.5, fontWeight: '700', color: '#fff' },
+  cta: { fontSize: 10.5, textAlign: 'center', marginTop: 4 },
 });

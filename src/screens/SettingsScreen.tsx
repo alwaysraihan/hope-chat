@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   Ban,
@@ -19,7 +19,6 @@ import {
   Image as ImageIcon,
   LogOut,
   MessageCircle,
-  Moon,
   Shield,
   Timer,
   User,
@@ -49,10 +48,11 @@ type SettingRow = {
 };
 
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const t = useT();
   const dispatch = useAppDispatch();
   const profile = useAppSelector(selectHopenityProfile);
-  const { isDark, colors, toggleDarkMode } = useAppTheme();
+  const { colors } = useAppTheme();
   const [e2eeOn, setE2eeOn] = React.useState(() => isE2eeEnabled());
 
   const iconColor = colors.textPrimary;
@@ -71,16 +71,6 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     ]);
   };
 
-  const DarkSwitch = (
-    <Switch
-      value={isDark}
-      onValueChange={toggleDarkMode}
-      trackColor={{ false: colorss.border, true: colors.accent }}
-      thumbColor={colorss.white}
-      ios_backgroundColor={colorss.border}
-    />
-  );
-
   const E2eeSwitch = (
     <Switch
       value={e2eeOn}
@@ -92,78 +82,58 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const sections: { title: string; rows: SettingRow[] }[] = [
-    {
-      title: t.section_privacy,
-      rows: [
-        {
-          id: 'read-receipts',
-          icon: <Eye size={20} color={iconColor} />,
-          label: t.read_receipts,
-          sub: t.read_receipts_sub,
-          onPress: () => navigation.navigate('ReadReceipts'),
-        },
-        {
-          id: 'message-perms',
-          icon: <MessageCircle size={20} color={iconColor} />,
-          label: t.message_permissions,
-          sub: t.message_permissions_sub,
-          onPress: () => navigation.navigate('MessagePermissions'),
-        },
-        {
-          id: 'typing',
-          icon: <User size={20} color={iconColor} />,
-          label: t.typing_indicator,
-          sub: t.typing_indicator_sub,
-          onPress: () => navigation.navigate('TypingIndicator'),
-        },
-        {
-          id: 'disappearing',
-          icon: <Timer size={20} color={iconColor} />,
-          label: t.disappearing_messages,
-          sub: t.disappearing_messages_sub,
-          onPress: () => navigation.navigate('DisappearingMessages', {}),
-        },
-        {
-          id: 'e2ee',
-          icon: <Shield size={20} color={iconColor} />,
-          label: 'End-to-end encryption',
-          sub: e2eeOn ? 'Messages are encrypted on your device' : 'Encryption is off',
-          rightEl: E2eeSwitch,
-        },
-      ],
-    },
-    {
-      title: t.section_notifications,
-      rows: [
-        {
-          id: 'notif-sounds',
-          icon: <Bell size={20} color={iconColor} />,
-          label: t.notification_sounds,
-          sub: t.notification_sounds_sub,
-          onPress: () => navigation.navigate('NotificationsSounds'),
-        },
-      ],
-    },
-    {
-      title: t.section_appearance,
-      rows: [
-        {
-          id: 'dark-mode',
-          icon: <Moon size={20} color={iconColor} />,
-          label: isDark ? 'Dark mode' : 'Light mode',
-          sub: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-          onPress: toggleDarkMode,
-          rightEl: DarkSwitch,
-        },
-        // {
-        //   id: 'theme',
-        //   icon: <ImageIcon size={20} color={iconColor} />,
-        //   label: t.theme,
-        //   sub: t.theme_sub,
-        //   onPress: () => navigation.navigate('Theme'),
-        // },
-      ],
-    },
+    // {
+    //   title: t.section_privacy,
+    //   rows: [
+    //     {
+    //       id: 'read-receipts',
+    //       icon: <Eye size={20} color={iconColor} />,
+    //       label: t.read_receipts,
+    //       sub: t.read_receipts_sub,
+    //       onPress: () => navigation.navigate('ReadReceipts'),
+    //     },
+    //     {
+    //       id: 'message-perms',
+    //       icon: <MessageCircle size={20} color={iconColor} />,
+    //       label: t.message_permissions,
+    //       sub: t.message_permissions_sub,
+    //       onPress: () => navigation.navigate('MessagePermissions'),
+    //     },
+    //     {
+    //       id: 'typing',
+    //       icon: <User size={20} color={iconColor} />,
+    //       label: t.typing_indicator,
+    //       sub: t.typing_indicator_sub,
+    //       onPress: () => navigation.navigate('TypingIndicator'),
+    //     },
+    //     {
+    //       id: 'disappearing',
+    //       icon: <Timer size={20} color={iconColor} />,
+    //       label: t.disappearing_messages,
+    //       sub: t.disappearing_messages_sub,
+    //       onPress: () => navigation.navigate('DisappearingMessages', {}),
+    //     },
+    //     {
+    //       id: 'e2ee',
+    //       icon: <Shield size={20} color={iconColor} />,
+    //       label: 'End-to-end encryption',
+    //       sub: e2eeOn ? 'Messages are encrypted on your device' : 'Encryption is off',
+    //       rightEl: E2eeSwitch,
+    //     },
+    //   ],
+    // },
+    // {
+    //   title: t.section_notifications,
+    //   rows: [
+    //     {
+    //       id: 'notif-sounds',
+    //       icon: <Bell size={20} color={iconColor} />,
+    //       label: t.notification_sounds,
+    //       sub: t.notification_sounds_sub,
+    //       onPress: () => navigation.navigate('NotificationsSounds'),
+    //     },
+    //   ],
+    // },
     {
       title: t.section_security,
       rows: [
@@ -198,11 +168,11 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   ];
 
   return (
-    <SafeAreaView
+    <View
       style={[styles.safe, { backgroundColor: colors.background }]}
-      edges={['top', 'left', 'right']}
+      
     >
-      <View style={[styles.header, { backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, {paddingTop: insets.top, backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={24} color={colors.textPrimary} />
         </TouchableOpacity>
@@ -279,7 +249,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={{ height: 40 }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 

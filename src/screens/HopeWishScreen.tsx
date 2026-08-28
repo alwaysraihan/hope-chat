@@ -55,6 +55,7 @@ import {
   submitHopeWishOrder,
   fetchCreatorWishInfo,
   createWalletTopupCheckout,
+  waitForWalletTopup,
   WISH_TYPE_LABELS,
   WISH_TYPE_EMOJI,
   TONE_LABELS,
@@ -290,6 +291,9 @@ export default function HopeWishScreen({ navigation, route }: Props) {
   const [loading, setLoading]       = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [topping, setTopping]       = useState(false);
+  // USD the pending top-up must cover — drives the post-payment wait.
+  const [pendingTopupUSD, setPendingTopupUSD] = useState<number | null>(null);
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [wishPrice, setWishPrice]   = useState<number | null>(null); // stored as USD
   const [paymentSheet, setPaymentSheet] = useState<{
     checkoutUrl: string;
@@ -344,7 +348,7 @@ export default function HopeWishScreen({ navigation, route }: Props) {
     !!videoLength &&
     instructions.trim().length > 0;
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (): Promise<void> => {
     if (!token || !wishType || !tone || !videoLength) return;
     setSubmitting(true);
 
@@ -414,6 +418,7 @@ export default function HopeWishScreen({ navigation, route }: Props) {
       const checkout = await createWalletTopupCheckout(requiredUSD, token);
       setTopping(false);
       if (checkout) {
+        setPendingTopupUSD(requiredUSD);
         setPaymentSheet({
           checkoutUrl: checkout.checkoutUrl,
           amountDisplay,
@@ -628,12 +633,12 @@ export default function HopeWishScreen({ navigation, route }: Props) {
       {/* Confirm & Pay */}
       <View style={[s.footer, { paddingBottom: insets.bottom + 16 }]}>
         <TouchableOpacity
-          style={[s.confirmBtn, (!canSubmit || submitting || topping) && s.confirmBtnDisabled]}
+          style={[s.confirmBtn, (!canSubmit || submitting || topping || confirmingPayment) && s.confirmBtnDisabled]}
           onPress={handleSubmit}
-          disabled={!canSubmit || submitting || topping}
+          disabled={!canSubmit || submitting || topping || confirmingPayment}
           activeOpacity={0.85}
         >
-          {(submitting || topping) ? (
+          {(submitting || topping || confirmingPayment) ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (
             <>
@@ -653,10 +658,31 @@ export default function HopeWishScreen({ navigation, route }: Props) {
         title="Top Up Wallet"
         matchUrlPrefix={webViewReturnUrlPrefix}
         onClose={() => { setWebViewUrl(null); setWebViewReturnUrlPrefix(null); }}
-        onPaymentComplete={() => {
+        onPaymentComplete={async () => {
           setWebViewUrl(null);
           setWebViewReturnUrlPrefix(null);
-          Toast.success('Payment complete! You can now retry your Hope Wish.');
+
+          const required = pendingTopupUSD;
+          setPendingTopupUSD(null);
+          if (required == null || !token) {
+            Toast.success('Payment complete! You can now retry your Hope Wish.');
+            return;
+          }
+
+          // The gateway returns before the wallet is credited — wait for the
+          // balance rather than bouncing the user off a stale check.
+          setConfirmingPayment(true);
+          const credited = await waitForWalletTopup(required, token);
+          setConfirmingPayment(false);
+
+          if (!credited) {
+            Toast.info(
+              "Payment received — we're still confirming it. Try again in a moment.",
+            );
+            return;
+          }
+          Toast.success('Wallet topped up — sending your Hope Wish…');
+          await handleSubmit();
         }}
       />
 

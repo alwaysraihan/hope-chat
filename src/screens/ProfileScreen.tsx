@@ -3,6 +3,7 @@ import { SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colorss } from '../theme';
 import { useColors } from '../hooks/useColors';
+import { ensureCallPermissions } from '../utils/permissions';
 import {
   ALargeSmall,
   AlertTriangle,
@@ -128,7 +129,8 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       id: 1,
       name: 'Audio',
       icon: <LucidePhone fill="white" stroke="white" />,
-      onPress: () => {
+      onPress: async () => {
+        if (!(await ensureCallPermissions('audio'))) return;
         notifyPeerIncomingHopeChatCall({
           token,
           conversationId: chatId,
@@ -149,7 +151,8 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       id: 2,
       name: 'Video',
       icon: <LucideVideo fill="white" stroke="white" />,
-      onPress: () => {
+      onPress: async () => {
+        if (!(await ensureCallPermissions('video'))) return;
         notifyPeerIncomingHopeChatCall({
           token,
           conversationId: chatId,

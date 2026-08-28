@@ -2,14 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!--
-	  AppGroupIdentifier — read by react-native-mmkv (v3+) to automatically route
-	  MMKV storage into the iOS App Group shared container so HopeChat and
-	  Hopenity can read/write the same encrypted MMKV file.
-	  Requires: App Groups capability enabled in Xcode for this target,
-	  and group.com.hopenity.shared registered in Apple Developer portal.
-	  See: https://github.com/mrousavy/react-native-mmkv#app-groups-or-extensions
-	-->
 	<key>AppGroupIdentifier</key>
 	<string>group.com.hopenity.shared</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
@@ -49,10 +41,22 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Hope Chat needs your camera for video calls and to take photos and videos to send in chats.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Hope Chat uses your location to share it with friends and family in your chats.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hope Chat needs your microphone for voice and video calls, and to record voice messages.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Hope Chat saves photos and videos you download from chats to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Hope Chat needs access to your photo library so you can send photos and videos in chats.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>BootSplash</string>
 	<key>UIRequiredDeviceCapabilities</key>
@@ -72,9 +76,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
 </dict>
 </plist>

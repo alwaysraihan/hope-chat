@@ -61,12 +61,10 @@ function buildSharedMMKV(): MMKV {
      * Ref: https://github.com/mrousavy/react-native-mmkv#app-groups-or-extensions
      */
     mode: 'multi-process',
-    /**
-     * 'compareBeforeSet' — skip the disk write if the value hasn't changed.
-     * Prevents redundant I/O when AuthBootstrap re-hydrates on every focus
-     * cycle with an already-persisted token.
-     */
-    compareBeforeSet: true,
+    // NOTE: 'compareBeforeSet' is deliberately NOT set here. MMKV rejects it
+    // whenever encryption is on (see MMKV::enableCompareBeforeSet), where it
+    // aborts on the assert in debug builds and is silently ignored in release.
+    // Since this store is encrypted, the option could never have taken effect.
     // Explicit path for the App Group container (iOS). On Android sharedRoot
     // is undefined so MMKV uses the app's default private directory.
     ...(sharedRoot ? { path: sharedRoot } : {}),

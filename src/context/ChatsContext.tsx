@@ -41,6 +41,8 @@ import {
   getHiddenConversationIds,
   readChatDirectoryCache,
   readRequestCountCache,
+  readRequestsSeenCount,
+  writeRequestsSeenCount,
   writeChatDirectoryCache,
   writeRequestCountCache,
 } from '../services/offlineCache';
@@ -109,6 +111,8 @@ type ChatsContextValue = {
   listLoading: boolean;
   /** Pending REQUESTED chats folder — surfaced beside Requests UI */
   pendingRequestCount: number;
+  /** Call when the Requests folder is opened — clears the badge. */
+  markRequestsSeen: () => void;
 };
 
 const ChatsContext = createContext<ChatsContextValue | null>(null);
@@ -720,11 +724,17 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
   const token = useAppSelector(selectAuthToken);
   const [listLoading, setListLoading] = useState(false);
-  const [pendingRequestCount, setPendingRequestCount] = useState(() => {
+  const [rawRequestCount, setPendingRequestCount] = useState(() => {
     const uid = normalizeChatUserId(
       giftedChatUser?._id ?? hopenityProfile?.userId ?? '',
     );
     return readRequestCountCache(uid) ?? 0;
+  });
+  const [requestsSeenCount, setRequestsSeenCount] = useState(() => {
+    const uid = normalizeChatUserId(
+      giftedChatUser?._id ?? hopenityProfile?.userId ?? '',
+    );
+    return readRequestsSeenCount(uid);
   });
   const [conversations, setConversations] = useState<ConversationSummary[]>(
     () => [],
@@ -1014,6 +1024,24 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  // Accepting/declining requests lowers the server count. Without clamping,
+  // the seen mark would stay above it and swallow the next genuine arrival.
+  useEffect(() => {
+    if (rawRequestCount < requestsSeenCount) {
+      setRequestsSeenCount(rawRequestCount);
+      writeRequestsSeenCount(String(localUser._id ?? ''), rawRequestCount);
+    }
+  }, [rawRequestCount, requestsSeenCount, localUser._id]);
+
+  // Badge = new requests since the folder was last opened. Opening it once
+  // clears the badge; later arrivals push it back above the seen mark.
+  const pendingRequestCount = Math.max(0, rawRequestCount - requestsSeenCount);
+
+  const markRequestsSeen = useCallback(() => {
+    setRequestsSeenCount(rawRequestCount);
+    writeRequestsSeenCount(String(localUser._id ?? ''), rawRequestCount);
+  }, [rawRequestCount, localUser._id]);
+
   const value = useMemo(
     () => ({
       conversations,
@@ -1022,8 +1050,16 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       reloadConversations,
       listLoading,
       pendingRequestCount,
+      markRequestsSeen,
     }),
-    [bumpUnread, conversations, listLoading, pendingRequestCount, reloadConversations],
+    [
+      bumpUnread,
+      conversations,
+      listLoading,
+      markRequestsSeen,
+      pendingRequestCount,
+      reloadConversations,
+    ],
   );
 
   return (

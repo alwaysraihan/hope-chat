@@ -31,6 +31,30 @@ export interface DonationRequestPayload {
   requestType?: DonationRequestType;
 }
 
+/** Premium-call / Hope Wish booking confirmation card. */
+export interface BookingCardPayload {
+  bookingId: number;
+  isHopeWish: boolean;
+  peerName: string;
+  /** Delivery deadline (wish) or call start (call), ISO or display string. */
+  whenLabel: string;
+  timeLabel?: string;
+  durationMinutes?: number;
+  amount?: number;
+  /** Status baked into the message at send time; refreshed live where possible. */
+  status: BookingCardStatus;
+}
+
+export type BookingCardStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'IN_CALL'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'NO_SHOW'
+  /** Ended by a participant — read-only history. */
+  | 'CLOSED';
+
 export interface ExtendedMessage extends IMessage {
   /** Synthetic full-width welcome card at top of thread (Hopenity UX). */
   threadIntro?: {
@@ -39,8 +63,15 @@ export interface ExtendedMessage extends IMessage {
     avatarUrl?: string | null;
   };
   /** Server-originated category — drives timeline styling for calls / voice / donation. */
-  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request' | 'system';
+  messageKind?:
+    | 'call_log'
+    | 'voice_note'
+    | 'text'
+    | 'donation_request'
+    | 'booking_card'
+    | 'system';
   donationRequest?: DonationRequestPayload;
+  bookingCard?: BookingCardPayload;
   /** When the API returns receipts (outgoing messages). */
   delivery?: {
     state: 'sent' | 'delivered' | 'read';

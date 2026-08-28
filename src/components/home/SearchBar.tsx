@@ -34,7 +34,7 @@ const SearchBar = ({ onSearchPress }) => {
     <TouchableOpacity onPress={onSearchPress} activeOpacity={0.7}>
       <View style={styles.container}>
         <LucideSearch size={16} color={colors.textSecondary} />
-        <Text style={styles.input}>Search messages…</Text>
+        <Text style={styles.input}>Search People…</Text>
       </View>
     </TouchableOpacity>
   );

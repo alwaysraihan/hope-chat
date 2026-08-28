@@ -32,6 +32,7 @@ import {
 import { beginCallTransition } from '../services/callTransitionGuard';
 import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
 import { store } from '../redux/store';
+import { ensureCallPermissions } from '../utils/permissions';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'IncomingCall'>;
 
@@ -118,6 +119,17 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     const active = getActiveCall();
 
     void (async () => {
+      // Prompt before joining. Denying here should return the user to where
+      // they were rather than dropping them into a room they can't publish to.
+      if (!(await ensureCallPermissions(callKind === 'video' ? 'video' : 'audio'))) {
+        acceptedRef.current = false;
+        try {
+          navigation.goBack();
+        } catch {
+          /* already popped */
+        }
+        return;
+      }
       try {
         if (active && active.liveKitRoom !== liveKitRoom) {
           beginCallTransition(800);

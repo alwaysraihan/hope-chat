@@ -21,6 +21,7 @@ import ChatThreadIntroCard from './ChatThreadIntroCard';
 import AudioPlayer from './AudioPlayer';
 import { ProductCardPreview } from './ProductCardPreview';
 import DonationRequestBubble from './DonationRequestBubble';
+import BookingCardBubble from './BookingCardBubble';
 import MediaPreviewModal from './ImagePreviewModal';
 import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
@@ -61,7 +62,24 @@ function isHopenityUrl(url: string): boolean {
   return /hopenity\.com|hoppi\.live/i.test(url);
 }
 
+/**
+ * Route a hopenity.com / hoppi.live link into the Hopenity app.
+ *
+ * Both platforms go through the `hopenity://` custom scheme, which Hopenity
+ * registers on iOS (CFBundleURLSchemes) and Android (intent-filter), and which
+ * Hope Chat declares under LSApplicationQueriesSchemes so canOpenURL sees it.
+ *
+ * iOS deliberately does NOT trust the HTTPS URL: Universal Links only fire when
+ * the domain serves a valid apple-app-site-association, and canOpenURL can't
+ * detect the failure because Safari claims every http(s) URL — so a broken AASA
+ * sends the link to the browser with no fallback.
+ *
+ * The host must survive the rewrite: Hopenity dispatches hoppi links by
+ * `host === 'hoppi.live'`, so mapping them onto hopenity.com drops /product/
+ * and /seller/ into a branch with no such routes and the tap silently no-ops.
+ */
 function openHopenityDeepOrWeb(url: string): void {
+<<<<<<< Updated upstream
   // iOS: Hopenity uses Universal Links (applinks:hopenity.com), so the HTTPS
   // URL opens the app directly — no scheme conversion needed.
   // Android: swap https → hopenity:// so the intent filter routes to the app
@@ -77,6 +95,8 @@ function openHopenityDeepOrWeb(url: string): void {
   // made every hoppi.live link parse as an unrecognized hopenity.com path and
   // silently fall through to opening the app on its home screen instead of
   // the product/seller/shop screen.
+=======
+>>>>>>> Stashed changes
   const deepLink = url
     .replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
     .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hoppi.live');
@@ -352,6 +372,16 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     );
   }
 
+  // ── Booking / Hope Wish confirmation ──────────────────────────────────────
+
+  if (msg.messageKind === 'booking_card' && msg.bookingCard) {
+    return (
+      <Reaction {...reactionProps}>
+        <BookingCardBubble booking={msg.bookingCard} isOwn={isOwn} />
+      </Reaction>
+    );
+  }
+
   // ── Voice ──────────────────────────────────────────────────────────────────
 
   if (media?.type === 'voice') {
@@ -536,6 +566,9 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const allUrls = rawText.match(URL_RE) ?? [];
   const productUrl = allUrls.find(u => extractProductSlug(u) != null) ?? null;
   const productSlug = productUrl ? extractProductSlug(productUrl) : null;
+  // When the message is nothing but the product link, the card already says
+  // everything the URL would — showing both stacks a long unreadable URL on it.
+  const hideUrlText = productSlug != null && rawText.trim() === productUrl;
 
   return (
     <Reaction {...reactionProps}>
@@ -552,27 +585,29 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           ]}
         >
           {ReplySnippet}
-          <Text
-            style={[
-              styles.messageText,
-              { color: textColor },
-              msg.messageKind === 'call_log' ? styles.callLogText : null,
-            ]}
-          >
-            {parseTextWithLinks(rawText).map((seg, i) =>
-              seg.isLink ? (
-                <Text
-                  key={i}
-                  style={styles.linkText}
-                  onPress={() => handleLinkPress(seg.url!)}
-                >
-                  {seg.text}
-                </Text>
-              ) : (
-                seg.text
-              ),
-            )}
-          </Text>
+          {hideUrlText ? null : (
+            <Text
+              style={[
+                styles.messageText,
+                { color: textColor },
+                msg.messageKind === 'call_log' ? styles.callLogText : null,
+              ]}
+            >
+              {parseTextWithLinks(rawText).map((seg, i) =>
+                seg.isLink ? (
+                  <Text
+                    key={i}
+                    style={styles.linkText}
+                    onPress={() => handleLinkPress(seg.url!)}
+                  >
+                    {seg.text}
+                  </Text>
+                ) : (
+                  seg.text
+                ),
+              )}
+            </Text>
+          )}
           {productSlug ? (
             <ProductCardPreview
               slug={productSlug}

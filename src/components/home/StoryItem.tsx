@@ -1,8 +1,23 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors, radius, fonts, colorss } from '../../theme';
+import { colors, fonts, colorss } from '../../theme';
 import LinearGradient from 'react-native-linear-gradient';
 import FastImage from '@d11/react-native-fast-image';
+
+/**
+ * Portrait rounded tiles rather than circles. Ring / inner / image widths step
+ * down by the ring thickness so the gradient reads as an even border, and each
+ * radius drops with it so the corners stay concentric instead of bowing.
+ */
+const RING_W = 58;
+const RING_H = 68;
+const RING_R = 19;
+const INNER_W = 54;
+const INNER_H = 64;
+const INNER_R = 17;
+const IMG_W = 50;
+const IMG_H = 60;
+const IMG_R = 15;
 
 type StoryLike = {
   isAdd?: boolean;
@@ -22,19 +37,36 @@ const StoryItem = ({
   item: StoryLike;
   onPress?: () => void;
 }) => {
+  // "Your story" — own avatar with a + badge, opens the story composer.
   if (item.isAdd) {
     return (
       <TouchableOpacity
-        style={styles.container}
+        style={styles.recentItem}
         onPress={onPress}
         activeOpacity={0.7}
       >
-        <View style={styles.addRing}>
-          <View style={styles.addAvatar}>
+        <View style={styles.avatarWrap}>
+          <View style={styles.addTile}>
+            {item.avatarUrl ? (
+              <FastImage
+                source={{ uri: item.avatarUrl }}
+                style={styles.miniAvatar}
+              />
+            ) : (
+              <View style={styles.initialCircle}>
+                <Text style={styles.initialText}>
+                  {(item.name ?? '?').trim().charAt(0).toUpperCase() || '?'}
+                </Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.addBadge}>
             <Text style={styles.addIcon}>+</Text>
           </View>
         </View>
-        <Text style={styles.addName}>Add</Text>
+        <Text style={styles.recentName} numberOfLines={1}>
+          {item.name ?? 'You'}
+        </Text>
       </TouchableOpacity>
     );
   }
@@ -75,15 +107,13 @@ const StoryItem = ({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    gap: 6,
-    width: 62,
-    height: 72,
+    width: 66,
     marginRight: 4,
   },
   recentItem: {
     alignItems: 'center',
     marginRight: 4,
-    width: 62,
+    width: 66,
   },
   recentName: {
     fontSize: 11,
@@ -97,30 +127,30 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   gradientRing: {
-    width: 58,
-    height: 58,
-    borderRadius: radius.full,
+    width: RING_W,
+    height: RING_H,
+    borderRadius: RING_R,
     padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
   },
   innerCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.full,
+    width: INNER_W,
+    height: INNER_H,
+    borderRadius: INNER_R,
     backgroundColor: colorss.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
   miniAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: IMG_W,
+    height: IMG_H,
+    borderRadius: IMG_R,
   },
   initialCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: IMG_W,
+    height: IMG_H,
+    borderRadius: IMG_R,
     backgroundColor: colorss.primary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -135,40 +165,41 @@ const styles = StyleSheet.create({
   },
   onlineDot: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 12,
-    height: 12,
-    borderRadius: radius.full,
+    bottom: -1,
+    right: -1,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     backgroundColor: colors.online,
+    borderWidth: 2,
+    borderColor: colorss.white,
   },
-  addRing: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.full,
-    borderStyle: 'dashed',
+  addTile: {
+    width: RING_W,
+    height: RING_H,
+    borderRadius: RING_R,
+    backgroundColor: colorss.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: colorss.primary,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  addAvatar: {
-    width: '100%',
-    height: '100%',
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colorss.white,
   },
   addIcon: {
-    fontSize: 26,
+    fontSize: 15,
     color: '#ffffff',
     fontWeight: fonts.bold,
-    lineHeight: 28,
-  },
-  addName: {
-    fontSize: 10,
-    color: colorss.textPrimary,
-    fontWeight: fonts.medium,
-    textAlign: 'center',
+    lineHeight: 17,
   },
 });
 

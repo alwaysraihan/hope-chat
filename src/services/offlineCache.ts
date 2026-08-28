@@ -264,6 +264,29 @@ export function writeRequestCountCache(userId: string, count: number): void {
   try { storage().set(requestCountKey(userId), count); } catch { /* best-effort */ }
 }
 
+/**
+ * How many requests the user had already seen when they last opened the
+ * Requests folder. The badge shows the delta against the server count, so
+ * opening the folder once clears it without needing to visit each chat.
+ */
+function requestsSeenKey(userId: string): string {
+  return `msg_requests_seen_v1_${userId}`;
+}
+
+export function readRequestsSeenCount(userId: string): number {
+  if (!userId || userId === 'me') return 0;
+  try {
+    return storage().getNumber(requestsSeenKey(userId)) ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function writeRequestsSeenCount(userId: string, count: number): void {
+  if (!userId || userId === 'me') return;
+  try { storage().set(requestsSeenKey(userId), count); } catch { /* best-effort */ }
+}
+
 // ─── Thread messages cache ────────────────────────────────────────────────────
 
 /** Append a local-only group system event (member joined/left) to the thread cache. */

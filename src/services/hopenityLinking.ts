@@ -85,34 +85,93 @@ export async function openPlayStore(): Promise<void> {
  * falls back to opening the web profile URL in the browser if the app is not
  * installed or the scheme is not handled.
  */
+/**
+ * Open a hopenity.com path inside the Hopenity app, falling back to the web.
+ *
+ * Always tries the `hopenity://` custom scheme first, on both platforms.
+ * Hopenity registers it in CFBundleURLSchemes (iOS) and an intent-filter
+ * (Android), and Hope Chat lists it under LSApplicationQueriesSchemes so
+ * canOpenURL can actually see it.
+ *
+ * The HTTPS URL is only a fallback. Relying on it to open the app means relying
+ * on Universal Links, which need a valid apple-app-site-association served as
+ * application/json from the domain — and canOpenURL can never detect the
+ * failure, because Safari claims every http(s) URL.
+ */
+async function openHopenityPath(path: string): Promise<void> {
+  const clean = path.replace(/^\/+/, '');
+  const webUrl = `https://hopenity.com/${clean}`;
+  const deepLink = `hopenity://hopenity.com/${clean}`;
+
+  try {
+    if (await Linking.canOpenURL(deepLink)) {
+      await Linking.openURL(deepLink);
+      return;
+    }
+  } catch {
+    /* fall through to the web URL */
+  }
+
+  try {
+    await Linking.openURL(webUrl);
+  } catch {
+    /* nothing else to try */
+  }
+}
+
 export async function openHopenityPost(postId: string | number): Promise<void> {
   const id = String(postId ?? '').trim();
   if (!id) { await openHopenityBestEffort(); return; }
-
-  const deepLink =
-    Platform.OS === 'ios'
-      ? `https://hopenity.com/post/${id}`
-      : `hopenity://hopenity.com/post/${id}`;
-
-  try {
-    const ok = await Linking.canOpenURL(deepLink);
-    if (ok) { await Linking.openURL(deepLink); return; }
-  } catch { /* fall through */ }
-
-  try {
-    await Linking.openURL(`https://hopenity.com/post/${id}`);
-  } catch { /* nothing else to try */ }
+  await openHopenityPath(`post/${id}`);
 }
 
 export async function openHopenityProfile(userId: string | number): Promise<void> {
   const id = String(userId ?? '').trim();
   if (!id) { await openHopenityBestEffort(); return; }
+  await openHopenityPath(`user/${id}`);
+}
 
-  // App-to-app deep links (hopenity:// scheme / canOpenURL) proved unreliable
-  // across devices, so open the plain web profile URL directly — it always
-  // works, and when Hopenity is installed the OS still routes it into the app
-  // via Universal Links (iOS) / autoVerify app links (Android).
+/**
+ * Page profile. Hopenity's parser accepts `page`, `pages` and `page-profile`,
+ * but its Android manifest only auto-verifies `/pages/` and `/page-profile/` —
+ * so `/page/` links reach the app through the custom scheme only.
+ */
+export async function openHopenityPage(pageId: string | number): Promise<void> {
+  const id = String(pageId ?? '').trim();
+  if (!id) { await openHopenityBestEffort(); return; }
+  await openHopenityPath(`pages/${id}`);
+}
+
+/** hoppi.live product / seller. Dispatched by host, so the host must survive. */
+async function openHoppiPath(path: string): Promise<void> {
+  const clean = path.replace(/^\/+/, '');
+  const webUrl = `https://hoppi.live/${clean}`;
+  const deepLink = `hopenity://hoppi.live/${clean}`;
+
   try {
-    await Linking.openURL(`https://hopenity.com/user/${id}`);
-  } catch { /* nothing else to try */ }
+    if (await Linking.canOpenURL(deepLink)) {
+      await Linking.openURL(deepLink);
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    await Linking.openURL(webUrl);
+  } catch {
+    /* nothing else to try */
+  }
+}
+
+export async function openHoppiProduct(ref: string | number): Promise<void> {
+  const id = String(ref ?? '').trim();
+  if (!id) return;
+  await openHoppiPath(`product/${id}`);
+}
+
+export async function openHoppiSeller(sellerId: string | number): Promise<void> {
+  const id = String(sellerId ?? '').trim();
+  if (!id) return;
+  await openHoppiPath(`seller/${id}`);
 }

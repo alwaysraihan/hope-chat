@@ -4,17 +4,42 @@
 // eslint-disable-next-line no-var
 declare var require: (id: string) => unknown;
 
-type KeepAwakeModule = { activate(): void; deactivate(): void } | null;
+type KeepAwakeModule = { activate?: unknown; deactivate?: unknown } | null;
 
+/**
+ * react-native-keep-awake ships an ES default export (a component class with
+ * static activate/deactivate), so `require()` hands back `{ default: KeepAwake }`
+ * under Babel's interop rather than the class itself. Unwrap it, and treat a
+ * missing method as "not installed" — calling `mod?.activate()` on the wrapper
+ * throws "undefined is not a function" and takes the whole call screen down.
+ */
 let mod: KeepAwakeModule = null;
 try {
-  mod = require('react-native-keep-awake') as KeepAwakeModule;
-} catch { /* package not installed yet */ }
+  const required = require('react-native-keep-awake') as
+    | { default?: KeepAwakeModule }
+    | KeepAwakeModule;
+  const resolved =
+    (required as { default?: KeepAwakeModule } | null)?.default ??
+    (required as KeepAwakeModule);
+  mod = typeof resolved?.activate === 'function' ? resolved : null;
+} catch {
+  /* package not installed yet */
+}
+
+function invoke(name: 'activate' | 'deactivate'): void {
+  const fn = mod?.[name];
+  if (typeof fn !== 'function') return;
+  try {
+    (fn as () => void).call(mod);
+  } catch {
+    // Keeping the screen awake is best-effort — never break the call screen.
+  }
+}
 
 export function activateKeepAwake(): void {
-  mod?.activate();
+  invoke('activate');
 }
 
 export function deactivateKeepAwake(): void {
-  mod?.deactivate();
+  invoke('deactivate');
 }
