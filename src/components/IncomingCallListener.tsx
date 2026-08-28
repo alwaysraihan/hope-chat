@@ -49,10 +49,15 @@ import {
   endActiveCallForReplacement,
 } from '../services/livekit/activeCallRegistry';
 import { ONGOING_NOTIFICATION_ID } from '../services/livekit/liveKitCallForeground';
+import { consumePendingOpenActiveCall } from '../services/livekit/pendingCallScreenOpen';
 import { StackActions, CommonActions } from '@react-navigation/native';
 import { emitCallOutcome } from '../services/callOutcomeBus';
 import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
 import { callSocket } from '../services/callSocket';
+import {
+  displayMessagingNotification,
+  notificationChatId,
+} from '../services/notifications/messageNotification';
 import CallReliabilityPrompt from './CallReliabilityPrompt';
 
 /**
@@ -125,7 +130,16 @@ function navigateToActiveCallScreen(): void {
   try {
     const state = navigationRef.getRootState();
     const routes = (state?.routes ?? []) as Array<{ name: string }>;
-    const callIdx = routes.findIndex(r => r.name === targetRoute);
+    // Search from the top: minimising pushes a BottomTab above the call screen,
+    // and repeated minimise/return cycles can leave more than one call route in
+    // the stack. The *last* one is the live screen.
+    let callIdx = -1;
+    for (let i = routes.length - 1; i >= 0; i -= 1) {
+      if (routes[i]?.name === targetRoute) {
+        callIdx = i;
+        break;
+      }
+    }
     if (callIdx === -1) {
       // Call screen isn't in the stack (shouldn't happen, but fall back to pushing it).
       navigationRef.dispatch(StackActions.push(targetRoute));
@@ -138,6 +152,20 @@ function navigateToActiveCallScreen(): void {
   } catch (e) {
     if (__DEV__) console.warn('[HopeChat] navigateToActiveCallScreen', e);
   }
+}
+
+/**
+ * The tap may have been handled in the background JS context (app backgrounded)
+ * or land as a cold-start initial notification — in both cases navigation only
+ * becomes possible once we are foregrounded and mounted.
+ */
+function openActiveCallScreenWhenReady(attempt = 0): void {
+  if (attempt > 20) return;
+  if (!navigationRef.isReady() || !getActiveCall()) {
+    setTimeout(() => openActiveCallScreenWhenReady(attempt + 1), 150);
+    return;
+  }
+  navigateToActiveCallScreen();
 }
 
 /**
@@ -169,6 +197,37 @@ function processRejectPayload(raw: Record<string, string>): void {
   dismissIncomingCallIfShowing(parsed.liveKitRoom);
 }
 
+/**
+ * Tapping a message banner should land in that conversation, the way Messenger
+ * does — not just open the app on whatever screen it left off.
+ */
+function openChatFromNotification(raw: Record<string, string>): boolean {
+  if ((raw.type ?? '').toUpperCase() !== 'MESSAGE') return false;
+  const chatId = notificationChatId(raw);
+  if (!chatId) return false;
+  const open = (attempt = 0) => {
+    if (!navigationRef.isReady()) {
+      if (attempt > 20) return;
+      setTimeout(() => open(attempt + 1), 150);
+      return;
+    }
+    if (isViewingChat(chatId)) return;
+    try {
+      navigationRef.dispatch(
+        StackActions.push('Inbox', {
+          conversationId: chatId,
+          displayName: raw.sender_name ?? raw.senderName,
+          avatarUrl: raw.sender_image ?? raw.senderImage ?? null,
+        }),
+      );
+    } catch (e) {
+      if (__DEV__) console.warn('[HopeChat] openChatFromNotification', e);
+    }
+  };
+  open();
+  return true;
+}
+
 function openFromNotificationData(
   raw: Record<string, string>,
   autoAccept = false,
@@ -177,12 +236,27 @@ function openFromNotificationData(
   if (!parsed && raw.liveKitRoom) {
     parsed = parseIncomingCallPayload({ ...raw, type: INCOMING_CALL_MESSAGE_TYPE });
   }
-  if (!parsed) return;
+  if (!parsed) {
+    openChatFromNotification(raw);
+    return;
+  }
   if (autoAccept) {
     void acceptCallDirectly(parsed);
   } else {
     navigateIncomingCall(parsed);
   }
+}
+
+/**
+ * True when the user is already reading the chat the notification belongs to —
+ * banner-ing a message that is visible on screen would be noise.
+ */
+function isViewingChat(chatId: string): boolean {
+  if (!chatId || !navigationRef.isReady()) return false;
+  const current = navigationRef.getCurrentRoute();
+  if (current?.name !== 'Inbox') return false;
+  const params = current.params as { conversationId?: string } | undefined;
+  return String(params?.conversationId ?? '') === String(chatId);
 }
 
 /**
@@ -308,6 +382,8 @@ const IncomingCallListener = () => {
     const unsubAppState = AppState.addEventListener('change', next => {
       if (next === 'active') {
         consumePending();
+        // Ongoing-call notification was tapped while backgrounded.
+        if (consumePendingOpenActiveCall()) openActiveCallScreenWhenReady();
         const auth = store.getState().auth;
         callSocket.ensureConnected(
           auth.token,
@@ -397,6 +473,13 @@ const IncomingCallListener = () => {
           if (Object.keys(data).length > 0) {
             DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
           }
+          // Foreground messages used to be silent: FCM only auto-displays while
+          // backgrounded, so an incoming chat produced no banner at all. Render
+          // the same Messenger-style notification here, unless the user is
+          // already looking at that conversation.
+          if (!isViewingChat(notificationChatId(data))) {
+            void displayMessagingNotification(data).catch(() => undefined);
+          }
           if (__DEV__ && Object.keys(data).length > 0) {
             console.log(
               '[HopeChat] FCM non-call message → reloading chat list',
@@ -419,7 +502,9 @@ const IncomingCallListener = () => {
       }
 
       const notInitial = await notifee.getInitialNotification();
-      if (notInitial?.notification?.data) {
+      if (notInitial?.notification?.id === ONGOING_NOTIFICATION_ID) {
+        openActiveCallScreenWhenReady();
+      } else if (notInitial?.notification?.data) {
         const wasAcceptButton = notInitial.pressAction?.id === 'accept';
         openFromNotificationData(
           notInitial.notification.data as Record<string, string>,
@@ -432,7 +517,7 @@ const IncomingCallListener = () => {
 
         // Ongoing call notification tapped — bring the active call screen back into view.
         if (detail.notification?.id === ONGOING_NOTIFICATION_ID) {
-          navigateToActiveCallScreen();
+          openActiveCallScreenWhenReady();
           return;
         }
 
@@ -454,6 +539,7 @@ const IncomingCallListener = () => {
       // Also consume on initial mount — the AppState 'change' listener doesn't fire
       // if the app launches directly into the 'active' state (cold-start via notification tap).
       consumePending();
+      if (consumePendingOpenActiveCall()) openActiveCallScreenWhenReady();
     })().catch(() => undefined);
 
     return () => {

@@ -1,6 +1,11 @@
 import { getApp } from '@react-native-firebase/app';
 import { getMessaging, setBackgroundMessageHandler } from '@react-native-firebase/messaging';
-import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
+import notifee, { EventType } from '@notifee/react-native';
+
+import {
+  MESSAGE_CHANNEL_ID,
+  displayMessagingNotification,
+} from '../notifications/messageNotification';
 
 import {
   cancelAndroidIncomingCallNotification,
@@ -13,6 +18,8 @@ import {
   normalizeFcmData,
   parseIncomingCallPayload,
 } from './payload';
+import { ONGOING_NOTIFICATION_ID } from '../livekit/liveKitCallForeground';
+import { setPendingOpenActiveCall } from '../livekit/pendingCallScreenOpen';
 import {
   startIncomingCallRingtone,
   stopIncomingCallRingtone,
@@ -21,61 +28,10 @@ import {
   clearPendingAutoAcceptData,
 } from './callRingtone';
 
-// ── Messaging notification channel ────────────────────────────────────────────
-
-const MESSAGE_CHANNEL_ID = 'hopechat_messages_v1';
-
-/**
- * FCM data.type values that are allowed to produce a push notification.
- * Calls are handled separately via the call-notification path.
- * FRIEND_REQUEST / FRIEND_REQUEST_ACCEPTED belong to Hopenity — only Hopenity
- * shows those banners. Every other social type (POST_LIKE, COMMENT, etc.) is
- * silently dropped here too.
- */
-const ALLOWED_PUSH_TYPES = new Set([
-  'MESSAGE',
-  'DONATION_REQUEST',
-]);
-
-async function ensureMessagesChannel(): Promise<void> {
-  await notifee.createChannel({
-    id: MESSAGE_CHANNEL_ID,
-    name: 'Messages & Requests',
-    importance: AndroidImportance.HIGH,
-    sound: 'default',
-    vibration: true,
-  });
-}
-
-async function displayMessagingNotification(
-  data: Record<string, string>,
-): Promise<void> {
-  const type = (data.type ?? '').toUpperCase();
-  if (!ALLOWED_PUSH_TYPES.has(type)) return;
-
-  const senderName =
-    data.sender_name ?? data.name ?? data.displayName ?? data.callerName ?? '';
-
-  const isDonationRequest = type === 'DONATION_REQUEST';
-  const title = isDonationRequest
-    ? senderName || 'Donation Request'
-    : senderName || 'New message';
-  const body = isDonationRequest
-    ? data.text ?? data.body ?? data.message ?? data.content ?? 'Someone is interested in your request.'
-    : data.body ?? data.message ?? data.content ?? data.message_preview ?? 'You have a new message';
-
-  await ensureMessagesChannel();
-  await notifee.displayNotification({
-    title,
-    body,
-    data,
-    android: {
-      channelId: MESSAGE_CHANNEL_ID,
-      importance: AndroidImportance.HIGH,
-      pressAction: { id: 'default', launchActivity: 'default' },
-    },
-  });
-}
+// ── Messaging notifications ───────────────────────────────────────────────────
+// The banner itself (Messenger-style: avatar + name + preview) is built in
+// services/notifications/messageNotification so the foreground path renders the
+// exact same notification.
 
 // ── Channel ownership guard ────────────────────────────────────────────────────
 
@@ -121,6 +77,14 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
   }
 
   if (type === EventType.PRESS) {
+    // Ongoing-call notification tapped while the app is backgrounded. This
+    // context has no navigation, so record the intent; the main context acts on
+    // it the moment the app foregrounds.
+    if (notifId === ONGOING_NOTIFICATION_ID) {
+      setPendingOpenActiveCall();
+      return;
+    }
+
     if (actionId === 'reject') {
       stopIncomingCallRingtone();
       if (notifId) await notifee.cancelNotification(notifId);
