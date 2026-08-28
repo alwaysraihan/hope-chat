@@ -279,8 +279,18 @@ export default function Reaction({
     }
   }, [media]);
 
+  /**
+   * Booking cards and call logs are records, not conversation. Replying to,
+   * copying, or forwarding one produces nonsense — a forwarded call log reads
+   * as "📞 Missed voice call" in someone else's thread, and copying a booking
+   * card yields its raw multi-line text. They keep reactions only.
+   */
+  const reactionsOnly =
+    currentMessage.messageKind === 'booking_card' ||
+    currentMessage.messageKind === 'call_log';
+
   //  Action buttons (all wired to context functions)
-  const actions: ActionButton[] = [
+  const actions: ActionButton[] = reactionsOnly ? [] : [
     {
       id: 'reply',
       label: 'Reply',
@@ -397,7 +407,8 @@ export default function Reaction({
           ))}
         </Animated.View>
 
-        {/* Action sheet */}
+        {/* Action sheet — omitted entirely for reaction-only message kinds */}
+        {actions.length === 0 ? null : (
         <Animated.View
           style={[
             styles.actionSheet,
@@ -435,6 +446,7 @@ export default function Reaction({
             ))}
           </View>
         </Animated.View>
+        )}
       </Modal>
 
       {/* Swipeable message row */}
@@ -485,7 +497,15 @@ export default function Reaction({
 
       {/* Reactor list modal */}
       <Modal transparent visible={reactorListVisible} animationType="slide">
-        <ReactorList onClose={() => setReactorListVisible(false)} />
+        <ReactorList
+          onClose={() => setReactorListVisible(false)}
+          reactors={(currentMessage.reactions ?? []).map(r => ({
+            id: String(r.userId),
+            name: r.userName || 'Unknown',
+            reaction: r.emoji,
+            avatar: (r as { avatar?: string | null }).avatar ?? null,
+          }))}
+        />
       </Modal>
 
       {/* Media preview modal */}

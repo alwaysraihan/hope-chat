@@ -19,7 +19,7 @@ interface Reactor {
   id: string;
   name: string;
   reaction: string;
-  avatar?: string;
+  avatar?: string | null;
 }
 
 interface ReactorListProps {
@@ -27,23 +27,11 @@ interface ReactorListProps {
   reactors?: Reactor[];
 }
 
-//  Defaults
-
-const DEFAULT_DATA: Reactor[] = [
-  { id: '1', name: 'Emon Hossain', reaction: '❤️' },
-  { id: '2', name: 'John Doe', reaction: '😂' },
-  { id: '3', name: 'Alex', reaction: '👍' },
-  { id: '4', name: 'Sam', reaction: '❤️' },
-  { id: '5', name: 'David', reaction: '👍' },
-];
-
-const AVATAR_PLACEHOLDER = { uri: 'https://i.pravatar.cc/100' };
-
 //  Component
 
 export default function ReactorList({
   onClose,
-  reactors = DEFAULT_DATA,
+  reactors = [],
 }: ReactorListProps) {
   const [activeFilter, setActiveFilter] = useState('ALL');
 
@@ -68,15 +56,26 @@ export default function ReactorList({
   const renderItem: ListRenderItem<Reactor> = ({ item }) => (
     <View style={styles.row}>
       <View style={styles.userInfo}>
-        <Image
-          source={item.avatar ? { uri: item.avatar } : AVATAR_PLACEHOLDER}
-          style={styles.avatar}
-        />
-        <Text style={styles.name}>{item.name}</Text>
+        {item.avatar ? (
+          <Image source={{ uri: item.avatar }} style={styles.avatar} />
+        ) : (
+          // Initials, not a stock photo — the old placeholder pulled a random
+          // stranger's face from i.pravatar.cc and showed it as the reactor.
+          <View style={[styles.avatar, styles.avatarFallback]}>
+            <Text style={styles.avatarInitial}>
+              {item.name.trim().charAt(0).toUpperCase() || '?'}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.name} numberOfLines={1}>
+          {item.name}
+        </Text>
       </View>
       <Text style={styles.emoji}>{item.reaction}</Text>
     </View>
   );
+
+  const isEmpty = reactors.length === 0;
 
   return (
     <Animated.View entering={FadeInUp.duration(250)} style={styles.overlay}>
@@ -118,11 +117,20 @@ export default function ReactorList({
 
         <FlatList
           data={filtered}
-          keyExtractor={item => item.id}
+          // A person can only hold one reaction, but include the emoji so a
+          // malformed payload with duplicates still yields unique keys.
+          keyExtractor={item => `${item.id}_${item.reaction}`}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
           renderItem={renderItem}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ListEmptyComponent={
+            isEmpty ? (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyText}>No reactions yet.</Text>
+              </View>
+            ) : null
+          }
         />
       </View>
     </Animated.View>
@@ -217,6 +225,24 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
+  },
+  avatarFallback: {
+    backgroundColor: colorss.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitial: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  emptyWrap: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#6B7280',
   },
   name: {
     fontSize: 14,

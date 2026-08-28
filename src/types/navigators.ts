@@ -66,6 +66,10 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     messagingEnabled?: boolean;
     /** True when the current user is the callee — only they can toggle messaging. */
     isBookingCallee?: boolean;
+    /** Live booking lifecycle state — drives which booking actions are offered. */
+    bookingStatus?: string;
+    /** NONE | REQUESTED | APPROVED | REJECTED — shown to both parties. */
+    bookingCancelStatus?: string;
   };
   EditSearchHistory: undefined;
   Archive: undefined;

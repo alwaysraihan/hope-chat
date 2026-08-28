@@ -94,8 +94,28 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     [giftedChatUser, profile],
   );
 
-  const { conversations, reloadConversations, listLoading, pendingRequestCount } =
-    useChats();
+  const {
+    conversations,
+    reloadConversations,
+    listLoading,
+    loadingMoreConversations,
+    loadMoreConversations,
+    pendingRequestCount,
+  } = useChats();
+  const activePage = useAppSelector(state => state.auth.activePage);
+
+  // Pull-to-refresh only. Background reloads (tab focus, page switch) used to
+  // drive the same RefreshControl, so simply switching tabs threw a spinner in
+  // and pushed the whole list down — a visible jolt on every navigation.
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const handleManualRefresh = useCallback(async () => {
+    setManualRefreshing(true);
+    try {
+      await reloadConversations();
+    } finally {
+      setManualRefreshing(false);
+    }
+  }, [reloadConversations]);
 
   // ── Active booking banner ─────────────────────────────────────────────────
   const [activeBookingCount, setActiveBookingCount] = useState(0);
@@ -392,6 +412,12 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     [conversations],
   );
 
+  // Switching into page mode hides the Friends tab; don't strand the user on
+  // a filter whose chip is no longer there.
+  useEffect(() => {
+    if (activePage && activeFilter === 'friends') setActiveFilter('all');
+  }, [activePage, activeFilter]);
+
   const filteredConversations = useMemo(() => {
     switch (activeFilter) {
       case 'unread':
@@ -522,7 +548,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterRow}
         >
-          {TABS.map(tab => {
+          {TABS.filter(
+            // A page has no friends of its own — the list would be the
+            // operator's personal friends, which is not what page mode means.
+            tab => !(activePage && tab.key === 'friends'),
+          ).map(tab => {
             const selected = tab.kind === 'filter' && activeFilter === tab.key;
             const badge =
               tab.key === 'requests'
@@ -606,6 +636,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     ),
     [
       activeBookingCount,
+      activePage,
       activePeers,
       friendsStrip,
       activeFilter,
@@ -908,11 +939,21 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             ListHeaderComponent={ListHeader}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContent}
+            onEndReached={() => void loadMoreConversations()}
+            onEndReachedThreshold={0.5}
             refreshControl={
               <RefreshControl
-                refreshing={listLoading}
-                onRefresh={reloadConversations}
+                refreshing={manualRefreshing}
+                onRefresh={handleManualRefresh}
               />
+            }
+            ListFooterComponent={
+              loadingMoreConversations ? (
+                <ActivityIndicator
+                  style={styles.friendsFooter}
+                  color={colorss.primary}
+                />
+              ) : null
             }
             ListEmptyComponent={
               <View style={styles.emptyState}>

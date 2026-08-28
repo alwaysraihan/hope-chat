@@ -35,6 +35,7 @@ import {
   fetchHopenityChatMessages,
   formatChatTime,
   markHopenityChatRead,
+  reactToMessage,
   sendHopenityChatMessage,
   uploadChatMedia,
 } from '../services/chatService';
@@ -44,6 +45,11 @@ import {
   selectActivePage,
 } from '../redux/features/auth/authSlice';
 import { normalizeChatUserId } from '../utils/chatUserId';
+import {
+  readCachedGroupMembers,
+  sameMembers,
+  writeCachedGroupMembers,
+} from '../services/e2ee/groupMemberCache';
 import {
   mergeLocalCallLogsFromCache,
   readThreadMessagesCache,
@@ -363,28 +369,77 @@ export function InboxProvider({
   }, [isGroup, _conversationId, peerUserId, localUserIdStr]);
 
   /** Symmetric group key — derived once after fetching group members. */
-  const [groupCryptoKey, setGroupCryptoKey] = useState<Uint8Array | null>(null);
+  /**
+   * Derive the group key from cached membership on the very first render, so
+   * the thread never paints raw ciphertext while a round-trip is in flight.
+   */
+  const [groupCryptoKey, setGroupCryptoKey] = useState<Uint8Array | null>(() => {
+    if (!isGroup || !_conversationId || !isE2eeEnabled()) return null;
+    const cached = readCachedGroupMembers(_conversationId);
+    if (!cached) return null;
+    try {
+      return deriveGroupMessageKey(_conversationId, cached);
+    } catch {
+      return null;
+    }
+  });
+
+  // Resolves once the key is known (or known to be unavailable). The send path
+  // awaits this so a message composed before the key lands is still encrypted
+  // rather than silently downgraded to plaintext.
+  const groupKeyReadyRef = useRef<Promise<Uint8Array | null> | null>(null);
 
   useEffect(() => {
     if (!isGroup || !_conversationId || !token || !isE2eeEnabled()) {
       setGroupCryptoKey(null);
+      groupKeyReadyRef.current = null;
       return;
     }
+
     let cancelled = false;
-    fetchGroupInfo(_conversationId, token).then(info => {
-      if (cancelled || !info || info.members.length === 0) return;
-      try {
-        const key = deriveGroupMessageKey(
-          _conversationId,
-          info.members.map(m => m.userId),
-        );
-        setGroupCryptoKey(key);
-      } catch {
-        // leave null — group will send/receive plaintext
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    const cachedMembers = readCachedGroupMembers(_conversationId);
+
+    // Always refresh: membership changes invalidate the key, and a stale key
+    // would decrypt nothing once someone joins or leaves.
+    const pending = fetchGroupInfo(_conversationId, token)
+      .then(info => {
+        if (!info || info.members.length === 0) return null;
+        const memberIds = info.members.map(m => m.userId);
+        try {
+          const key = deriveGroupMessageKey(_conversationId, memberIds);
+          if (!cancelled) {
+            if (!sameMembers(cachedMembers, memberIds)) {
+              writeCachedGroupMembers(_conversationId, memberIds);
+            }
+            setGroupCryptoKey(key);
+          }
+          return key;
+        } catch {
+          return null;
+        }
+      })
+      .catch(() => null);
+
+    groupKeyReadyRef.current = pending;
+    return () => {
+      cancelled = true;
+    };
   }, [isGroup, _conversationId, token]);
+
+  /**
+   * Await the group key before deciding whether to encrypt. Without this, a
+   * message sent in the first moments after opening a group went out in
+   * plaintext into an otherwise-encrypted thread.
+   */
+  const resolveGroupKey = useCallback(async (): Promise<Uint8Array | null> => {
+    if (groupCryptoKey) return groupCryptoKey;
+    if (!groupKeyReadyRef.current) return null;
+    try {
+      return await groupKeyReadyRef.current;
+    } catch {
+      return null;
+    }
+  }, [groupCryptoKey]);
 
   const shouldEncryptOutgoing = isE2eeEnabled() && (isGroup ? !!groupCryptoKey : !!dmCryptoKey);
 
@@ -937,6 +992,26 @@ export function InboxProvider({
     [threadIntroPeer],
   );
 
+  /**
+   * Append unless the id is already present. The socket push and the 15s poll
+   * can both deliver the same row, and GiftedChat renders duplicate keys as
+   * duplicate bubbles.
+   */
+  const appendMessageIfNew = useCallback(
+    (msg: ExtendedMessage) => {
+      setMessages(prev => {
+        if (stripIntro(prev).some(m => String(m._id) === String(msg._id))) {
+          return prev;
+        }
+        return mergeIntroDesc([msg, ...stripIntro(prev)], threadIntroPeer);
+      });
+      setAllMessages(prev =>
+        prev.some(m => String(m._id) === String(msg._id)) ? prev : [...prev, msg],
+      );
+    },
+    [threadIntroPeer],
+  );
+
   const updateMessage = useCallback(
     (id: string | number, patch: Partial<ExtendedMessage>) => {
       const apply = (m: ExtendedMessage) =>
@@ -1021,8 +1096,29 @@ export function InboxProvider({
     // Fetch the new message immediately when the socket event arrives, instead
     // of waiting for the 15s poll — this is what made incoming messages feel
     // slower than the sender's own optimistic echo.
-    const unsubNew = callSocket.onNewMessage(({ chatId }) => {
+    const unsubNew = callSocket.onNewMessage(({ chatId, message }) => {
       if (String(chatId) !== String(_conversationId)) return;
+
+      // The server pushes the whole message row. Render it immediately — the
+      // old path threw the payload away and refetched the thread over REST,
+      // which added a full round-trip to every incoming message and is what
+      // made chatting feel laggy even with both people online.
+      if (message) {
+        try {
+          const mapped = mapHopenityMessage(message);
+          // Skip our own echo: the optimistic bubble is already on screen.
+          if (String(mapped.user._id) !== String(localUserIdStr)) {
+            appendMessageIfNew(mapped);
+            DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+            return;
+          }
+          DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+          return;
+        } catch {
+          // Malformed or an encrypted shape we can't map yet — fall back.
+        }
+      }
+
       pollMessagesNow();
       DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
     });
@@ -1032,7 +1128,14 @@ export function InboxProvider({
       unsubDeleted();
       unsubNew();
     };
-  }, [_conversationId, deleteMessage, pollMessagesNow]);
+  }, [
+    _conversationId,
+    appendMessageIfNew,
+    deleteMessage,
+    localUserIdStr,
+    mapHopenityMessage,
+    pollMessagesNow,
+  ]);
 
   // ─── Retro-decrypt: groupCryptoKey is derived asynchronously (after an
   // extra fetchGroupInfo round-trip), so any group message mapped before it
@@ -1155,11 +1258,18 @@ export function InboxProvider({
 
         if (_conversationId && token) {
           const plain = String(stamped.text ?? '');
+          void (async () => {
           let wire = plain;
-          if (shouldEncryptOutgoing && plain.length > 0) {
-            wire = isGroup
-              ? encryptGroupMessage(plain, groupCryptoKey!)
-              : encryptMessagePayload(plain, dmCryptoKey!);
+          if (isE2eeEnabled() && plain.length > 0) {
+            if (isGroup) {
+              // Wait for the key rather than downgrading: sending before it
+              // resolved used to put a plaintext message into an otherwise
+              // encrypted thread.
+              const gk = await resolveGroupKey();
+              if (gk) wire = encryptGroupMessage(plain, gk);
+            } else if (dmCryptoKey) {
+              wire = encryptMessagePayload(plain, dmCryptoKey);
+            }
           }
           sendHopenityChatMessage(_conversationId, wire, token, activePage?.id ?? null, useV2Messages, currentReplyTo?._id ?? null)
             .then(res => {
@@ -1197,6 +1307,7 @@ export function InboxProvider({
               console.error('[InboxProvider] send message error:', err);
               updateMessage(stamped._id, { pending: false, failed: true });
             });
+          })();
         } else {
           setTimeout(() => updateMessage(stamped._id, { pending: false }), 800);
         }
@@ -1216,7 +1327,7 @@ export function InboxProvider({
       token,
       updateConversationPreview,
       localUserIdStr,
-      shouldEncryptOutgoing,
+      resolveGroupKey,
       dmCryptoKey,
       groupCryptoKey,
       isGroup,
@@ -1467,11 +1578,19 @@ export function InboxProvider({
             },
           ];
 
+      // Optimistic, then persist. Without the server call the reaction lived
+      // only in local state: it vanished on reload and the other person never
+      // saw it.
       updateMessage(msg._id, { reactions: updated });
 
-      // TODO: api.reactToMessage(msg._id, emoji, alreadyReacted ? 'remove' : 'add');
+      if (!token) return;
+      void reactToMessage(msg._id, emoji, token).then(ok => {
+        if (ok) return;
+        // Roll back so the UI doesn't claim a reaction the server rejected.
+        updateMessage(msg._id, { reactions: existing });
+      });
     },
-    [user._id, user.name, updateMessage],
+    [user._id, user.name, updateMessage, token],
   );
 
   // ─── Reply ─────────────────────────────────────────────────────────────────
@@ -1579,7 +1698,16 @@ export function InboxProvider({
     if (!ok) return;
 
     launchCamera(
-      { mediaType: 'mixed' as MediaType, videoQuality: 'low', quality: 0.8 },
+      {
+        mediaType: 'mixed' as MediaType,
+        videoQuality: 'low',
+        quality: 0.8,
+        // Downscale before upload. Without a cap a 12MP camera photo goes up at
+        // full resolution (4–8 MB), which is why sending an image felt slow;
+        // the picker resizes natively, so this costs nothing on-device.
+        maxWidth: 1600,
+        maxHeight: 1600,
+      },
       response => {
         if (response.didCancel || response.errorCode) return;
         const asset = response.assets?.[0];
@@ -1601,6 +1729,9 @@ export function InboxProvider({
         selectionLimit: 10,   // up to 10 at once (WhatsApp-style)
         quality: 0.8,
         videoQuality: 'low',  // hardware-compress videos before upload
+        // Same cap as the camera path — gallery originals are just as large.
+        maxWidth: 1600,
+        maxHeight: 1600,
       },
       response => {
         if (response.didCancel || response.errorCode) return;

@@ -20,6 +20,7 @@ import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import ChatThreadIntroCard from './ChatThreadIntroCard';
 import AudioPlayer from './AudioPlayer';
 import { ProductCardPreview } from './ProductCardPreview';
+import { PostCardPreview } from './PostCardPreview';
 import DonationRequestBubble from './DonationRequestBubble';
 import BookingCardBubble from './BookingCardBubble';
 import MediaPreviewModal from './ImagePreviewModal';
@@ -52,9 +53,17 @@ type ChatMessageBoxProps = {
 
 const URL_RE = /(https?:\/\/[^\s]+)/gi;
 const HOPPI_PRODUCT_RE = /^https?:\/\/(www\.)?hoppi\.live\/product\/([a-zA-Z0-9_-]+)/i;
+// /post/:id and /post_id/:id both reach a post; feels are posts too.
+const HOPENITY_POST_RE =
+  /^https?:\/\/(www\.)?hopenity\.com\/(?:post|post_id|feels)\/([a-zA-Z0-9_-]+)/i;
 
 function extractProductSlug(url: string): string | null {
   const m = url.match(HOPPI_PRODUCT_RE);
+  return m ? m[2] : null;
+}
+
+function extractPostId(url: string): string | null {
+  const m = url.match(HOPENITY_POST_RE);
   return m ? m[2] : null;
 }
 
@@ -550,7 +559,13 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const productSlug = productUrl ? extractProductSlug(productUrl) : null;
   // When the message is nothing but the product link, the card already says
   // everything the URL would — showing both stacks a long unreadable URL on it.
-  const hideUrlText = productSlug != null && rawText.trim() === productUrl;
+  const postUrl = allUrls.find(u => extractPostId(u) != null) ?? null;
+  const postId = postUrl ? extractPostId(postUrl) : null;
+  // When the message is nothing but the link, the card already says everything
+  // the URL would — showing both stacks a long unreadable URL on it.
+  const hideUrlText =
+    (productSlug != null && rawText.trim() === productUrl) ||
+    (postId != null && rawText.trim() === postUrl);
 
   return (
     <Reaction {...reactionProps}>
@@ -590,6 +605,13 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
               )}
             </Text>
           )}
+          {postId ? (
+            <PostCardPreview
+              postId={postId}
+              isDark={isDark}
+              onPress={() => handleLinkPress(postUrl!)}
+            />
+          ) : null}
           {productSlug ? (
             <ProductCardPreview
               slug={productSlug}

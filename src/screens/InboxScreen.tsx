@@ -108,6 +108,8 @@ const InboxScreenInner: React.FC<
   // Booking-linked chat: track whether messaging is allowed.
   // Re-synced on every focus so admin toggles from ConversationAction are reflected.
   const [bookingClosed, setBookingClosed] = useState(false);
+  const [bookingStatus, setBookingStatus] = useState<string | undefined>();
+  const [bookingCancelStatus, setBookingCancelStatus] = useState<string | undefined>();
   const [bookingMessagingEnabled, setBookingMessagingEnabled] = useState(
     route.params.messagingEnabled ?? true,
   );
@@ -162,6 +164,8 @@ const InboxScreenInner: React.FC<
         const booking = asCallee ?? booked.find(b => b.id === bookingId);
         if (booking != null) {
           setBookingMessagingEnabled(booking.messagingEnabled);
+          setBookingStatus(booking.status);
+          setBookingCancelStatus(booking.cancelStatus ?? 'NONE');
           // A closed or cancelled booking is history — distinguish it from a
           // plain messaging toggle so the banner can say why.
           setBookingClosed(
@@ -578,6 +582,8 @@ const InboxScreenInner: React.FC<
             isMuted: !!conversation.isMuted,
             bookingId: resolvedBookingId,
             messagingEnabled: bookingMessagingEnabled,
+            bookingStatus,
+            bookingCancelStatus,
             isBookingCallee,
           })
         }

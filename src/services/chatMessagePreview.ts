@@ -160,9 +160,43 @@ export function formatChatListPreview(
     const label = '🎬 Video';
     return senderIsLocal ? `You: ${label}` : label;
   }
-  const base =
-    trimmed.length > 140 ? `${trimmed.slice(0, 137)}…` : trimmed;
+  const base = truncateForPreview(trimmed, 140);
   return senderIsLocal ? `You: ${base}` : base;
+}
+
+/**
+ * Truncate without splitting an emoji.
+ *
+ * `String.slice` counts UTF-16 code units. An emoji is a surrogate pair (2
+ * units) and family/profession emoji are ZWJ sequences of many pairs, so a
+ * plain slice can end on a lone surrogate — invalid UTF-16. That is what makes
+ * a chat-list preview look "cut in half", and on some Android builds a lone
+ * surrogate makes the whole run of text fail to render, which is why emoji
+ * messages appeared blank on certain devices.
+ *
+ * Intl.Segmenter keeps whole grapheme clusters (so 👨‍👩‍👧‍👦 stays intact) where
+ * available; the fallback iterates code points, which never splits a pair.
+ */
+export function truncateForPreview(text: string, max: number): string {
+  if (text.length <= max) return text;
+
+  const Segmenter = (
+    Intl as unknown as { Segmenter?: new (l?: string, o?: object) => { segment(s: string): Iterable<{ segment: string }> } }
+  ).Segmenter;
+
+  const units: string[] = Segmenter
+    ? Array.from(new Segmenter(undefined, { granularity: 'grapheme' }).segment(text), s => s.segment)
+    : Array.from(text); // code points — still never splits a surrogate pair
+
+  if (units.length <= max) return text;
+
+  let out = '';
+  for (const u of units) {
+    // Keep room for the ellipsis.
+    if (out.length + u.length > max - 1) break;
+    out += u;
+  }
+  return `${out}…`;
 }
 
 export type ParsedApiMessage = {

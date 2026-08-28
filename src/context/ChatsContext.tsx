@@ -24,6 +24,7 @@ import {
   formatChatTime,
   HopenityChatItem,
 } from '../services/chatService';
+import { callSocket } from '../services/callSocket';
 import { formatChatListPreview } from '../services/chatMessagePreview';
 import type { ApiLastMessageLike } from '../services/chatMessagePreview';
 import {
@@ -109,6 +110,10 @@ type ChatsContextValue = {
   bumpUnread: (conversationId: string, delta?: number) => void;
   reloadConversations: () => Promise<void>;
   listLoading: boolean;
+  /** True while an additional page of chats is being fetched. */
+  loadingMoreConversations: boolean;
+  hasMoreConversations: boolean;
+  loadMoreConversations: () => Promise<void>;
   /** Pending REQUESTED chats folder — surfaced beside Requests UI */
   pendingRequestCount: number;
   /** Call when the Requests folder is opened — clears the badge. */
@@ -724,6 +729,12 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
   const token = useAppSelector(selectAuthToken);
   const [listLoading, setListLoading] = useState(false);
+  // Chat list paging. The directory was fetched once at limit 50 with no way to
+  // reach anything past that, so accounts with more chats simply could not see
+  // them however far they scrolled.
+  const CHAT_PAGE_SIZE = 50;
+  const [hasMoreConversations, setHasMoreConversations] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [rawRequestCount, setPendingRequestCount] = useState(() => {
     const uid = normalizeChatUserId(
       giftedChatUser?._id ?? hopenityProfile?.userId ?? '',
@@ -788,7 +799,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     try {
       const { chats, counts, httpStatus } = await fetchHopenityChatDirectory(token, {
         status: 'inbox',
-        limit: 50,
+        limit: CHAT_PAGE_SIZE,
         offset: 0,
         localUserId: String(localUser._id ?? ''),
         // When a page is active, fetch that page's conversations
@@ -832,6 +843,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           : mapped.filter(c => c.needsAcceptance).length;
       setPendingRequestCount(newRequestCount);
       setConversations(next);
+      setHasMoreConversations(chats.length >= CHAT_PAGE_SIZE);
       // Only cache personal-mode results — page inbox is transient and should
       // never appear after switching back to personal account.
       if (!activePage) {
@@ -844,6 +856,60 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       setListLoading(false);
     }
   }, [dispatch, localUser, token, activePage]);
+
+  /**
+   * Append the next page of conversations. Guarded on the loading flag because
+   * onEndReached fires repeatedly while a list settles, and each duplicate call
+   * would request the same offset.
+   */
+  const loadMoreConversations = useCallback(async () => {
+    if (!token || loadingMore || !hasMoreConversations) return;
+    setLoadingMore(true);
+    try {
+      const { chats } = await fetchHopenityChatDirectory(token, {
+        status: 'inbox',
+        limit: CHAT_PAGE_SIZE,
+        offset: conversationsRef.current.length,
+        localUserId: String(localUser._id ?? ''),
+        ...(activePage ? { pageId: Number(activePage.id) } : {}),
+      });
+
+      if (chats.length === 0) {
+        setHasMoreConversations(false);
+        return;
+      }
+
+      const hidden = new Set(getHiddenConversationIds());
+      const pinnedIds = new Set(getPinnedConversationIds());
+      const mutedIds = new Set(getMutedConversationIds());
+      const effectiveLocalUser = activePage
+        ? { _id: activePage.id, name: activePage.name }
+        : localUser;
+
+      const mapped = chats
+        .map(chat => mapChatItemToSummary(chat, effectiveLocalUser))
+        .filter(c => !hidden.has(c.id))
+        .map(c => ({
+          ...c,
+          pinned: pinnedIds.has(c.id),
+          isMuted: mutedIds.has(c.id),
+        }));
+
+      setConversations(prev => {
+        // The server can shift rows between pages as chats reorder by recency,
+        // so drop anything already on screen rather than rendering it twice.
+        const seen = new Set(prev.map(c => String(c.id)));
+        const fresh = mapped.filter(c => !seen.has(String(c.id)));
+        if (fresh.length === 0) return prev;
+        return [...prev, ...fresh];
+      });
+      setHasMoreConversations(chats.length >= CHAT_PAGE_SIZE);
+    } catch (err) {
+      console.error('[ChatsProvider] loadMoreConversations error:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [token, loadingMore, hasMoreConversations, localUser, activePage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -884,6 +950,71 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     }, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [token, reloadConversations]);
+
+  /**
+   * Live chat-list updates.
+   *
+   * The list previously only refreshed when InboxContext emitted — which it
+   * does only for the thread the user currently has open. So a message arriving
+   * in any other conversation did not surface until the 30s poll, which is why
+   * the inbox felt stale while the thread itself felt live.
+   *
+   * The server pushes the whole message row, so patch the affected row in place
+   * and float it to the top. That is instant and costs no request; the poll
+   * still reconciles ordering and counts.
+   */
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const unsub = callSocket.onNewMessage(({ chatId, message }) => {
+      const id = String(chatId);
+      if (!message) {
+        void reloadConversations();
+        return;
+      }
+
+      const senderId = String(
+        (message.senderId ?? message.sender_id ?? '') as string,
+      );
+      const localId = String(localUser._id ?? '');
+      const fromMe =
+        !!senderId &&
+        normalizeChatUserId(senderId) === normalizeChatUserId(localId);
+
+      setConversations(prev => {
+        const idx = prev.findIndex(c => String(c.id) === id);
+        // A brand-new conversation isn't in the list yet — only then pay for a
+        // refetch.
+        if (idx === -1) {
+          void reloadConversations();
+          return prev;
+        }
+
+        const target = prev[idx]!;
+        const preview = formatChatListPreview(
+          message as unknown as ApiLastMessageLike,
+          localId,
+        );
+        const updated: ConversationSummary = {
+          ...target,
+          preview,
+          time: 'now',
+          unreadCount: fromMe ? target.unreadCount : target.unreadCount + 1,
+          isUnread: fromMe ? target.isUnread : true,
+        };
+
+        const rest = prev.filter((_, i) => i !== idx);
+        // Pinned rows keep their block at the top.
+        const pinned = rest.filter(c => c.pinned);
+        const unpinned = rest.filter(c => !c.pinned);
+        return updated.pinned
+          ? [updated, ...pinned, ...unpinned]
+          : [...pinned, updated, ...unpinned];
+      });
+    });
+
+    return () => unsub();
+  }, [token, reloadConversations, localUser._id]);
 
   // Instant reload when something (e.g. FCM new-message notification) fires the event.
   useEffect(() => {
@@ -1049,13 +1180,19 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       bumpUnread,
       reloadConversations,
       listLoading,
+      loadingMoreConversations: loadingMore,
+      hasMoreConversations,
+      loadMoreConversations,
       pendingRequestCount,
       markRequestsSeen,
     }),
     [
       bumpUnread,
       conversations,
+      hasMoreConversations,
       listLoading,
+      loadMoreConversations,
+      loadingMore,
       markRequestsSeen,
       pendingRequestCount,
       reloadConversations,

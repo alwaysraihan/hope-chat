@@ -13,6 +13,7 @@ type ApiStoryUser = {
   name?: string;
   image?: string | null;
   profile_image?: string | null;
+  isPage?: boolean;
 };
 
 type ApiStoryItem = {
@@ -69,7 +70,14 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
 
     for (const group of groups) {
       const user = group.user ?? {};
-      const uid = pickStr(user.id, user.user_id) || String(Math.random());
+      const isPage = !!user.isPage;
+      const authorId = pickStr(user.id);
+      const authorPublicId = pickStr(user.user_id);
+      // Page ids and user ids live in different tables and can collide, so the
+      // ring key is namespaced by author kind.
+      const uid = `${isPage ? 'page' : 'user'}_${
+        authorId || authorPublicId || String(Math.random())
+      }`;
       const name = pickStr(user.name) || 'Friend';
       const avatar = pickStr(user.image, user.profile_image) || null;
 
@@ -83,14 +91,18 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
 
           // For video: prefer the direct video URL, fall back to thumbnail for display.
           // For images / text: use media_url then thumbnail_url.
-          const uri = isVideo
-            ? pickStr(s.media_url, s.thumbnail_url)
-            : pickStr(s.media_url, s.thumbnail_url);
+          const uri = pickStr(s.media_url, s.thumbnail_url);
+          // Videos need a poster: the grid renders an <Image>, which cannot
+          // draw an mp4 URL.
+          const thumbUri = isVideo
+            ? pickStr(s.thumbnail_url) || null
+            : pickStr(s.thumbnail_url, s.media_url) || null;
 
           if (!uri) return null; // skip text-only stories with no cover image
           return {
             id: pickStr(s.id) || `${uid}_${Date.now()}`,
             uri,
+            thumbUri,
             type: isVideo ? ('video' as const) : ('image' as const),
             durationMs: typeof s.duration === 'number' && s.duration > 0
               ? s.duration
@@ -103,9 +115,12 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
 
       rings.push({
         id: uid,
-        name: name.split(/\s+/)[0] || name,
+        name: isPage ? name : name.split(/\s+/)[0] || name,
         avatarUri: avatar ?? undefined,
         slides,
+        isPage,
+        authorId: authorId || undefined,
+        authorPublicId: authorPublicId || undefined,
       });
     }
 

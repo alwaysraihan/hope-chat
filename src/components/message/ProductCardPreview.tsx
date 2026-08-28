@@ -92,7 +92,7 @@ export const ProductCardPreview: React.FC<Props> = ({ slug, onPress, isDark }) =
           <Text style={styles.viewBtnText}>View product</Text>
         </View>
         <Text style={[styles.cta, { color: subColor }]} numberOfLines={1}>
-          hoppi.live
+          Hoppi Brand
         </Text>
       </View>
     </TouchableOpacity>

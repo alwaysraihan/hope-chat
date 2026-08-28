@@ -13,6 +13,7 @@ import {
   Bell,
   BellOff,
   CircleCheck,
+  Clock,
   Flag,
   XCircle,
   LogOut,
@@ -91,13 +92,20 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
     bookingId,
     messagingEnabled: initialMessagingEnabled = true,
     isBookingCallee = false,
+    bookingStatus,
+    bookingCancelStatus,
   } = route.params;
 
   const token = useAppSelector(selectAuthToken);
   const profile = useSel(selectHopenityProfile);
   const { conversations, setConversations } = useChats();
   const [busy, setBusy] = useState<string | null>(null);
-  const [bookingClosed, setBookingClosed] = useState(false);
+  // Seeded from the live booking so an already-ended booking never offers
+  // "End this booking" again — local state alone reset on every mount.
+  const [bookingClosed, setBookingClosed] = useState(
+    bookingStatus === 'CLOSED' || bookingStatus === 'CANCELLED',
+  );
+  const cancelPending = bookingCancelStatus === 'REQUESTED';
   const [prompt, setPrompt] = useState<'cancel' | 'report' | null>(null);
   const [muted, setMuted] = useState(initialMuted);
   const [pinned, setPinned] = useState(initialPinned);
@@ -415,13 +423,20 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
       show: !!bookingId && !bookingClosed,
     },
     {
+      id: 'cancel-pending',
+      title: 'Cancellation requested — awaiting admin review',
+      icon: <Clock size={22} color={colorss.textSecondary} />,
+      onPress: () => {},
+      show: !!bookingId && cancelPending,
+    },
+    {
       id: 'cancel-booking',
       title: 'Request cancellation',
       icon: busy === 'cancel'
         ? <ActivityIndicator size="small" color={colorss.primary} />
         : <XCircle size={22} color={colorss.primary} />,
       onPress: handleRequestCancellation,
-      show: !!bookingId && !bookingClosed,
+      show: !!bookingId && !bookingClosed && !cancelPending,
     },
     {
       id: 'report-booking',

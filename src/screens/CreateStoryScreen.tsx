@@ -37,6 +37,7 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { useT } from '../hooks/useT';
 import {
+  selectActivePage,
   selectAuthToken,
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
@@ -157,6 +158,7 @@ async function uploadStory(
     mimeType?: string;
     fileName?: string;
     musicId?: string | number;
+    pageId?: string | number | null;
     visibility: Visibility;
   },
   token: string,
@@ -173,6 +175,7 @@ async function uploadStory(
         background_color: payload.backgroundColor ?? '#0084FF',
       };
       if (payload.musicId != null) body.musicId = String(payload.musicId);
+      if (payload.pageId != null) body.pageId = String(payload.pageId);
       const res = await fetch(`${base}/api/v1/stories`, {
         method: 'POST',
         headers: {
@@ -189,6 +192,7 @@ async function uploadStory(
     form.append('privacy', privacy);
     if (payload.musicId != null)
       form.append('musicId', String(payload.musicId));
+    if (payload.pageId != null) form.append('pageId', String(payload.pageId));
     form.append('media', {
       uri: payload.uri,
       type:
@@ -452,6 +456,10 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
   const token = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);
+  const activePage = useAppSelector(selectActivePage);
+  const authorName =
+    activePage?.name ?? profile?.displayName ?? 'Your story';
+  const authorAvatar = activePage?.image ?? profile?.avatarUrl ?? null;
   const { colors } = useAppTheme();
   const styles = stylesFunc(colors);
   const [activeTab, setActiveTab] = useState<TabType>('gallery');
@@ -536,6 +544,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
           content: caption.trim(),
           backgroundColor: currentBg.bgColor,
           musicId: selectedMusic?.id,
+          pageId: activePage?.id,
           visibility,
         },
         token,
@@ -548,6 +557,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
           mimeType: media.mimeType,
           fileName: media.fileName,
           musicId: selectedMusic?.id,
+          pageId: activePage?.id,
           visibility,
         },
         token,
@@ -569,6 +579,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
     selectedMusic,
     visibility,
     media,
+    activePage,
     navigation,
   ]);
 
@@ -747,20 +758,21 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
         ) : (
           // Empty state - profile + prompt
           <View style={styles.emptyPreview}>
-            {profile?.avatarUrl ? (
+            {authorAvatar ? (
               <FastImage
-                source={{ uri: profile.avatarUrl }}
+                source={{ uri: authorAvatar }}
                 style={styles.profileAvatar}
               />
             ) : (
               <View style={[styles.profileAvatar, styles.profileAvatarFall]}>
                 <Text style={styles.profileAvatarChr}>
-                  {(profile?.displayName ?? 'Y').trim().charAt(0).toUpperCase()}
+                  {authorName.trim().charAt(0).toUpperCase()}
                 </Text>
               </View>
             )}
-            <Text style={styles.profileName}>
-              {profile?.displayName ?? 'Your story'}
+            <Text style={styles.profileName}>{authorName}</Text>
+            <Text style={styles.profileSub}>
+              {activePage ? 'Posting as this page' : 'Posting as yourself'}
             </Text>
             <Text style={styles.profilePrompt}>{t.get_started_hint}</Text>
           </View>
@@ -1016,6 +1028,12 @@ const stylesFunc = (colorss: AppColors) =>
       fontSize: 17,
       fontWeight: '700',
       color: colorss.textPrimary,
+    },
+    profileSub: {
+      fontSize: 12,
+      color: colorss.textSecondary,
+      marginTop: 2,
+      marginBottom: 4,
     },
     profilePrompt: { fontSize: 13, color: colorss.textSecondary },
 

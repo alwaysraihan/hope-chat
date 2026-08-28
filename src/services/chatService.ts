@@ -804,6 +804,73 @@ function getUploadFileName(uri: string, mediaType: 'image' | 'video' | 'voice'):
   return `upload-${Date.now()}.dat`;
 }
 
+/**
+ * Toggle a reaction. Same emoji twice removes it, a different emoji replaces —
+ * the server enforces one reaction per person per message.
+ *
+ * Reactions were previously local-only state with a TODO where this call
+ * belonged, so they vanished on reload and nobody ever saw anyone else's.
+ */
+export async function reactToMessage(
+  messageId: string | number,
+  emoji: string,
+  token: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/chats/messages/${encodeURIComponent(String(messageId))}/react`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ emoji }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export type RemoteReaction = {
+  emoji: string;
+  userId: string;
+  userName: string;
+  avatar?: string | null;
+};
+
+export async function fetchMessageReactions(
+  chatId: string | number,
+  messageId: string | number,
+  token: string,
+): Promise<RemoteReaction[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v2/messaging/${encodeURIComponent(String(chatId))}/messages/${encodeURIComponent(String(messageId))}/reactions`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return [];
+    const json = await res.json().catch(() => null);
+    const rows: unknown = json?.responseObject ?? [];
+    if (!Array.isArray(rows)) return [];
+
+    return rows.map(r => {
+      const row = r as Record<string, unknown>;
+      const u = (row.user ?? {}) as Record<string, unknown>;
+      return {
+        emoji: String(row.emoji ?? ''),
+        userId: String(u.user_id ?? row.userId ?? ''),
+        userName: String(u.name ?? '') || 'Unknown',
+        avatar: typeof u.image === 'string' ? u.image : null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function uploadChatMedia(
   localUri: string,
   mediaType: 'image' | 'video' | 'voice',

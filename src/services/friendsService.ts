@@ -44,9 +44,16 @@ function normalizeFriend(raw: Record<string, unknown>): HopenityFriend | null {
   return {
     userId,
     name,
+    // The live payload nests the person under `user` and names the avatar
+    // `image` — not profile_photo. Keep the other spellings for older shapes.
     avatarUrl:
-      pickString(src.profile_photo, src.profilePhoto, src.avatar, src.avatarUrl) ??
-      null,
+      pickString(
+        src.image,
+        src.profile_photo,
+        src.profilePhoto,
+        src.avatar,
+        src.avatarUrl,
+      ) ?? null,
     username: pickString(src.username),
   };
 }

@@ -15,7 +15,15 @@ const SOCKET_URL = API_BASE_URL.replace(/\/+$/, '');
 type CallSocketListener = (data: Record<string, string>) => void;
 
 type MessageDeletedListener = (data: { messageId: number; chatId: number }) => void;
-type NewMessageListener = (data: { chatId: number }) => void;
+/**
+ * The server emits the whole message row on `new_message`, not just an id.
+ * Carrying it through lets the inbox render the message straight away instead
+ * of firing a second REST round-trip to fetch what it was already handed.
+ */
+type NewMessageListener = (data: {
+  chatId: number;
+  message?: Record<string, unknown>;
+}) => void;
 type TypingListener = (data: { chatId: number; userId: string }) => void;
 
 class CallSocketService {
@@ -95,7 +103,10 @@ class CallSocketService {
       this.socket.on('new_message', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
         const d = data as Record<string, unknown>;
-        const payload = { chatId: Number(d.chatId) };
+        // chatId lives on the message row itself; older emitters sent only it.
+        const chatId = Number(d.chatId ?? d.chat_id);
+        if (!Number.isFinite(chatId)) return;
+        const payload = { chatId, message: d };
         this.newMessageListeners.forEach(l => { try { l(payload); } catch { /* */ } });
       });
       this.socket.on('user_typing', (data: unknown) => {
