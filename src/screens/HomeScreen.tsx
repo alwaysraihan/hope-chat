@@ -624,10 +624,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                 Hopechat Booking
               </Text>
               <Text style={styles.bookingSub} numberOfLines={1}>
+                {'You have '}
+                {/* The count carries the brand colour so the row reads as
+                    something needing attention, like an unread badge. */}
+                <Text style={styles.bookingCount}>{activeBookingCount}</Text>
                 {activeBookingCount === 1
-                  ? 'You have 1 active booking'
-                  : `You have ${activeBookingCount} active bookings`}
+                  ? ' active booking'
+                  : ' active bookings'}
               </Text>
+            </View>
+
+            <View style={styles.bookingViewBtn}>
+              <Text style={styles.bookingViewBtnText}>View</Text>
             </View>
           </TouchableOpacity>
         ) : null}
@@ -747,6 +755,21 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       gap: 12,
       paddingHorizontal: 20,
       paddingVertical: 8,
+    },
+    bookingCount: {
+      color: colorss.primary,
+      fontWeight: '700' as const,
+    },
+    bookingViewBtn: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colorss.primary,
+    },
+    bookingViewBtnText: {
+      fontSize: 12.5,
+      fontWeight: '700' as const,
+      color: '#FFFFFF',
     },
     bookingAvatar: {
       width: 52,
