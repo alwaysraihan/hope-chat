@@ -55,8 +55,8 @@ import {
 } from '../services/callOutcomeBus';
 import { persistCallOutcomeChatMessage } from '../services/callLogPersist';
 import { normalizeChatUserId } from '../utils/chatUserId';
-import { getLocalNickname } from '../services/nicknameCache';
-import { getPinnedConversationIds, getMutedConversationIds } from '../services/chatPrefs';
+import { getLocalNickname, setLocalNickname } from '../services/nicknameCache';
+import { getPinnedConversationIds, getMutedConversationIds, setConvAppearance } from '../services/chatPrefs';
 
 export type ConversationSummary = {
   id: string;
@@ -963,6 +963,45 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
    * and float it to the top. That is instant and costs no request; the poll
    * still reconciles ordering and counts.
    */
+  /**
+   * Nicknames and the chat theme are shared by both participants, so a change
+   * made on the other device must land here even when the Nicknames / Theme
+   * screen isn't mounted.
+   */
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const unsubNicknames = callSocket.onNicknamesUpdated(({ chatId, nicknames }) => {
+      const id = String(chatId);
+      setConversations(prev =>
+        prev.map(c => {
+          if (String(c.id) !== id || c.isGroup) return c;
+          const peerId = c.peerUserId?.trim();
+          if (!peerId) return c;
+          const nick = nicknames?.[peerId];
+          if (typeof nick === 'string' && nick) {
+            setLocalNickname(id, peerId, nick);
+            return { ...c, name: nick };
+          }
+          // Removed on the other end — drop the cached override too.
+          setLocalNickname(id, peerId, '');
+          return c;
+        }),
+      );
+    });
+
+    const unsubTheme = callSocket.onChatThemeUpdated(({ chatId, theme }) => {
+      const presetId = Number(theme);
+      if (!Number.isFinite(presetId) || presetId <= 0) return;
+      setConvAppearance(String(chatId), { themePresetId: presetId });
+    });
+
+    return () => {
+      unsubNicknames();
+      unsubTheme();
+    };
+  }, [token]);
+
   useEffect(() => {
     if (!token) return undefined;
 

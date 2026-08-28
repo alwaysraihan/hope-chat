@@ -1,6 +1,7 @@
 import { StackActions } from '@react-navigation/native';
 
 import { navigationRef } from '../../navigation/navigationRef';
+import { getActiveCall } from '../livekit/activeCallRegistry';
 import type { IncomingCallPayload } from './payload';
 
 let pendingIncoming: IncomingCallPayload | null = null;
@@ -68,6 +69,17 @@ export function consumePendingIncomingCall(): void {
 }
 
 function openIncomingRoute(payload: IncomingCallPayload): void {
+  // The call was cancelled while this event was in flight (duplicate socket +
+  // FCM delivery, or a cancel that overtook the ring). Never open a dead room.
+  if (payload.liveKitRoom && isCallCancelled(payload.liveKitRoom)) return;
+
+  // Already talking in this very room — a re-delivered invite must not throw a
+  // ringing screen on top of the live call.
+  const active = getActiveCall();
+  if (active && payload.liveKitRoom && active.liveKitRoom === payload.liveKitRoom) {
+    return;
+  }
+
   const current = navigationRef.getCurrentRoute();
   const currentRoom = (current?.params as { liveKitRoom?: string } | undefined)
     ?.liveKitRoom;
@@ -100,6 +112,7 @@ function openIncomingRoute(payload: IncomingCallPayload): void {
 }
 
 export function navigateIncomingCall(payload: IncomingCallPayload): void {
+  if (payload.liveKitRoom && isCallCancelled(payload.liveKitRoom)) return;
   if (!navigationRef.isReady()) {
     pendingIncoming = payload;
     schedulePendingFlush();

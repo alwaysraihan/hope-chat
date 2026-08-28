@@ -242,6 +242,54 @@ export async function fetchNicknames(
   }
 }
 
+/**
+ * Chat theme is shared by both participants, so it lives on the server rather
+ * than only in local prefs. The value is the preset id as a string.
+ */
+export async function fetchChatTheme(
+  conversationId: string,
+  token: string,
+): Promise<string | null> {
+  if (!token) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/theme`,
+      { headers: { Authorization: bearer(token) } },
+    );
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const data = json?.responseObject ?? json?.data ?? json;
+    const theme = data?.theme;
+    return typeof theme === 'string' ? theme : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveChatTheme(
+  conversationId: string,
+  theme: string | null,
+  token: string,
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/theme`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: bearer(token),
+        },
+        body: JSON.stringify({ theme }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Set or clear a nickname for a peer in a conversation. */
 export async function saveNickname(
   conversationId: string,

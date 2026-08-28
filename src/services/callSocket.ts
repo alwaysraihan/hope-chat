@@ -25,6 +25,16 @@ type NewMessageListener = (data: {
   message?: Record<string, unknown>;
 }) => void;
 type TypingListener = (data: { chatId: number; userId: string }) => void;
+/** The chat theme is shared by every participant, so a change has to reach the other end live. */
+type ChatThemeUpdatedListener = (data: {
+  chatId: string;
+  theme: string | null;
+}) => void;
+/** Nicknames are shared by every participant of a chat, so a change has to reach the other end live. */
+type NicknamesUpdatedListener = (data: {
+  chatId: string;
+  nicknames: Record<string, string>;
+}) => void;
 
 class CallSocketService {
   private socket: any = null;
@@ -37,9 +47,21 @@ class CallSocketService {
   private newMessageListeners: Set<NewMessageListener> = new Set();
   private userTypingListeners: Set<TypingListener> = new Set();
   private userStoppedTypingListeners: Set<TypingListener> = new Set();
+  private nicknamesUpdatedListeners: Set<NicknamesUpdatedListener> = new Set();
+  private chatThemeUpdatedListeners: Set<ChatThemeUpdatedListener> = new Set();
 
   connect(authToken: string, userId?: string): void {
-    if (this.socket?.connected && this.token === authToken) return;
+    if (this.socket && this.token === authToken) {
+      // Same credentials: reuse the existing socket. If it is merely offline
+      // (network blip, or the app was backgrounded past the reconnect budget)
+      // kick it instead of tearing down — rebuilding drops the reconnect state
+      // machine and was leaving the app deaf to incoming calls until restart.
+      if (this.userId == null && userId) this.userId = userId;
+      if (!this.socket.connected) {
+        try { this.socket.connect(); } catch { /* */ }
+      }
+      return;
+    }
     this.disconnect();
     this.token = authToken;
     this.userId = userId ?? null;
@@ -64,7 +86,12 @@ class CallSocketService {
         transports: ['websocket'],
         reconnection: true,
         reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
+        // Never stop trying. A finite budget (was 5 attempts / ~5s) meant any
+        // outage longer than a few seconds — exactly what happens when a call
+        // drops — permanently killed call signaling for the whole session.
+        reconnectionAttempts: Infinity,
+        reconnectionDelayMax: 10_000,
+        randomizationFactor: 0.5,
         timeout: 10_000,
       });
 
@@ -78,6 +105,16 @@ class CallSocketService {
       });
       this.socket.on('disconnect', (reason: string) => {
         if (__DEV__) console.log('[CallSocket] disconnected', reason);
+        // socket.io does not auto-reconnect when the server closed the socket
+        // deliberately; without this the client stays offline forever.
+        if (reason === 'io server disconnect') {
+          setTimeout(() => {
+            try { this.socket?.connect(); } catch { /* */ }
+          }, 1000);
+        }
+      });
+      this.socket.on('connect_error', (e: unknown) => {
+        if (__DEV__) console.log('[CallSocket] connect_error', e);
       });
       this.socket.on('incoming_call', (data: unknown) => {
         const normalized = normalizeSocketData(data);
@@ -109,6 +146,26 @@ class CallSocketService {
         const payload = { chatId, message: d };
         this.newMessageListeners.forEach(l => { try { l(payload); } catch { /* */ } });
       });
+      this.socket.on('nicknames_updated', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const chatId = String(d.chatId ?? d.chat_id ?? '');
+        const nicknames = (d.nicknames ?? {}) as Record<string, string>;
+        if (!chatId || typeof nicknames !== 'object') return;
+        this.nicknamesUpdatedListeners.forEach(l => {
+          try { l({ chatId, nicknames }); } catch { /* */ }
+        });
+      });
+      this.socket.on('chat_theme_updated', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const chatId = String(d.chatId ?? d.chat_id ?? '');
+        if (!chatId) return;
+        const theme = d.theme == null ? null : String(d.theme);
+        this.chatThemeUpdatedListeners.forEach(l => {
+          try { l({ chatId, theme }); } catch { /* */ }
+        });
+      });
       this.socket.on('user_typing', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
         const d = data as Record<string, unknown>;
@@ -125,6 +182,28 @@ class CallSocketService {
       if (__DEV__) console.warn('[CallSocket] connect error', e);
       this.socket = null;
     }
+  }
+
+  /**
+   * Cheap liveness kick — safe to call on every network regain / app foreground.
+   * Reconnects the existing socket, or builds one if we were never connected.
+   */
+  ensureConnected(authToken?: string | null, userId?: string | null): void {
+    const token = authToken ?? this.token;
+    if (!token) return;
+    if (!this.socket) {
+      this.connect(token, userId ?? undefined);
+      return;
+    }
+    if (this.socket.connected) {
+      // Re-assert room membership: a silent server restart drops rooms while
+      // the client still believes it is connected.
+      if (this.userId) {
+        try { this.socket.emit('join_user', this.userId); } catch { /* */ }
+      }
+      return;
+    }
+    try { this.socket.connect(); } catch { /* */ }
   }
 
   disconnect(): void {
@@ -197,6 +276,16 @@ class CallSocketService {
   onUserTyping(listener: TypingListener): () => void {
     this.userTypingListeners.add(listener);
     return () => this.userTypingListeners.delete(listener);
+  }
+
+  onNicknamesUpdated(listener: NicknamesUpdatedListener): () => void {
+    this.nicknamesUpdatedListeners.add(listener);
+    return () => this.nicknamesUpdatedListeners.delete(listener);
+  }
+
+  onChatThemeUpdated(listener: ChatThemeUpdatedListener): () => void {
+    this.chatThemeUpdatedListeners.add(listener);
+    return () => this.chatThemeUpdatedListeners.delete(listener);
   }
 
   onUserStoppedTyping(listener: TypingListener): () => void {

@@ -298,6 +298,23 @@ function AudioCallGate({
     return () => clearTimeout(t);
   }, [outgoing]);
 
+  /**
+   * Stuck in CONNECTING — the signal handshake never completed (bad network,
+   * expired token, LiveKit unreachable). Without this the screen sits on
+   * "Calling…" forever for incoming calls, which have no 60 s answer timer.
+   */
+  useEffect(() => {
+    if (cs !== ConnectionState.Connecting) return;
+    const t = setTimeout(() => {
+      if (csRef.current !== ConnectionState.Connecting) return;
+      try {
+        Alert.alert('Call failed', 'Could not connect. Check your network and try again.');
+      } catch { /* */ }
+      void leaveRef.current();
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [cs]);
+
   // If stuck reconnecting for 25 s, give up and show a clear message.
   useEffect(() => {
     if (cs !== ConnectionState.Reconnecting) return;
@@ -979,5 +996,18 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontSize: 11,
     textAlign: 'center',
+  },
+  autoSwitchBanner: {
+    alignSelf: 'center',
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  autoSwitchBannerText: {
+    color: colorss.white,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

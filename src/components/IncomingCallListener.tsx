@@ -273,6 +273,14 @@ const IncomingCallListener = () => {
     const unsubNet = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable !== false) {
         consumePendingIncomingCall();
+        // Network came back (very often right after a dropped call) — make sure
+        // the signaling socket is alive again, otherwise the next incoming call
+        // only arrives via the slower FCM path, or not at all.
+        const auth = store.getState().auth;
+        callSocket.ensureConnected(
+          auth.token,
+          auth.profile?.userId || String(auth.giftedChatUser?._id ?? ''),
+        );
         void syncFcmToBackend();
       }
     });
@@ -300,6 +308,11 @@ const IncomingCallListener = () => {
     const unsubAppState = AppState.addEventListener('change', next => {
       if (next === 'active') {
         consumePending();
+        const auth = store.getState().auth;
+        callSocket.ensureConnected(
+          auth.token,
+          auth.profile?.userId || String(auth.giftedChatUser?._id ?? ''),
+        );
         void syncFcmToBackend();
       }
     });

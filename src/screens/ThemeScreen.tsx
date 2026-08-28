@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -21,6 +21,10 @@ import {
   getEffectiveAppearance,
 } from '../services/chatPrefs';
 import { useAppTheme } from '../context/ThemeContext';
+import { useAppSelector } from '../hooks/redux';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { fetchChatTheme, saveChatTheme } from '../services/userSettingsService';
+import { callSocket } from '../services/callSocket';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GAP = 6;
@@ -37,6 +41,7 @@ const THEME_DATA = [
 const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) => {
   const { isDark, toggleDarkMode, colors } = useAppTheme();
   const conversationId: string | undefined = route?.params?.conversationId;
+  const token = useAppSelector(selectAuthToken);
 
   const appearance = useMemo(
     () => (conversationId ? getEffectiveAppearance(conversationId) : getChatAppearance()),
@@ -47,6 +52,35 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
   const [reactionPack, setReactionPack] = useState(
     appearance.reactionEmojiPalette.join(' '),
   );
+
+  // A per-chat theme is shared with the other participant, so the server is the
+  // source of truth: pull it on open and follow live changes from the peer.
+  useEffect(() => {
+    if (!conversationId || !token) return;
+    let cancelled = false;
+    fetchChatTheme(conversationId, token)
+      .then(remote => {
+        const id = Number(remote);
+        if (cancelled || !Number.isFinite(id) || id <= 0) return;
+        setConvAppearance(conversationId, { themePresetId: id });
+        setSelectedTheme(id);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, token]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    return callSocket.onChatThemeUpdated(({ chatId, theme }) => {
+      if (String(chatId) !== String(conversationId)) return;
+      const id = Number(theme);
+      if (!Number.isFinite(id) || id <= 0) return;
+      setConvAppearance(conversationId, { themePresetId: id });
+      setSelectedTheme(id);
+    });
+  }, [conversationId]);
 
   const saveAppearance = (patch: { themePresetId?: number; wallpaperUri?: string | null; reactionEmojiPalette?: string[] }) => {
     if (conversationId) {
@@ -59,6 +93,11 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
   const handleSelectTheme = (id: number) => {
     setSelectedTheme(id);
     saveAppearance({ themePresetId: id });
+    // Push to the peer. Wallpaper URLs stay local (they are device paths); only
+    // the preset is shared.
+    if (conversationId && token) {
+      void saveChatTheme(conversationId, String(id), token);
+    }
     // Dark mode toggle only applies to global setting (affects UI chrome, not per-chat)
     if (!conversationId) {
       if (id === 2 && !isDark) toggleDarkMode();

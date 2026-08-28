@@ -24,6 +24,9 @@ import { useAppSelector } from '../hooks/redux';
 import { selectHopenityProfile, selectAuthToken } from '../redux/features/auth/authSlice';
 import { fetchNicknames, saveNickname } from '../services/userSettingsService';
 import { getLocalNickname, setLocalNickname } from '../services/nicknameCache';
+import { callSocket } from '../services/callSocket';
+
+type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Nicknames'>;
 
 type Participant = {
   userId: string;
@@ -69,11 +72,25 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
     const conv = conversations.find(c => c.id === conversationId);
     if (!conv) return [];
     if (conv.isGroup) return [];
+    const list: Participant[] = [];
     if (conv.peerUserId && conv.peerUserId !== myUserId) {
-      return [{ userId: conv.peerUserId, name: conv.name, image: conv.avatarUrl ?? null }];
+      list.push({
+        userId: conv.peerUserId,
+        name: conv.name,
+        image: conv.avatarUrl ?? null,
+      });
     }
-    return [];
-  }, [conversations, conversationId, myUserId]);
+    // Own row: nicknames are shared, so the nickname the peer set for you has to
+    // be visible (and editable) on your side too.
+    if (myUserId) {
+      list.push({
+        userId: myUserId,
+        name: profile?.displayName ?? 'You',
+        image: profile?.avatarUrl ?? null,
+      });
+    }
+    return list;
+  }, [conversations, conversationId, myUserId, profile]);
 
   // nicknames state: { [userId]: nickname }
   const [nicknames, setNicknamesState] = useState<Record<string, string>>(() => {
@@ -105,6 +122,38 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, token]);
 
+  // Nicknames are shared by both participants, so the other end's change has to
+  // land here live rather than on the next remount.
+  useEffect(() => {
+    if (!conversationId) return;
+    return callSocket.onNicknamesUpdated(({ chatId, nicknames: incoming }) => {
+      if (String(chatId) !== String(conversationId)) return;
+      setNicknamesState(prev => {
+        const merged = { ...prev };
+        for (const [uid, nick] of Object.entries(incoming ?? {})) {
+          if (typeof nick !== 'string') continue;
+          merged[uid] = nick;
+          setLocalNickname(conversationId, uid, nick);
+        }
+        // Entries the peer removed have to disappear here too.
+        for (const uid of Object.keys(prev)) {
+          if (!(uid in (incoming ?? {}))) {
+            delete merged[uid];
+            setLocalNickname(conversationId, uid, '');
+          }
+        }
+        return merged;
+      });
+      setConversations(prevConvs =>
+        prevConvs.map(c => {
+          if (c.id !== conversationId || c.isGroup) return c;
+          const peerNick = c.peerUserId ? incoming?.[c.peerUserId] : undefined;
+          return peerNick ? { ...c, name: peerNick } : c;
+        }),
+      );
+    });
+  }, [conversationId, setConversations]);
+
   const [editing, setEditing] = useState<Participant | null>(null);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -123,9 +172,10 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
     setLocalNickname(conversationId, editing.userId, nick);
     setNicknamesState(prev => ({ ...prev, [editing.userId]: nick }));
 
-    // Update the conversation display name in the chat list
+    // Only a nickname for the *peer* renames the conversation — renaming the
+    // thread after nicknaming yourself would be wrong.
     setConversations(prev => prev.map(c => {
-      if (c.id === conversationId && !c.isGroup) {
+      if (c.id === conversationId && !c.isGroup && c.peerUserId === editing.userId) {
         return { ...c, name: nick || editing.name };
       }
       return c;
@@ -179,7 +229,7 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
           <View style={styles.headerWrapper}>
             <BackHeader title="Nicknames" navigation={navigation} />
             <Text style={styles.info}>
-              Nicknames are only visible to you in this conversation.
+              Nicknames are shared — everyone in this conversation sees them.
             </Text>
           </View>
         }
@@ -204,7 +254,7 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
                 {editing?.name ? `Nickname for ${editing.name}` : 'Set nickname'}
               </Text>
               <Text style={styles.modalSubtitle}>
-                Only you can see this nickname. Leave blank to remove.
+                Everyone in this chat will see this nickname. Leave blank to remove.
               </Text>
               <TextInput
                 value={draft}

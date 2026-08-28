@@ -351,6 +351,22 @@ function VideoCallGate({
     return () => clearTimeout(t);
   }, [outgoing]);
 
+  /**
+   * Stuck in CONNECTING — the signal handshake never completed. Incoming calls
+   * have no answer timer, so without this the screen sits on "Calling…" forever.
+   */
+  useEffect(() => {
+    if (cs !== ConnectionState.Connecting) return;
+    const t = setTimeout(() => {
+      if (csRef.current !== ConnectionState.Connecting) return;
+      try {
+        Alert.alert('Call failed', 'Could not connect. Check your network and try again.');
+      } catch { /* */ }
+      void leaveRef.current();
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [cs]);
+
   // If stuck reconnecting for 25 s, give up and show a clear message.
   useEffect(() => {
     if (cs !== ConnectionState.Reconnecting) return;

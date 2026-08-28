@@ -18,6 +18,39 @@ type ActiveCallEntry = {
 
 let current: ActiveCallEntry | null = null;
 
+/** A stalled teardown must never block the next call from starting. */
+const LEAVE_TIMEOUT_MS = 2000;
+
+function leaveWithTimeout(entry: ActiveCallEntry): Promise<void> {
+  return new Promise<void>(resolve => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const timer = setTimeout(done, LEAVE_TIMEOUT_MS);
+    try {
+      Promise.resolve(entry.leave())
+        .catch(() => undefined)
+        .finally(() => {
+          clearTimeout(timer);
+          done();
+        });
+    } catch {
+      clearTimeout(timer);
+      done();
+    }
+  });
+}
+
+/** Drop the registry entry without tearing anything down (screen already gone). */
+export function clearActiveCall(liveKitRoom?: string): void {
+  if (!current) return;
+  if (liveKitRoom && current.liveKitRoom !== liveKitRoom) return;
+  current = null;
+}
+
 export function registerActiveCall(entry: ActiveCallEntry): () => void {
   current = entry;
   return () => {
@@ -45,7 +78,7 @@ export async function endActiveCallForReplacement(
     return;
   }
   try {
-    await active.leave();
+    await leaveWithTimeout(active);
   } catch (e) {
     if (__DEV__) console.warn('[activeCallRegistry] leave previous', e);
   } finally {
