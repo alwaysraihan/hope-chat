@@ -79,24 +79,6 @@ function isHopenityUrl(url: string): boolean {
  * and /seller/ into a branch with no such routes and the tap silently no-ops.
  */
 function openHopenityDeepOrWeb(url: string): void {
-<<<<<<< Updated upstream
-  // iOS: Hopenity uses Universal Links (applinks:hopenity.com), so the HTTPS
-  // URL opens the app directly — no scheme conversion needed.
-  // Android: swap https → hopenity:// so the intent filter routes to the app
-  // without prompting "open with browser". Fall back to the original HTTPS URL
-  // if canOpenURL returns false (Android 11+ <queries> visibility restriction).
-  if (Platform.OS === 'ios') {
-    Linking.openURL(url).catch(() => {});
-    return;
-  }
-  // Preserve the original host — Hopenity's parseDeepLinkUrl() branches on
-  // hostname to tell a hoppi.live product/shop link apart from a hopenity.com
-  // post/profile link. Collapsing both to the same host (as this used to do)
-  // made every hoppi.live link parse as an unrecognized hopenity.com path and
-  // silently fall through to opening the app on its home screen instead of
-  // the product/seller/shop screen.
-=======
->>>>>>> Stashed changes
   const deepLink = url
     .replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
     .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hoppi.live');
