@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -31,6 +31,12 @@ import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { getAutoSavePhotos } from '../../services/chatPrefs';
 import { Toast } from '../Toast';
+import {
+  claimAutoSave,
+  hasAutoSaved,
+  markAutoSaved,
+  releaseAutoSave,
+} from '../../services/autoSavedMedia';
 import { useAppTheme } from '../../context/ThemeContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -132,23 +138,65 @@ function parseTextWithLinks(text: string): Array<{ text: string; isLink: boolean
 
 // ─── Download helper ──────────────────────────────────────────────────────────
 
+async function writeMediaToGallery(
+  remoteUrl: string,
+  type: 'image' | 'video',
+): Promise<void> {
+  const ext = type === 'video' ? 'mp4' : 'jpg';
+  const destPath = `${
+    RNFS.CachesDirectoryPath
+  }/hopechat_dl_${Date.now()}.${ext}`;
+  await RNFS.downloadFile({ fromUrl: remoteUrl, toFile: destPath }).promise;
+  await CameraRoll.saveAsset(destPath, {
+    type: type === 'video' ? 'video' : 'photo',
+  });
+}
+
+/** Manual "Save to gallery" — user-initiated, so it reports what it did. */
 async function downloadMediaToGallery(
   remoteUrl: string,
   type: 'image' | 'video',
 ): Promise<void> {
   Toast.loading('Saving to gallery…');
   try {
-    const ext = type === 'video' ? 'mp4' : 'jpg';
-    const destPath = `${
-      RNFS.CachesDirectoryPath
-    }/hopechat_dl_${Date.now()}.${ext}`;
-    await RNFS.downloadFile({ fromUrl: remoteUrl, toFile: destPath }).promise;
-    await CameraRoll.saveAsset(destPath, {
-      type: type === 'video' ? 'video' : 'photo',
-    });
+    await writeMediaToGallery(remoteUrl, type);
     Toast.success('Saved to gallery!');
   } catch {
     Toast.error('Could not save. Please try again.');
+  }
+}
+
+/**
+ * KILL SWITCH — auto-save is turned OFF for now.
+ *
+ * The feature is disabled at the point of ACTION, not by hiding the setting: the
+ * toggle still reads and writes the user's preference, so nothing is lost and
+ * re-enabling is a one-line change here. Nothing downloads or writes to the
+ * gallery while this is true.
+ *
+ * The correctness work below (save-once bookkeeping, silent operation, the
+ * effect instead of a render-time call) stays in place and is what should be
+ * re-enabled — do NOT restore the old render-time download.
+ */
+const AUTO_SAVE_DISABLED = true;
+
+/**
+ * Auto-save — runs on its own, so it is SILENT and happens at most once per
+ * image. No toast, no duplicate gallery entries, no re-download on re-render.
+ */
+async function autoSaveMediaOnce(
+  remoteUrl: string,
+  type: 'image' | 'video',
+): Promise<void> {
+  if (hasAutoSaved(remoteUrl) || !claimAutoSave(remoteUrl)) return;
+  try {
+    await writeMediaToGallery(remoteUrl, type);
+    markAutoSaved(remoteUrl);
+  } catch {
+    // Leave it unmarked so a later attempt can retry — but the in-flight guard
+    // and the render-effect below keep that from becoming a hot loop.
+  } finally {
+    releaseAutoSave(remoteUrl);
   }
 }
 
@@ -285,6 +333,28 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 
   const media = msg?.media;
   const isOwn = position === 'right';
+
+  /**
+   * Auto-save incoming photos.
+   *
+   * This used to run in the render body, so EVERY re-render of the message
+   * (scroll, reaction, typing indicator, any parent state change) kicked off a
+   * fresh download — which is why opening a chat downloaded the same images over
+   * and over and buried the screen in toasts. An effect keyed on the URL runs it
+   * once per image; `autoSaveMediaOnce` then makes it idempotent across mounts,
+   * app restarts, and concurrent renders.
+   */
+  const autoSaveUri =
+    media?.type === 'image'
+      ? media.url ?? media.remoteUri ?? media.localUri ?? ''
+      : '';
+  const canAutoSave = !!autoSaveUri && !isOwn && !media?.uploading;
+  useEffect(() => {
+    if (AUTO_SAVE_DISABLED) return;
+    if (!canAutoSave || !getAutoSavePhotos()) return;
+    void autoSaveMediaOnce(autoSaveUri, 'image');
+  }, [autoSaveUri, canAutoSave]);
+
   const replyTo = msg?.replyTo;
   const hasReply = !!replyTo;
 
@@ -410,10 +480,6 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 
   if (media?.type === 'image') {
     const imageUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
-    const autoSave = getAutoSavePhotos();
-    if (autoSave && imageUri && !isOwn && !media.uploading) {
-      downloadMediaToGallery(imageUri, 'image').catch(() => undefined);
-    }
     return (
       <Reaction {...reactionProps}>
         <View

@@ -127,6 +127,13 @@ export async function notifyPeerCallRejected(params: {
   token: string | null | undefined;
   conversationId: string;
   liveKitRoom: string;
+  /**
+   * 'hangup' = the call had already been answered and is now being ended. The
+   * peer still needs the teardown signal, but the server must not write a
+   * "Missed call" row for a conversation that actually happened. Omitted for a
+   * pre-answer cancel/decline, which IS a missed call.
+   */
+  reason?: 'hangup';
 }): Promise<void> {
   const auth = params.token ? bearer(params.token) : '';
   if (!auth) return;
@@ -142,7 +149,10 @@ export async function notifyPeerCallRejected(params: {
         'Content-Type': 'application/json',
         Authorization: auth,
       },
-      body: JSON.stringify({ liveKitRoom: params.liveKitRoom }),
+      body: JSON.stringify({
+        liveKitRoom: params.liveKitRoom,
+        ...(params.reason ? { reason: params.reason } : {}),
+      }),
     });
     if (__DEV__ && !res.ok) {
       const text = await res.text().catch(() => '');
@@ -152,5 +162,52 @@ export async function notifyPeerCallRejected(params: {
     if (__DEV__) {
       console.warn('[HopeChat] hopechat-call-cancel network', e);
     }
+  }
+}
+
+/**
+ * End a call by LiveKit room name — used for EVERY hangup, answered or not.
+ *
+ * Why not the per-chat cancel endpoint: not every call screen knows the
+ * conversation id, and a wrong id tears down the wrong conversation's call. The
+ * server records the room's two participants when the call is invited, so it can
+ * route the teardown itself from the room name alone.
+ *
+ * This is the second of two teardown channels. The first is the LiveKit data
+ * channel, which only reaches a peer already joined to the room — silent while
+ * the callee is still ringing, or once their connection has dropped. Whichever
+ * signal lands first ends the call; the other is a harmless no-op.
+ *
+ * Fire-and-forget: a hangup must never be blocked or fail visibly.
+ */
+export async function notifyCallEndedByRoom(params: {
+  token: string | null | undefined;
+  liveKitRoom: string;
+  /** 'hangup' = the call was answered; the server must not log a missed call. */
+  reason?: 'hangup';
+}): Promise<void> {
+  const auth = params.token ? bearer(params.token) : '';
+  if (!auth) return;
+  const room = String(params.liveKitRoom ?? '').trim();
+  if (!room) return;
+  try {
+    const base = API_BASE_URL.replace(/\/+$/, '');
+    const res = await fetch(`${base}/api/v1/chats/hopechat-call-end`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: auth,
+      },
+      body: JSON.stringify({
+        liveKitRoom: room,
+        ...(params.reason ? { reason: params.reason } : {}),
+      }),
+    });
+    if (__DEV__ && !res.ok) {
+      console.warn('[HopeChat] hopechat-call-end', res.status);
+    }
+  } catch (e) {
+    if (__DEV__) console.warn('[HopeChat] hopechat-call-end network', e);
   }
 }

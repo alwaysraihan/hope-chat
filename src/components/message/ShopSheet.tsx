@@ -12,6 +12,8 @@ import {
 import FastImage from '@d11/react-native-fast-image';
 import { X } from 'lucide-react-native';
 
+import { useAppSelector } from '../../hooks/redux';
+import { selectHopenityProfile } from '../../redux/features/auth/authSlice';
 import {
   fetchMyCart,
   fetchMyPurchases,
@@ -53,6 +55,10 @@ export const ShopSheet: React.FC<Props> = ({
   onClose,
   onSelectProduct,
 }) => {
+  // The cart is stored against the Hopenity user id (see fetchMyCart), which is
+  // the same profile id the Hopenity app keys it with — read it from our own
+  // session rather than from hoppi's exchange response.
+  const hopenityUserId = useAppSelector(selectHopenityProfile)?.userId ?? '';
   const { isDark, colors } = useAppTheme();
   const [activeTab, setActiveTab] = useState<ShopTab>('cart');
   const [session, setSession] = useState<HoppiSession | null>(null);
@@ -110,7 +116,7 @@ export const ShopSheet: React.FC<Props> = ({
     setTabLoading(true);
     (async () => {
       if (activeTab === 'cart') {
-        const items = await fetchMyCart(session);
+        const items = await fetchMyCart(session, hopenityUserId);
         if (!cancelled) setCartItems(items);
       } else if (activeTab === 'purchases') {
         const items = await fetchMyPurchases(session);
@@ -124,7 +130,7 @@ export const ShopSheet: React.FC<Props> = ({
       .finally(() => { if (!cancelled) setTabLoading(false); });
 
     return () => { cancelled = true; };
-  }, [visible, session, seller, activeTab, cartItems, purchases, products]);
+  }, [visible, session, seller, activeTab, cartItems, purchases, products, hopenityUserId]);
 
   const bg = isDark ? colors.background : '#fff';
   const border = isDark ? '#333' : '#e5e5e5';

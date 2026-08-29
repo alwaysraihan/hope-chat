@@ -22,6 +22,7 @@ import {
   Shield,
   Timer,
   User,
+  Phone,
 } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -30,7 +31,13 @@ import { colorss } from '../theme';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { selectHopenityProfile } from '../redux/features/auth/authSlice';
+import {
+  selectActivePage,
+  selectAuthToken,
+  selectHopenityProfile,
+} from '../redux/features/auth/authSlice';
+import { fetchPageAllowCalls, setPageAllowCalls } from '../services/pageService';
+import { fetchAllowCalls, patchAllowCalls } from '../services/userSettingsService';
 import { useT } from '../hooks/useT';
 import { performLogout } from '../services/logout';
 import { useAppTheme } from '../context/ThemeContext';
@@ -52,6 +59,41 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
   const dispatch = useAppDispatch();
   const profile = useAppSelector(selectHopenityProfile);
+  const activePage = useAppSelector(selectActivePage);
+  const authToken = useAppSelector(selectAuthToken);
+
+  // Personal: whether anyone may call this user at all.
+  const [allowCalls, setAllowCalls] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    if (!authToken || activePage) {
+      setAllowCalls(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchAllowCalls(authToken).then(v => {
+      if (!cancelled) setAllowCalls(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, activePage]);
+
+  // Page-only: whether people may call this page. Loaded when the setting is
+  // actually visible, so personal mode makes no extra request.
+  const [pageCallsOn, setPageCallsOn] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    if (!activePage?.id || !authToken) {
+      setPageCallsOn(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchPageAllowCalls(authToken, String(activePage.id)).then(v => {
+      if (!cancelled) setPageCallsOn(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage?.id, authToken]);
   const { colors } = useAppTheme();
   const [e2eeOn, setE2eeOn] = React.useState(() => isE2eeEnabled());
 
@@ -81,7 +123,81 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     />
   );
 
+  const AllowCallsSwitch = (
+    <Switch
+      value={allowCalls !== false}
+      onValueChange={v => {
+        if (!authToken) return;
+        const previous = allowCalls;
+        setAllowCalls(v); // optimistic
+        void patchAllowCalls(authToken, v).then(ok => {
+          if (!ok) setAllowCalls(previous ?? true);
+        });
+      }}
+      trackColor={{ false: colorss.border, true: colors.accent }}
+      thumbColor={colorss.white}
+      ios_backgroundColor={colorss.border}
+    />
+  );
+
+  const PageCallsSwitch = (
+    <Switch
+      value={pageCallsOn !== false}
+      onValueChange={v => {
+        if (!activePage?.id || !authToken) return;
+        const previous = pageCallsOn;
+        setPageCallsOn(v); // optimistic
+        void setPageAllowCalls(authToken, String(activePage.id), v).then(ok => {
+          if (!ok) setPageCallsOn(previous ?? true);
+        });
+      }}
+      trackColor={{ false: colorss.border, true: colors.accent }}
+      thumbColor={colorss.white}
+      ios_backgroundColor={colorss.border}
+    />
+  );
+
   const sections: { title: string; rows: SettingRow[] }[] = [
+    // Personal mode only — incoming-call privacy. Off means nobody can call you;
+    // the server refuses the invite, so it does not rely on the caller's build.
+    ...(!activePage && allowCalls !== null
+      ? [
+          {
+            title: 'Calls',
+            rows: [
+              {
+                id: 'allow-calls',
+                icon: <Phone size={20} color={iconColor} />,
+                label: 'Allow incoming calls',
+                sub: allowCalls
+                  ? 'People you can message can call you'
+                  : 'Calling is off — no one can call you',
+                rightEl: AllowCallsSwitch,
+              } as SettingRow,
+            ],
+          },
+        ]
+      : []),
+    // Page mode only — a page that does text-only support can switch calling off
+    // for everyone. The server enforces the same rule on the invite endpoint.
+    ...(activePage && pageCallsOn !== null
+      ? [
+          {
+            title: 'Page',
+            rows: [
+              {
+                id: 'page-calls',
+                icon: <Phone size={20} color={iconColor} />,
+                label: 'Allow calls to this page',
+                sub: pageCallsOn
+                  ? 'People can call this page from chat'
+                  : 'Calling is off — the call buttons are hidden for visitors',
+                rightEl: PageCallsSwitch,
+              } as SettingRow,
+            ],
+          },
+        ]
+      : []),
     // {
     //   title: t.section_privacy,
     //   rows: [

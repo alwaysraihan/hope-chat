@@ -351,3 +351,41 @@ export async function submitReport(params: {
     return false;
   }
 }
+
+/**
+ * Incoming-call privacy for the signed-in user.
+ *
+ * When off, nobody can call you — the server refuses the invite outright, so it
+ * does not depend on the caller's app version. Separate from patchUserSettings
+ * because that helper maps a fixed set of HopeChat field names.
+ */
+export async function fetchAllowCalls(token: string): Promise<boolean> {
+  if (!token) return true;
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/users/privacy-settings`, {
+      headers: { Authorization: bearer(token) },
+    });
+    if (!res.ok) return true; // unknown → assume calls are allowed
+    const json = await res.json();
+    return json?.responseObject?.allow_calls !== false;
+  } catch {
+    return true;
+  }
+}
+
+export async function patchAllowCalls(
+  token: string,
+  allowCalls: boolean,
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/users/privacy-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: bearer(token) },
+      body: JSON.stringify({ allow_calls: allowCalls }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

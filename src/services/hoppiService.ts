@@ -167,10 +167,31 @@ export interface HoppiCartItem {
   variantLabel?: string;
 }
 
-export async function fetchMyCart(session: HoppiSession): Promise<HoppiCartItem[]> {
+/**
+ * hoppi.live's cart is keyed on a `userId` QUERY PARAM, not on the bearer token
+ * (unlike /orders, which reads the user from the JWT — which is exactly why
+ * "My Purchases" worked while "My Cart" came back empty).
+ *
+ * The Hopenity app writes the cart under the HOPENITY user id (`user.user_id`,
+ * the cuid). HopeChat was reading it back under `session.hoppiUserId`, which is
+ * hoppi's own Mongo `_id` issued by /auth/customer-token — a different
+ * identifier for the same person, so the lookup always missed and the cart
+ * looked empty.
+ *
+ * `hopenityUserId` must therefore be the same cuid the Hopenity app uses.
+ */
+export async function fetchMyCart(
+  session: HoppiSession,
+  hopenityUserId: string,
+): Promise<HoppiCartItem[]> {
+  const cartUserId = String(hopenityUserId ?? '').trim();
+  if (!cartUserId) {
+    if (__DEV__) console.warn('[hoppiService] fetchMyCart called without a Hopenity user id');
+    return [];
+  }
   try {
     const res = await fetch(
-      `${HOPPI_API_URL}/cart?userId=${encodeURIComponent(session.hoppiUserId)}`,
+      `${HOPPI_API_URL}/cart?userId=${encodeURIComponent(cartUserId)}`,
       { headers: { Authorization: `Bearer ${session.hoppiToken}` } },
     );
     const data = await res.json();

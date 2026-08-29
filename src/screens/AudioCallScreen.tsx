@@ -34,6 +34,8 @@ import AudioOutputPickerSheet from '../components/AudioOutputPickerSheet';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StackActions } from '@react-navigation/native';
 import { useAppSelector } from '../hooks/redux';
+import { store } from '../redux/store';
+import { notifyCallEndedByRoom } from '../services/invitePeerToHopeChatCall';
 import {
   AudioSession,
   AndroidAudioTypePresets,
@@ -151,6 +153,17 @@ function AudioCallGate({
       try {
         // Signal the peer before disconnecting so they end their side without the 30s wait.
         sendCallHangup(room);
+        // Also end it server-side. This path runs when the user accepts a SECOND
+        // incoming call: the peer of the call being replaced may never see the
+        // data-channel signal (their connection can already be gone), and they
+        // must not be left in a call whose other side has vanished.
+        if (room?.name) {
+          void notifyCallEndedByRoom({
+            token: store.getState().auth.token,
+            liveKitRoom: room.name,
+            reason: room.state === ConnectionState.Connected ? 'hangup' : undefined,
+          });
+        }
         const lp = room?.localParticipant;
         if (lp) {
           await lp.setScreenShareEnabled(false).catch(() => undefined);
