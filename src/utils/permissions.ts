@@ -11,6 +11,45 @@ const CAMERA_PERMISSION = Platform.select({
   android: PERMISSIONS.ANDROID.CAMERA,
 });
 
+/**
+ * Android 12+ (API 31) runtime-gates Bluetooth device access behind
+ * BLUETOOTH_CONNECT. It is declared in the manifest but was never requested, so
+ * routing call audio to a headset/earbuds/car silently failed on every modern
+ * Android device — the output picker could list Bluetooth and still not switch.
+ *
+ * Asked ON DEMAND, the moment the user picks the Bluetooth output — the way
+ * WhatsApp and Messenger do it. Prompting during the call pre-flight instead
+ * put a "connect to nearby devices?" dialog in front of every call, which reads
+ * as unrelated to calling and trains people to decline.
+ *
+ * Never blocks: a device with no Bluetooth, or a user who declines, keeps
+ * calling over earpiece and speaker exactly as before. Below API 31
+ * react-native-permissions reports UNAVAILABLE, ignored like any other refusal.
+ *
+ * Returns whether Bluetooth access is usable, so the caller can skip a routing
+ * attempt that would silently fail.
+ */
+export async function ensureBluetoothAudioPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  try {
+    const perm = PERMISSIONS.ANDROID.BLUETOOTH_CONNECT;
+    if (!perm) return true;
+    // Only DENIED can still show a prompt; GRANTED needs nothing and BLOCKED /
+    // UNAVAILABLE make request() a silent no-op, so this asks at most once.
+    const result = await check(perm);
+    if (result === RESULTS.GRANTED) return true;
+    // UNAVAILABLE means the OS predates the runtime permission (< API 31),
+    // where Bluetooth routing works without asking.
+    if (result === RESULTS.UNAVAILABLE) return true;
+    if (result !== RESULTS.DENIED) return false;
+    return (await request(perm)) === RESULTS.GRANTED;
+  } catch (e) {
+    if (__DEV__) console.warn('[permissions] bluetooth', e);
+    // Permissions module unavailable — let the routing attempt decide.
+    return true;
+  }
+}
+
 export const checkMicrophonePermission = async (): Promise<boolean> => {
   const permission = Platform.select({
     ios: PERMISSIONS.IOS.MICROPHONE,

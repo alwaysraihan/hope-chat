@@ -519,12 +519,17 @@ const InboxScreenInner: React.FC<
               });
             }
           } else {
-            notifyPeerIncomingHopeChatCall({
+            // Stop on a deliberate refusal — see notifyPeerIncomingHopeChatCall.
+            const ring = await notifyPeerIncomingHopeChatCall({
               token,
               conversationId: conversation.id,
               liveKitRoom: audioRoom,
               callKind: 'audio',
             });
+            if (!ring.ok && ring.refused) {
+              Toast.show(ring.message, 'error');
+              return;
+            }
           }
           navigation.navigate('AudioCall', {
             displayName: peerName,
@@ -563,12 +568,16 @@ const InboxScreenInner: React.FC<
               });
             }
           } else {
-            notifyPeerIncomingHopeChatCall({
+            const ring = await notifyPeerIncomingHopeChatCall({
               token,
               conversationId: conversation.id,
               liveKitRoom: audioRoom,
               callKind: 'video',
             });
+            if (!ring.ok && ring.refused) {
+              Toast.show(ring.message, 'error');
+              return;
+            }
           }
           navigation.navigate('VideoCall', {
             displayName: peerName,

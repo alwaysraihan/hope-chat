@@ -1,6 +1,29 @@
 <manifest
   xmlns:android="http://schemas.android.com/apk/res/android"
   xmlns:tools="http://schemas.android.com/tools">
+  <!--
+    Play builds its device catalog from IMPLIED hardware features: requesting
+    CAMERA implies android.hardware.camera + camera.autofocus as REQUIRED, and
+    the BLUETOOTH permissions below imply android.hardware.bluetooth as
+    REQUIRED. Any device missing one is then told "not compatible with your
+    device" in the Play Store and cannot install at all.
+
+    None of these are actually required to use HopeChat — text and voice work
+    without a camera, and calls work without Bluetooth — so declare every one
+    optional and let the app degrade at runtime instead of being hidden from
+    whole classes of devices.
+  -->
+  <uses-feature android:name="android.hardware.camera" android:required="false" />
+  <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+  <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+  <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+  <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+  <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+  <uses-feature android:name="android.hardware.microphone" android:required="false" />
+  <uses-feature android:name="android.hardware.location" android:required="false" />
+  <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+  <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />

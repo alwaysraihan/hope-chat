@@ -6,19 +6,31 @@ function bearer(accessToken: string): string {
 }
 
 /**
+ * Outcome of a ring attempt. `refused` means the server deliberately rejected the
+ * call (blocked chat, pending message request, spam guard) and the caller should
+ * NOT be sent to the call screen — otherwise they ring forever against nobody.
+ * Anything else (network error, old server build, 5xx) stays soft: we let the call
+ * proceed exactly as before rather than breaking calling on a transient failure.
+ */
+export type RingPeerResult =
+  | { ok: true }
+  | { ok: false; refused: true; message: string; reason?: string }
+  | { ok: false; refused: false };
+
+/**
  * Tells the Hopenity API to FCM the peer so their Hope Chat shows IncomingCall (same room as caller).
- * Fire-and-forget — call still works if this fails (e.g. old server build).
+ * Soft-fails on transport/server errors; reports explicit refusals so the UI can show them.
  */
 export async function notifyPeerIncomingHopeChatCall(params: {
   token: string | null | undefined;
   conversationId: string;
   liveKitRoom: string;
   callKind: 'audio' | 'video';
-}): Promise<void> {
+}): Promise<RingPeerResult> {
   const auth = params.token ? bearer(params.token) : '';
-  if (!auth) return;
+  if (!auth) return { ok: false, refused: false };
   const cid = String(params.conversationId ?? '').trim();
-  if (!cid) return;
+  if (!cid) return { ok: false, refused: false };
   try {
     const base = API_BASE_URL.replace(/\/+$/, '');
     const url = `${base}/api/v1/chats/${encodeURIComponent(cid)}/hopechat-call-invite`;
@@ -34,14 +46,40 @@ export async function notifyPeerIncomingHopeChatCall(params: {
         callKind: params.callKind,
       }),
     });
-    if (__DEV__ && !res.ok) {
-      const text = await res.text().catch(() => '');
-      console.warn('[HopeChat] hopechat-call-invite', res.status, text.slice(0, 240));
+    if (res.ok) return { ok: true };
+
+    const text = await res.text().catch(() => '');
+    console.warn('[HopeChat] hopechat-call-invite', res.status, text.slice(0, 240));
+
+    // 403 (blocked / request pending) and 429 (spam guard) are deliberate refusals
+    // carrying a message meant for the caller. Every other status is treated as a
+    // soft failure so an outage or an old server build never blocks calling.
+    if (res.status === 403 || res.status === 429) {
+      let message = '';
+      let reason: string | undefined;
+      try {
+        const body = JSON.parse(text) as {
+          message?: string;
+          responseObject?: { reason?: string };
+        };
+        message = typeof body?.message === 'string' ? body.message.trim() : '';
+        reason = body?.responseObject?.reason;
+      } catch {
+        /* non-JSON error body — fall through to the generic message */
+      }
+      return {
+        ok: false,
+        refused: true,
+        message: message || "This call can't be completed.",
+        reason,
+      };
     }
+    return { ok: false, refused: false };
   } catch (e) {
     if (__DEV__) {
       console.warn('[HopeChat] hopechat-call-invite network', e);
     }
+    return { ok: false, refused: false };
   }
 }
 

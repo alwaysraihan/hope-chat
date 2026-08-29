@@ -131,12 +131,18 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       icon: <LucidePhone fill="white" stroke="white" />,
       onPress: async () => {
         if (!(await ensureCallPermissions('audio'))) return;
-        notifyPeerIncomingHopeChatCall({
+        // A refusal (blocked chat, pending request, spam guard) must stop here —
+        // navigating anyway leaves the caller ringing a peer who was never notified.
+        const ring = await notifyPeerIncomingHopeChatCall({
           token,
           conversationId: chatId,
           liveKitRoom: audioRoom,
           callKind: 'audio',
         });
+        if (!ring.ok && ring.refused) {
+          Toast.show(ring.message, 'error');
+          return;
+        }
         navigation.navigate('AudioCall', {
           displayName: peerName,
           liveKitRoom: audioRoom,
@@ -153,12 +159,16 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       icon: <LucideVideo fill="white" stroke="white" />,
       onPress: async () => {
         if (!(await ensureCallPermissions('video'))) return;
-        notifyPeerIncomingHopeChatCall({
+        const ring = await notifyPeerIncomingHopeChatCall({
           token,
           conversationId: chatId,
           liveKitRoom: videoRoom,
           callKind: 'video',
         });
+        if (!ring.ok && ring.refused) {
+          Toast.show(ring.message, 'error');
+          return;
+        }
         navigation.navigate('VideoCall', {
           displayName: peerName,
           liveKitRoom: videoRoom,

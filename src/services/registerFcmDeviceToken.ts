@@ -31,3 +31,33 @@ export async function postFcmTokenToHopenity(
   });
   return { ok: res.ok, status: res.status };
 }
+
+/**
+ * DELETE the FCM registration token on logout.
+ *
+ * An FCM token belongs to the app INSTALL, not to the account. Leaving it
+ * registered meant a logged-out device kept receiving calls and message
+ * previews for the previous account — on a shared phone that is someone else's
+ * chat content on your lock screen. The server drops the token from both pools
+ * for the calling user, so this must run while the auth token is still valid.
+ */
+export async function deleteFcmTokenFromHopenity(
+  accessToken: string,
+  fcmToken: string,
+): Promise<{ ok: boolean; status: number }> {
+  const auth = bearerHeader(accessToken);
+  if (!auth || !fcmToken.trim()) {
+    return { ok: false, status: 0 };
+  }
+  const url = `${API_BASE_URL.replace(/\/+$/, '')}${FCM_TOKEN_ENDPOINT}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: auth,
+    },
+    body: JSON.stringify({ token: fcmToken.trim() }),
+  });
+  return { ok: res.ok, status: res.status };
+}
