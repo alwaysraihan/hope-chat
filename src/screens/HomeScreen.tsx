@@ -225,7 +225,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   // conversationId before navigating (same pattern as FB Messenger — thread is
   // provisioned server-side so InboxScreen has a valid ID from the first render).
   const navigateInboxForPeer = useCallback(
-    async ({ peerId, displayName, avatarUrl, chatId, senderPageId, senderPageName, senderPageImage, targetPageId }: PeerLinkPayload) => {
+    async ({ peerId, displayName, avatarUrl, chatId, senderPageId, senderPageName, senderPageImage, targetPageId, share }: PeerLinkPayload) => {
+      // A thread/<id> link carries no peerId — the chatId alone identifies the
+      // conversation, so skip the peer lookup entirely and open it directly.
+      if (!peerId && chatId) {
+        navigation.navigate('Inbox', {
+          conversationId: chatId,
+          displayName: displayName ?? '',
+          avatarUrl: avatarUrl ?? null,
+          pendingShare: share ?? undefined,
+        });
+        return;
+      }
       // In page mode the current conversations list holds personal chats, not page
       // chats — skip the local lookup and always provision via the API so the
       // conversation is stored with the correct page identity on the server.
@@ -288,6 +299,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         conversationId,
         displayName: displayName ?? existing?.name ?? '',
         avatarUrl: avatarUrl ?? existing?.avatarUrl ?? null,
+        pendingShare: share ?? undefined,
         liveKitRoom: resolveLiveKitRoomName({
           conversationId,
           peerUserId: peerId,

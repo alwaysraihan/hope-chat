@@ -43,6 +43,16 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     messagingEnabled?: boolean;
     /** True when the booking was made with callType='group' — changes call notification dispatch. */
     isGroupBooking?: boolean;
+    /**
+     * A Hopenity post handed over from the share sheet. Rendered as a preview
+     * above the composer with Send / dismiss — deliberately not auto-sent.
+     */
+    pendingShare?: {
+      url: string;
+      postId?: string | null;
+      text?: string | null;
+      image?: string | null;
+    };
   };
   Profile: {
     /** conversation ID (same as ConversationSummary.id) */

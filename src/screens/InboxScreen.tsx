@@ -53,6 +53,7 @@ import { formatLastSeenLine } from '../utils/formatLastSeen';
 import { selectActivePage } from '../redux/features/auth/authSlice';
 import { openHopenityProfile } from '../services/hopenityLinking';
 import { ShopSheet } from '../components/message/ShopSheet';
+import SharePreviewBar, { type PendingShare } from '../components/message/SharePreviewBar';
 
 const PRESET_IMAGES: Record<number, number> = {
   1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
@@ -338,9 +339,49 @@ const InboxScreenInner: React.FC<
     return null;
   })();
 
+  // A post handed over from Hopenity's share sheet. Held as state so dismissing
+  // it (or sending it) clears the bar without needing a navigation param change.
+  const [pendingShare, setPendingShare] = useState<PendingShare | null>(
+    route.params.pendingShare ?? null,
+  );
+  const [sharingPost, setSharingPost] = useState(false);
+
+  const sendPendingShare = useCallback(async () => {
+    const share = pendingShare;
+    if (!share || sharingPost) return;
+    setSharingPost(true);
+    try {
+      // The post link IS the message — HopeChat renders link previews for it,
+      // and it stays readable on any client that does not.
+      await onSend([
+        {
+          _id: String(Date.now()),
+          text: share.url,
+          createdAt: new Date(),
+          user: { _id: user._id },
+        } as ExtendedMessage,
+      ]);
+      setPendingShare(null);
+    } finally {
+      setSharingPost(false);
+    }
+  }, [pendingShare, sharingPost, onSend, user._id]);
+
   const renderInputToolbar = useCallback(
-    (p: unknown) => <CustomInputToolbar {...(p as object)} />,
-    [],
+    (p: unknown) => (
+      <>
+        {pendingShare ? (
+          <SharePreviewBar
+            share={pendingShare}
+            sending={sharingPost}
+            onSend={sendPendingShare}
+            onDismiss={() => setPendingShare(null)}
+          />
+        ) : null}
+        <CustomInputToolbar {...(p as object)} />
+      </>
+    ),
+    [pendingShare, sharingPost, sendPendingShare],
   );
 
   const renderTime = useCallback((props: TimeProps<IMessage>) => {
