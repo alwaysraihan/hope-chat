@@ -316,10 +316,18 @@ export async function fetchHopenityChatDirectory(
       // Enrich v2 chats that lack `updatedAt` with the v1 value so the sort below
       // can use a real timestamp instead of falling back to 0.
       const enrichedBase = base.chats.map(c => {
-        if ((c as any).updatedAt) return c;
         const v1 = v1ById.get(String(c.id ?? ''));
-        const v1Updated = v1 ? (v1 as any).updatedAt ?? (v1 as any).updated_at : undefined;
-        return v1Updated ? { ...c, updatedAt: v1Updated } : c;
+        if (!v1) return c;
+        const patch: Record<string, unknown> = {};
+        // lastMessageAt is what the sort keys on, so fill it first.
+        if ((c as any).lastMessageAt == null && (v1 as any).lastMessageAt != null) {
+          patch.lastMessageAt = (v1 as any).lastMessageAt;
+        }
+        if ((c as any).updatedAt == null) {
+          const v1Updated = (v1 as any).updatedAt ?? (v1 as any).updated_at;
+          if (v1Updated) patch.updatedAt = v1Updated;
+        }
+        return Object.keys(patch).length > 0 ? { ...c, ...patch } : c;
       });
 
       const localUid = params?.localUserId ? String(params.localUserId) : null;
@@ -368,15 +376,27 @@ export async function fetchHopenityChatDirectory(
         ? [...enrichedBase, ...v1Only]
         : enrichedBase;
 
-      merged.sort((a, b) => {
-        const ta = new Date(
-          (a as any).updatedAt ?? (a as any).updated_at ?? (a.lastMessage as any)?.createdAt ?? 0,
-        ).getTime();
-        const tb = new Date(
-          (b as any).updatedAt ?? (b as any).updated_at ?? (b.lastMessage as any)?.createdAt ?? 0,
-        ).getTime();
-        return tb - ta;
-      });
+      // Sort by REAL activity, in the same priority the server uses.
+      //
+      // This used to read `updatedAt` first — which is the server's @updatedAt
+      // column, bumped by any write to the row (a status heal, a block toggle, a
+      // bulk migration). So a chat whose last message was weeks ago floated to
+      // the top, and this client-side sort silently overrode the server's
+      // correct ordering after it was fixed. `lastMessageAt` is the authoritative
+      // last-activity timestamp; updatedAt stays only as a last resort for rows
+      // that have neither (e.g. a group with no messages yet).
+      const activityAt = (row: any): number => {
+        const raw =
+          row?.lastMessageAt ??
+          row?.last_message_at ??
+          row?.lastMessage?.createdAt ??
+          row?.updatedAt ??
+          row?.updated_at ??
+          0;
+        const ms = new Date(raw).getTime();
+        return Number.isFinite(ms) ? ms : 0;
+      };
+      merged.sort((a, b) => activityAt(b) - activityAt(a));
       base = { ...base, chats: merged };
     } catch {
       // v1 merge is best-effort — never block the main response
