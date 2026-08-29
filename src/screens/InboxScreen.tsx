@@ -23,6 +23,7 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { InboxProvider, useInbox } from '../context/InboxContext';
 import WordEffectOverlay from '../components/WordEffectOverlay';
+import { clearCallCancelled } from '../services/incomingCall/navigateIncomingCall';
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import ForwardModal from '../components/message/ForwardModal';
 import MessageHeader from '../components/message/MessageHeader';
@@ -503,6 +504,9 @@ const InboxScreenInner: React.FC<
           // Ask before ringing the peer — a denial here must not leave them
           // with a ringing call we can never join.
           if (!(await ensureCallPermissions('audio'))) return;
+          // Placing a call in a room we ourselves marked cancelled (previous
+          // attempt) must not be suppressed — room names repeat for a pair.
+          clearCallCancelled(audioRoom);
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
           if (isGroupDispatch) {
             if (token) {
@@ -544,6 +548,9 @@ const InboxScreenInner: React.FC<
           // Ask before ringing the peer — a denial here must not leave them
           // with a ringing call we can never join.
           if (!(await ensureCallPermissions('video'))) return;
+          // Placing a call in a room we ourselves marked cancelled (previous
+          // attempt) must not be suppressed — room names repeat for a pair.
+          clearCallCancelled(audioRoom);
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
           if (isGroupDispatch) {
             if (token) {

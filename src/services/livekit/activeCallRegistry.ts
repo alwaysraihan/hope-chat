@@ -13,7 +13,17 @@ export type ActiveCallKind = 'audio' | 'video';
 type ActiveCallEntry = {
   liveKitRoom: string;
   kind: ActiveCallKind;
+  /**
+   * Silent teardown: disconnects the room WITHOUT touching navigation. Used when
+   * a second call replaces this one and the accept handler resets the stack itself.
+   */
   leave: () => Promise<void> | void;
+  /**
+   * Full hang-up: tears down AND leaves the call screen. Used when the call ends
+   * for real (peer declined / hung up) — `leave` alone left the caller staring at
+   * a live "Calling…" screen for a call that was already over.
+   */
+  end?: () => Promise<void> | void;
 };
 
 let current: ActiveCallEntry | null = null;
@@ -42,6 +52,22 @@ function leaveWithTimeout(entry: ActiveCallEntry): Promise<void> {
       done();
     }
   });
+}
+
+/**
+ * End the active call for real, screen included. Falls back to the silent
+ * teardown for entries registered before `end` existed.
+ */
+export async function endActiveCallForRemoteHangup(
+  liveKitRoom: string,
+): Promise<void> {
+  const active = current;
+  if (!active || active.liveKitRoom !== liveKitRoom) return;
+  try {
+    await leaveWithTimeout({ ...active, leave: active.end ?? active.leave });
+  } catch {
+    /* teardown is best-effort — the screen still has to go */
+  }
 }
 
 /** Drop the registry entry without tearing anything down (screen already gone). */

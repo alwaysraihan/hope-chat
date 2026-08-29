@@ -21,6 +21,7 @@ import { store } from '../redux/store';
 import {
   CALL_CANCELLED_MESSAGE_TYPE,
   INCOMING_CALL_MESSAGE_TYPE,
+  callPayloadSentAtMs,
   normalizeFcmData,
   parseIncomingCallPayload,
 } from '../services/incomingCall/payload';
@@ -47,6 +48,7 @@ import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
 import {
   getActiveCall,
   endActiveCallForReplacement,
+  endActiveCallForRemoteHangup,
 } from '../services/livekit/activeCallRegistry';
 import { ONGOING_NOTIFICATION_ID } from '../services/livekit/liveKitCallForeground';
 import { consumePendingOpenActiveCall } from '../services/livekit/pendingCallScreenOpen';
@@ -75,11 +77,17 @@ function dismissIncomingCallIfShowing(liveKitRoom?: string): void {
   navigationRef.goBack();
 }
 
+/**
+ * The peer hung up / declined. This has to END the call screen, not just drop the
+ * LiveKit connection — `leave()` is the silent variant used for call replacement,
+ * and calling it here is what left the caller's phone showing "Calling…" forever
+ * after the other side declined.
+ */
 function endActiveCallIfMatchesRoom(liveKitRoom?: string): void {
   if (!liveKitRoom) return;
   const active = getActiveCall();
   if (!active || active.liveKitRoom !== liveKitRoom) return;
-  void active.leave();
+  void endActiveCallForRemoteHangup(liveKitRoom);
 }
 
 /**
@@ -304,7 +312,7 @@ const IncomingCallListener = () => {
 
     const unsubCancelled = callSocket.onCallCancelled(data => {
       const cancelledRoom = data.liveKitRoom || data.room;
-      if (cancelledRoom) markCallCancelled(cancelledRoom);
+      if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
       stopIncomingCallRingtone();
       void cancelAndroidIncomingCallNotification();
       dismissIncomingCallIfShowing(cancelledRoom);
@@ -325,23 +333,43 @@ const IncomingCallListener = () => {
     const messaging = getMessaging(getApp());
 
     let unsubTokenRefresh: (() => void) | undefined;
+    const registerRetryTimers: ReturnType<typeof setTimeout>[] = [];
 
-    const syncFcmToBackend = async () => {
+    /**
+     * Registering the device token is what puts it in `hopechat_fcm_tokens`
+     * server-side. Until that succeeds the backend has no HopeChat token for this
+     * user and every call push falls back to the legacy (Hopenity) pool — the
+     * call then surfaces as a notification in the wrong app. A single silent
+     * attempt was not enough: the first try can 401 while auth is still settling,
+     * or fail on a cold network, and nothing retried until the next foreground.
+     */
+    const REGISTER_RETRY_DELAYS_MS = [2_000, 8_000, 30_000];
+
+    const syncFcmToBackend = async (attempt = 0): Promise<void> => {
       const apiToken = store.getState().auth.token;
       if (!apiToken) return;
+      let ok = false;
       try {
         const fcm = await getToken(messaging);
         if (fcm) {
           const r = await postFcmTokenToHopenity(apiToken, fcm);
-          if (__DEV__ && !r.ok) {
+          ok = r.ok;
+          if (!r.ok) {
             console.warn('[HopeChat] FCM token registration failed HTTP', r.status);
           }
         }
       } catch (e) {
-        if (__DEV__) {
-          console.warn('[HopeChat] FCM getToken / register', e);
-        }
+        console.warn('[HopeChat] FCM getToken / register', e);
       }
+
+      if (ok) return;
+      const delay = REGISTER_RETRY_DELAYS_MS[attempt];
+      if (delay == null) return; // give up until the next foreground / network regain
+      registerRetryTimers.push(
+        setTimeout(() => {
+          void syncFcmToBackend(attempt + 1);
+        }, delay),
+      );
     };
 
     const unsubNet = NetInfo.addEventListener(state => {
@@ -445,7 +473,7 @@ const IncomingCallListener = () => {
           data.cancelled === 'true';
         if (isCancelled) {
           const cancelledRoom = data.liveKitRoom || data.room;
-          if (cancelledRoom) markCallCancelled(cancelledRoom);
+          if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
           // Stop any in-process ringtone immediately before anything else.
           stopIncomingCallRingtone();
           void cancelAndroidIncomingCallNotification();
@@ -543,6 +571,7 @@ const IncomingCallListener = () => {
     })().catch(() => undefined);
 
     return () => {
+      registerRetryTimers.forEach(clearTimeout);
       unsubTokenRefresh?.();
       unsubNet();
       unsubAppState.remove();

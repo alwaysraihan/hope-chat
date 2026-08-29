@@ -15,6 +15,7 @@ import {
 } from './androidIncomingCallUi';
 import {
   CALL_CANCELLED_MESSAGE_TYPE,
+  callPayloadSentAtMs,
   normalizeFcmData,
   parseIncomingCallPayload,
 } from './payload';
@@ -139,22 +140,37 @@ const messaging = getMessaging(getApp());
  * — both are needed because the contexts can be different JS instances.
  */
 const bgCancelledRooms = new Map<string, number>();
-const BG_CANCEL_TTL_MS = 90_000;
+const BG_CANCEL_TTL_MS = 5 * 60_000;
+/** Suppression window for invites that carry no server `ts`. */
+const BG_UNDATED_SUPPRESSION_MS = 8_000;
 
-function markBgRoomCancelled(room: string): void {
-  bgCancelledRooms.set(room, Date.now());
+/** `cancelledAtMs` is the cancel's own server timestamp when the push carries one. */
+function markBgRoomCancelled(room: string, cancelledAtMs = Date.now()): void {
+  const prev = bgCancelledRooms.get(room) ?? 0;
+  bgCancelledRooms.set(room, Math.max(prev, cancelledAtMs));
   // Evict stale entries to prevent unbounded growth.
-  setTimeout(() => bgCancelledRooms.delete(room), BG_CANCEL_TTL_MS);
+  setTimeout(() => {
+    const at = bgCancelledRooms.get(room);
+    if (at != null && Date.now() - at >= BG_CANCEL_TTL_MS) {
+      bgCancelledRooms.delete(room);
+    }
+  }, BG_CANCEL_TTL_MS);
 }
 
-function isBgRoomCancelled(room: string): boolean {
-  const ts = bgCancelledRooms.get(room);
-  if (ts === undefined) return false;
-  if (Date.now() - ts > BG_CANCEL_TTL_MS) {
+/**
+ * Room names are deterministic per pair, so a cancel can only invalidate invites
+ * issued BEFORE it. The old blanket 90 s ban muted the callee's phone for a
+ * minute and a half after any declined/missed call — an immediate retry never rang.
+ */
+function isBgRoomCancelled(room: string, sentAtMs?: number): boolean {
+  const cancelledAt = bgCancelledRooms.get(room);
+  if (cancelledAt === undefined) return false;
+  if (Date.now() - cancelledAt > BG_CANCEL_TTL_MS) {
     bgCancelledRooms.delete(room);
     return false;
   }
-  return true;
+  if (sentAtMs != null) return sentAtMs <= cancelledAt;
+  return Date.now() - cancelledAt < BG_UNDATED_SUPPRESSION_MS;
 }
 
 /**
@@ -186,7 +202,7 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
     // same room is silently discarded (FCM ordering is not guaranteed).
     const cancelledRoom = data.liveKitRoom || data.room;
     if (typeof cancelledRoom === 'string' && cancelledRoom.length > 0) {
-      markBgRoomCancelled(cancelledRoom);
+      markBgRoomCancelled(cancelledRoom, callPayloadSentAtMs(data));
     }
     return;
   }
@@ -196,7 +212,7 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
   if (parsed) {
     // Guard against FCM ordering race: if a cancel for this room already arrived,
     // don't ring — the call is dead on the caller's side.
-    if (isBgRoomCancelled(parsed.liveKitRoom)) {
+    if (isBgRoomCancelled(parsed.liveKitRoom, parsed.sentAtMs)) {
       if (__DEV__) {
         console.warn('[HopeChat BG] Dropping incoming_call FCM — room already cancelled:', parsed.liveKitRoom);
       }

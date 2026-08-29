@@ -166,6 +166,8 @@ function AudioCallGate({
       liveKitRoom: room.name,
       kind: 'audio',
       leave: silentDisconnect,
+      // Remote hang-up must also dismiss this screen, not just drop the room.
+      end: () => leaveRef.current(),
     });
     return unregister;
   }, [room]);

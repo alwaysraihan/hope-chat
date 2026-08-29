@@ -20,6 +20,12 @@ export type IncomingCallPayload = {
   isGroupCall?: boolean;
   groupName?: string;
   groupPhotoUrl?: string;
+  /**
+   * Server send-time (ms). The LiveKit room name is DETERMINISTIC per pair, so
+   * "this room was cancelled" can only mean "that attempt was cancelled" — the
+   * timestamp is what separates a dead invite from the next call in the same room.
+   */
+  sentAtMs?: number;
 };
 
 export const TYPE_KEY = 'type';
@@ -172,6 +178,9 @@ export function parseIncomingCallPayload(
   const groupName = pickString(data, 'groupName', 'group_name');
   const groupPhotoUrl = pickString(data, 'groupPhotoUrl', 'group_photo_url');
 
+  const tsRaw = pickString(data, 'ts', 'sentAt', 'timestamp');
+  const sentAtMs = tsRaw ? Number(tsRaw) : NaN;
+
   return {
     callKind,
     liveKitRoom,
@@ -182,5 +191,16 @@ export function parseIncomingCallPayload(
     isGroupCall: isGroupCall || undefined,
     groupName,
     groupPhotoUrl,
+    sentAtMs: Number.isFinite(sentAtMs) && sentAtMs > 0 ? sentAtMs : undefined,
   };
+}
+
+/** Server send-time of any call payload (invite or cancel), when present. */
+export function callPayloadSentAtMs(
+  data: Record<string, string> | undefined | null,
+): number | undefined {
+  if (!data) return undefined;
+  const raw = pickString(data, 'ts', 'sentAt', 'timestamp');
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }

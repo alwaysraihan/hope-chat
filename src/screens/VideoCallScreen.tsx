@@ -199,6 +199,8 @@ function VideoCallGate({
       liveKitRoom: room.name,
       kind: 'video',
       leave: silentDisconnect,
+      // Remote hang-up must also dismiss this screen, not just drop the room.
+      end: () => leaveRef.current(),
     });
     return unregister;
   }, [room]);
