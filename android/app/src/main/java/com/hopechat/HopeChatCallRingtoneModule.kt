@@ -8,6 +8,7 @@ import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.WindowManager
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -50,6 +51,36 @@ class HopeChatCallRingtoneModule(private val reactContext: ReactApplicationConte
 
   @ReactMethod fun setPendingAutoAcceptData(json: String) { pendingAutoAcceptJson.set(json) }
   @ReactMethod fun consumePendingAutoAcceptData(promise: Promise) { promise.resolve(pendingAutoAcceptJson.getAndSet(null)) }
+
+  /**
+   * Hold the screen on for the duration of a video call.
+   *
+   * Uses FLAG_KEEP_SCREEN_ON on the activity window — the same mechanism every
+   * video app uses. Done here rather than through react-native-keep-awake
+   * because that package is unmaintained, its JS wrapper fails silently when the
+   * module does not resolve, and a video call that lets the screen sleep is not
+   * something that should depend on a third-party binding.
+   *
+   * The flag is tied to the window, so it is released automatically if the
+   * activity is destroyed — a crashed call screen cannot leave the screen
+   * pinned on.
+   */
+  @ReactMethod
+  fun setKeepScreenOn(on: Boolean) {
+    val activity = currentActivity ?: return
+    // Window flags must be touched on the UI thread.
+    activity.runOnUiThread {
+      try {
+        if (on) {
+          activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+          activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+      } catch (_: Exception) {
+        /* never let a screen-wake preference crash a live call */
+      }
+    }
+  }
 
   @ReactMethod fun setPendingRejectData(json: String) { pendingRejectJson.set(json) }
   @ReactMethod fun consumePendingRejectData(promise: Promise) { promise.resolve(pendingRejectJson.getAndSet(null)) }

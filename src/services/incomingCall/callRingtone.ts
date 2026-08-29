@@ -1,5 +1,12 @@
 import { NativeModules, Platform } from 'react-native';
 
+import {
+  readPendingAutoAccept,
+  readPendingReject,
+  writePendingAutoAccept,
+  writePendingReject,
+} from './pendingCallAction';
+
 type NativeRing = {
   startIncomingRingtone?: () => void;
   stopIncomingRingtone?: () => void;
@@ -7,6 +14,7 @@ type NativeRing = {
   stopOutgoingRingback?: () => void;
   setPendingAutoAcceptData?: (json: string) => void;
   consumePendingAutoAcceptData?: () => Promise<string | null>;
+  setKeepScreenOn?: (on: boolean) => void;
   setPendingRejectData?: (json: string) => void;
   consumePendingRejectData?: () => Promise<string | null>;
 };
@@ -42,7 +50,11 @@ export function stopOutgoingCallRingback(): void {
  */
 export function setPendingAutoAcceptData(json: string): void {
   if (Platform.OS !== 'android') return;
+  // Write BOTH: the native module when it is present, and MMKV always. The
+  // native call is optional-chained, so on its own a missing module makes this
+  // a silent no-op and the Accept button appears to do nothing.
   native?.setPendingAutoAcceptData?.(json);
+  writePendingAutoAccept(json);
 }
 
 /**
@@ -51,11 +63,16 @@ export function setPendingAutoAcceptData(json: string): void {
  */
 export async function consumePendingAutoAcceptData(): Promise<string | null> {
   if (Platform.OS !== 'android') return null;
+  let fromNative: string | null = null;
   try {
-    return (await native?.consumePendingAutoAcceptData?.()) ?? null;
+    fromNative = (await native?.consumePendingAutoAcceptData?.()) ?? null;
   } catch {
-    return null;
+    fromNative = null;
   }
+  // Always drain MMKV too, so a value written there can never be left behind to
+  // fire against a later, unrelated call.
+  const fromStore = readPendingAutoAccept();
+  return fromNative ?? fromStore;
 }
 
 /**
@@ -71,13 +88,33 @@ export async function clearPendingAutoAcceptData(): Promise<void> {
 export function setPendingRejectData(json: string): void {
   if (Platform.OS !== 'android') return;
   native?.setPendingRejectData?.(json);
+  writePendingReject(json);
 }
 
 export async function consumePendingRejectData(): Promise<string | null> {
   if (Platform.OS !== 'android') return null;
+  let fromNative: string | null = null;
   try {
-    return (await native?.consumePendingRejectData?.()) ?? null;
+    fromNative = (await native?.consumePendingRejectData?.()) ?? null;
   } catch {
-    return null;
+    fromNative = null;
+  }
+  const fromStore = readPendingReject();
+  return fromNative ?? fromStore;
+}
+
+/**
+ * Hold the device screen on (Android FLAG_KEEP_SCREEN_ON). Used for video calls.
+ * Returns whether the native path was available, so the caller can fall back.
+ */
+export function setNativeKeepScreenOn(on: boolean): boolean {
+  if (Platform.OS !== 'android') return false;
+  const fn = native?.setKeepScreenOn;
+  if (typeof fn !== 'function') return false;
+  try {
+    fn(on);
+    return true;
+  } catch {
+    return false;
   }
 }

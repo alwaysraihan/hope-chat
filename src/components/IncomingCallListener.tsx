@@ -154,8 +154,16 @@ function navigateToActiveCallScreen(): void {
       }
     }
     if (callIdx === -1) {
-      // Call screen isn't in the stack (shouldn't happen, but fall back to pushing it).
-      navigationRef.dispatch(StackActions.push(targetRoute));
+      // The user backed out of the call screen while the call kept running, so
+      // the route is gone. Re-create it from the params the screen registered —
+      // pushing it bare gave a screen with no room to join, which is why the
+      // ongoing "connected" notification looked dead when tapped.
+      const params = active.screenParams;
+      if (params) {
+        navigationRef.dispatch(StackActions.push(targetRoute, params));
+      } else if (__DEV__) {
+        console.warn('[HopeChat] active call has no screenParams — cannot restore screen');
+      }
       return;
     }
     const popCount = routes.length - 1 - callIdx;

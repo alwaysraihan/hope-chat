@@ -2,6 +2,9 @@ import { getApp } from '@react-native-firebase/app';
 import { getMessaging, setBackgroundMessageHandler } from '@react-native-firebase/messaging';
 import notifee, { EventType } from '@notifee/react-native';
 
+import { store } from '../../redux/store';
+import { notifyCallEndedByRoom } from '../invitePeerToHopeChatCall';
+
 import {
   MESSAGE_CHANNEL_ID,
   displayMessagingNotification,
@@ -89,11 +92,25 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     if (actionId === 'reject') {
       stopIncomingCallRingtone();
       if (notifId) await notifee.cancelNotification(notifId);
-      // Store the call data so the main app can emit the missed-call outcome and
-      // signal the backend (which cancels the caller's active ring) next time it foregrounds.
-      const notifData = detail.notification?.data;
+      const notifData = detail.notification?.data as Record<string, string> | undefined;
       if (notifData) {
+        // Still record it, so the main app writes the missed-call row and clears
+        // any pending ring UI when it next opens.
         try { setPendingRejectData(JSON.stringify(notifData)); } catch { /* noop */ }
+
+        // ...but tell the SERVER right now. Decline has no launchActivity — the
+        // app is never brought up — so deferring this to "next foreground" left
+        // the caller ringing until the callee happened to open HopeChat, which
+        // is indistinguishable from the Decline button doing nothing.
+        const room = String(notifData.liveKitRoom ?? notifData.room ?? '').trim();
+        const token = store.getState().auth.token;
+        if (room && token) {
+          try {
+            await notifyCallEndedByRoom({ token, liveKitRoom: room });
+          } catch {
+            /* best-effort — the pending record above is the fallback */
+          }
+        }
       }
       return;
     }

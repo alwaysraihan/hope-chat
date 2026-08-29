@@ -13,6 +13,8 @@ type KeepAwakeModule = { activate?: unknown; deactivate?: unknown } | null;
  * missing method as "not installed" — calling `mod?.activate()` on the wrapper
  * throws "undefined is not a function" and takes the whole call screen down.
  */
+import { setNativeKeepScreenOn } from '../services/incomingCall/callRingtone';
+
 let mod: KeepAwakeModule = null;
 try {
   const required = require('react-native-keep-awake') as
@@ -26,9 +28,27 @@ try {
   /* package not installed yet */
 }
 
+let warnedUnavailable = false;
+
+/** True when the native keep-awake module actually resolved. */
+export function isKeepAwakeAvailable(): boolean {
+  return mod != null;
+}
+
 function invoke(name: 'activate' | 'deactivate'): void {
   const fn = mod?.[name];
-  if (typeof fn !== 'function') return;
+  if (typeof fn !== 'function') {
+    // Silence here meant a video call could let the screen sleep with nothing
+    // anywhere to explain why. Report it once so it is diagnosable from a log
+    // instead of being mistaken for a device setting.
+    if (!warnedUnavailable) {
+      warnedUnavailable = true;
+      console.warn(
+        '[keepAwake] react-native-keep-awake is not linked — the screen WILL sleep during video calls',
+      );
+    }
+    return;
+  }
   try {
     (fn as () => void).call(mod);
   } catch {
@@ -36,10 +56,21 @@ function invoke(name: 'activate' | 'deactivate'): void {
   }
 }
 
+/**
+ * Keep the screen on.
+ *
+ * Prefers the app's own native module (FLAG_KEEP_SCREEN_ON on the activity
+ * window) and only falls back to react-native-keep-awake. The package is
+ * unmaintained and its wrapper fails silently when unlinked, which would let a
+ * video call sleep the screen with nothing to explain it — too important to
+ * leave to a third-party binding.
+ */
 export function activateKeepAwake(): void {
+  if (setNativeKeepScreenOn(true)) return;
   invoke('activate');
 }
 
 export function deactivateKeepAwake(): void {
+  if (setNativeKeepScreenOn(false)) return;
   invoke('deactivate');
 }

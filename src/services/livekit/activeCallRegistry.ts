@@ -24,6 +24,17 @@ type ActiveCallEntry = {
    * a live "Calling…" screen for a call that was already over.
    */
   end?: () => Promise<void> | void;
+  /**
+   * Everything needed to RE-CREATE the call screen if it is no longer in the
+   * navigation stack.
+   *
+   * Backing out of a call (Android back / swipe) pops the route while the call
+   * itself keeps running — the ongoing notification still says "connected". The
+   * old recovery path pushed the route with NO params, so the screen mounted
+   * without a room, display name or direction and could not rejoin: tapping the
+   * notification appeared to do nothing.
+   */
+  screenParams?: Record<string, unknown>;
 };
 
 let current: ActiveCallEntry | null = null;

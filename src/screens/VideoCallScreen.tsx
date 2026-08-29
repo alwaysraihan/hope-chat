@@ -214,6 +214,9 @@ function VideoCallGate({
       leave: silentDisconnect,
       // Remote hang-up must also dismiss this screen, not just drop the room.
       end: () => leaveRef.current(),
+      // Lets the ongoing-call notification rebuild this screen after the user
+      // backs out of it mid-call.
+      screenParams: { ...(routeParams ?? {}), callDirection: 'incoming' },
     });
     return unregister;
   }, [room]);
