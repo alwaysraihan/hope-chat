@@ -253,13 +253,19 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     {
       title: t.section_security,
       rows: [
-        {
-          id: 'blocked',
-          icon: <Ban size={20} color={iconColor} />,
-          label: t.blocked_people,
-          sub: t.blocked_people_sub,
-          onPress: () => navigation.navigate('BlockedPeople'),
-        },
+        // Personal-only. The blocked list belongs to the operator's own account,
+        // so surfacing it while acting as a page invites editing the wrong one.
+        ...(activePage
+          ? []
+          : [
+              {
+                id: 'blocked',
+                icon: <Ban size={20} color={iconColor} />,
+                label: t.blocked_people,
+                sub: t.blocked_people_sub,
+                onPress: () => navigation.navigate('BlockedPeople'),
+              } as SettingRow,
+            ]),
         {
           id: 'report',
           icon: <Shield size={20} color={iconColor} />,
@@ -297,17 +303,33 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
+        {/*
+          Identity header. In page mode this MUST show the page, not the
+          operator: Settings is where you confirm who you are acting as, and
+          showing the personal profile while every setting below applies to the
+          page is how someone changes the wrong account's settings.
+        */}
         <View style={[styles.profileCard, { backgroundColor: colors.cardBg }]}>
           <FastImage
-            source={profile?.avatarUrl ? { uri: profile.avatarUrl } : IC_PROFILE}
+            source={
+              activePage
+                ? activePage.image
+                  ? { uri: activePage.image }
+                  : IC_PROFILE
+                : profile?.avatarUrl
+                  ? { uri: profile.avatarUrl }
+                  : IC_PROFILE
+            }
             style={styles.avatar}
           />
           <View style={styles.profileInfo}>
             <Text style={[styles.profileName, { color: colors.textPrimary }]} numberOfLines={1}>
-              {profile?.displayName ?? 'HopeChat User'}
+              {activePage
+                ? activePage.name || 'Page'
+                : profile?.displayName ?? 'HopeChat User'}
             </Text>
             <Text style={[styles.profileSub, { color: colors.textSecondary }]} numberOfLines={1}>
-              {t.hopenity_account}
+              {activePage ? 'Page · you are acting as this page' : t.hopenity_account}
             </Text>
           </View>
         </View>

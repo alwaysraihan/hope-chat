@@ -27,7 +27,10 @@ import { store } from '../redux/store';
 import { logOut } from '../redux/features/auth/authSlice';
 import { clearAutoLoginAck } from './chatPrefs';
 import { getActiveCall } from './livekit/activeCallRegistry';
-import { deleteFcmTokenFromHopenity } from './registerFcmDeviceToken';
+import {
+  deleteFcmTokenFromHopenity,
+  postFcmTokenToHopenity,
+} from './registerFcmDeviceToken';
 
 /**
  * Drop this device's FCM registration server-side. Read the auth token BEFORE
@@ -46,6 +49,18 @@ function unregisterFcmToken(): void {
       const r = await deleteFcmTokenFromHopenity(apiToken, fcm);
       if (!r.ok) {
         console.warn('[HopeChat] FCM token unregister failed HTTP', r.status);
+      }
+
+      // Log out, then sign straight back in on the same device and account:
+      // this DELETE is async, so it can land AFTER the new session already
+      // re-registered the token — silently unregistering the device the user
+      // just signed into. The server scopes the delete to the OLD user id, so a
+      // DIFFERENT account is never affected; only the same-account case races.
+      // If a session exists by the time the delete completes, re-register now
+      // rather than waiting for the next foreground.
+      const currentToken = store.getState().auth.token;
+      if (currentToken) {
+        await postFcmTokenToHopenity(currentToken, fcm);
       }
     } catch (e) {
       console.warn('[HopeChat] FCM token unregister', e);

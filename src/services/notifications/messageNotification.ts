@@ -32,6 +32,16 @@ function pick(data: Record<string, string>, ...keys: string[]): string {
   return '';
 }
 
+/** The page this message was addressed to, when the recipient manages one. */
+export function notificationTargetPage(data: Record<string, string>): {
+  id: string;
+  name: string;
+} | null {
+  const id = pick(data, 'target_page_id', 'targetPageId');
+  if (!id) return null;
+  return { id, name: pick(data, 'target_page_name', 'targetPageName') };
+}
+
 /** The chat this notification belongs to, if the payload names one. */
 export function notificationChatId(data: Record<string, string>): string {
   return pick(data, 'chatId', 'chat_id', 'conversationId');
@@ -68,9 +78,17 @@ export async function displayMessagingNotification(
   const chatId = notificationChatId(data);
 
   const isDonationRequest = type === 'DONATION_REQUEST';
-  const title = isDonationRequest
+  // A message sent TO one of this user's pages is labelled with the page, so an
+  // operator running several pages can tell which inbox it belongs to without
+  // opening it — and so it does not read as a personal DM.
+  const targetPage = notificationTargetPage(data);
+  const baseTitle = isDonationRequest
     ? senderName || 'Donation Request'
     : senderName || 'New message';
+  const title =
+    targetPage?.name && !isDonationRequest
+      ? `${baseTitle} → ${targetPage.name}`
+      : baseTitle;
   const body = isDonationRequest
     ? pick(data, 'text', 'body', 'message', 'content') ||
       'Someone is interested in your request.'

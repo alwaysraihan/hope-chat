@@ -549,9 +549,15 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           contentContainerStyle={styles.filterRow}
         >
           {TABS.filter(
-            // A page has no friends of its own — the list would be the
-            // operator's personal friends, which is not what page mode means.
-            tab => !(activePage && tab.key === 'friends'),
+            tab =>
+              // A page has no friends of its own — the list would be the
+              // operator's personal friends, which is not what page mode means.
+              !(activePage && tab.key === 'friends') &&
+              // Pages have no message-request queue: anything sent to or from a
+              // page goes straight to the inbox, so this tab is always empty in
+              // page mode and only invites people to look for messages that are
+              // not there.
+              !(activePage && tab.key === 'requests'),
           ).map(tab => {
             const selected = tab.kind === 'filter' && activeFilter === tab.key;
             const badge =

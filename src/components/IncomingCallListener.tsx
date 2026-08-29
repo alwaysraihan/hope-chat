@@ -16,7 +16,7 @@ import {
 import notifee, { AuthorizationStatus, EventType } from '@notifee/react-native';
 
 import { useAppSelector } from '../hooks/redux';
-import { selectHopeChatLoggedIn } from '../redux/features/auth/authSlice';
+import { selectHopeChatLoggedIn, setActivePage } from '../redux/features/auth/authSlice';
 import { store } from '../redux/store';
 import {
   CALL_CANCELLED_MESSAGE_TYPE,
@@ -59,6 +59,7 @@ import { callSocket } from '../services/callSocket';
 import {
   displayMessagingNotification,
   notificationChatId,
+  notificationTargetPage,
 } from '../services/notifications/messageNotification';
 import CallReliabilityPrompt from './CallReliabilityPrompt';
 
@@ -213,6 +214,23 @@ function openChatFromNotification(raw: Record<string, string>): boolean {
   if ((raw.type ?? '').toUpperCase() !== 'MESSAGE') return false;
   const chatId = notificationChatId(raw);
   if (!chatId) return false;
+
+  // A message addressed to one of this user's pages belongs to that page's
+  // inbox. Switch identity BEFORE navigating, or the thread opens in the
+  // operator's personal context and replies go out as the wrong sender.
+  const targetPage = notificationTargetPage(raw);
+  if (targetPage?.id) {
+    const current = store.getState().auth.activePage;
+    if (String(current?.id ?? '') !== targetPage.id) {
+      store.dispatch(
+        setActivePage({
+          id: targetPage.id,
+          name: targetPage.name || current?.name || '',
+          image: null,
+        }),
+      );
+    }
+  }
   const open = (attempt = 0) => {
     if (!navigationRef.isReady()) {
       if (attempt > 20) return;
