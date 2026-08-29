@@ -275,7 +275,8 @@ function AudioCallGate({
     const gracePeriodMs = isGroupCallRoute ? 30_000 : 3_000;
     const t = setTimeout(() => {
       if (countRef.current > 0) return;
-      try { Alert.alert('Call ended', 'The other person has left the call.'); } catch { /* */ }
+      // Peer left — just end. A modal over a call that is already over makes the
+      // user dismiss a dialog before they can do anything else.
       void leaveRef.current();
     }, gracePeriodMs);
     return () => clearTimeout(t);
@@ -298,14 +299,14 @@ function AudioCallGate({
       if (countRef.current > 0) return;
       const state = csRef.current;
       try {
-        if (state === ConnectionState.Connected) {
-          if (Platform.OS === 'android') {
-            ToastAndroid.show(displayName + " didn't receive your call", ToastAndroid.LONG);
-          } else {
-            Alert.alert('No answer', displayName + " didn't receive your call.");
-          }
-        } else {
-          Alert.alert('Call ended', 'Could not complete the call. Check your network and try again.');
+        // Outgoing call that was never answered. Worth telling the caller, but as a
+        // toast — never a modal that outlives the call screen.
+        const note =
+          state === ConnectionState.Connected
+            ? displayName + " didn't receive your call"
+            : 'Could not complete the call';
+        if (Platform.OS === 'android') {
+          ToastAndroid.show(note, ToastAndroid.LONG);
         }
       } catch { /* */ }
       void leaveRef.current();
@@ -323,7 +324,9 @@ function AudioCallGate({
     const t = setTimeout(() => {
       if (csRef.current !== ConnectionState.Connecting) return;
       try {
-        Alert.alert('Call failed', 'Could not connect. Check your network and try again.');
+        if (Platform.OS === 'android') {
+          ToastAndroid.show('Could not connect', ToastAndroid.LONG);
+        }
       } catch { /* */ }
       void leaveRef.current();
     }, 30_000);
@@ -334,7 +337,7 @@ function AudioCallGate({
   useEffect(() => {
     if (cs !== ConnectionState.Reconnecting) return;
     const t = setTimeout(() => {
-      try { Alert.alert('Call ended', 'Connection was lost and could not be restored.'); } catch { /* */ }
+      // Connection lost — end silently, same reasoning as above.
       void leaveRef.current();
     }, 25_000);
     return () => clearTimeout(t);

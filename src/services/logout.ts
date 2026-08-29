@@ -26,6 +26,7 @@ import type { AppDispatch } from '../redux/store';
 import { store } from '../redux/store';
 import { logOut } from '../redux/features/auth/authSlice';
 import { clearAutoLoginAck } from './chatPrefs';
+import { clearOfflineCacheForLogout } from './offlineCache';
 import { getActiveCall } from './livekit/activeCallRegistry';
 import {
   deleteFcmTokenFromHopenity,
@@ -78,10 +79,15 @@ export function performLogout(dispatch: AppDispatch): void {
   // 2. Stop this device from ringing for the account being signed out.
   unregisterFcmToken();
 
-  // 3. Clear the auto-login ack so the next cold start requires "Continue as {name}".
+  // 3. Drop this account's cached conversations, threads and previews from the
+  //    device. They are keyed per user so the next account never reads them, but
+  //    leaving them on disk keeps one person's chat history on a shared phone.
+  clearOfflineCacheForLogout();
+
+  // 4. Clear the auto-login ack so the next cold start requires "Continue as {name}".
   clearAutoLoginAck();
 
-  // 4. Dispatch clearAuth — App.tsx's key-change handles the full navigation
+  // 5. Dispatch clearAuth — App.tsx's key-change handles the full navigation
   //    transition to PublicStackNavigator / LoginScreen.
   dispatch(logOut());
 }

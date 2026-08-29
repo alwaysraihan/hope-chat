@@ -774,18 +774,34 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
 
-  // When the active page changes, show a loading state immediately so the inbox
-  // feels instant (like Messenger) — the reload will overwrite the list when
-  // the API responds.  We no longer blank the list here because a blank screen
-  // is more jarring than briefly seeing the previous account's conversations.
+  // Switching identity (personal <-> page, or page <-> page) must NOT leave the
+  // previous identity's conversations on screen while the new list loads.
+  //
+  // This used to keep them deliberately, to avoid a blank frame. But the list
+  // carries names and message previews: holding a page's customer conversations
+  // on screen after switching to personal — or the operator's private chats
+  // after switching INTO a page other staff can operate — leaks one identity's
+  // content into another. A loading state is the correct trade here.
+  //
+  // Personal mode has a cached list keyed to the user, so switching back is
+  // still instant; page inboxes are deliberately never cached, so they clear.
   useEffect(() => {
     const prev = activePageIdRef.current;
     const next = activePage?.id ?? null;
     if (prev !== next) {
       activePageIdRef.current = next;
       setListLoading(true);
+      if (next) {
+        // Entering a page: nothing of the previous identity may remain.
+        setConversations([]);
+        setPendingRequestCount(0);
+      } else {
+        // Back to personal: restore this user's own cached list, never the page's.
+        const uid = String(localUser?._id ?? '');
+        setConversations(uid ? readChatDirectoryCache(uid) ?? [] : []);
+      }
     }
-  }, [activePage]);
+  }, [activePage, localUser]);
 
   const reloadConversations = useCallback(async () => {
     if (!token) {

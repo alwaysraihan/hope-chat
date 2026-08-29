@@ -16,6 +16,7 @@ import { ThemeProvider, useAppTheme } from './src/context/ThemeContext';
 import { LanguageProvider } from './src/context/LanguageContext';
 import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
+import CallWaitingBanner from './src/components/CallWaitingBanner';
 import AppErrorBoundary from './src/components/AppErrorBoundary';
 import { ToastContainer } from './src/components/Toast';
 import { refreshExchangeRates } from './src/utils/currency';
@@ -308,6 +309,8 @@ const AppInner = () => {
     <ChatsProvider>
       <IncomingCallListener />
       <RootNavigator />
+      {/* Overlays the call screens, so it must render AFTER the navigator. */}
+      <CallWaitingBanner />
     </ChatsProvider>
   ) : (
     <PublicStackNavigator />

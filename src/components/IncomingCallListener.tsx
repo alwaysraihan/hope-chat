@@ -44,6 +44,10 @@ import {
 } from '../services/incomingCall/callRingtone';
 import { ensureCallReliability } from '../services/incomingCall/callReliability';
 import { navigationRef } from '../navigation/navigationRef';
+import {
+  emitCallWaiting,
+  emitCallWaitingCleared,
+} from '../services/incomingCall/callWaitingBus';
 import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
 import {
   getActiveCall,
@@ -319,17 +323,20 @@ const IncomingCallListener = () => {
       // Socket path: tear down any existing call BEFORE navigating so the user
       // never sees two call screens simultaneously. await ensures the old room
       // is disconnected and its audio session released before the ringing UI appears.
-      void (async () => {
-        const active = getActiveCall();
-        if (active && active.liveKitRoom !== parsed.liveKitRoom) {
-          await endActiveCallForReplacement(parsed.liveKitRoom);
-        }
-        navigateIncomingCall(parsed);
-      })();
+      // Already on a call? Offer the new one as call waiting instead of tearing
+      // the live conversation down without asking. CallWaitingBanner decides.
+      const active = getActiveCall();
+      if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+        emitCallWaiting(parsed);
+        return;
+      }
+      navigateIncomingCall(parsed);
     });
 
     const unsubCancelled = callSocket.onCallCancelled(data => {
       const cancelledRoom = data.liveKitRoom || data.room;
+      // Withdraw a call-waiting offer if that caller gave up before we answered.
+      if (cancelledRoom) emitCallWaitingCleared(cancelledRoom);
       if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
       stopIncomingCallRingtone();
       void cancelAndroidIncomingCallNotification();
@@ -491,6 +498,7 @@ const IncomingCallListener = () => {
           data.cancelled === 'true';
         if (isCancelled) {
           const cancelledRoom = data.liveKitRoom || data.room;
+          if (cancelledRoom) emitCallWaitingCleared(cancelledRoom);
           if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
           // Stop any in-process ringtone immediately before anything else.
           stopIncomingCallRingtone();
@@ -507,13 +515,12 @@ const IncomingCallListener = () => {
         if (parsed) {
           // Tear down any existing call before navigating so the user never sees
           // two call screens at once (mirrors the socket path above).
-          void (async () => {
-            const active = getActiveCall();
-            if (active && active.liveKitRoom !== parsed.liveKitRoom) {
-              await endActiveCallForReplacement(parsed.liveKitRoom);
-            }
+          const active = getActiveCall();
+          if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+            emitCallWaiting(parsed);
+          } else {
             navigateIncomingCall(parsed);
-          })();
+          }
         } else {
           // Non-call notification (new chat message, request, etc.) — refresh inbox.
           if (Object.keys(data).length > 0) {

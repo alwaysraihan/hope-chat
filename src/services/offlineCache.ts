@@ -341,3 +341,23 @@ export function mergeLocalCallLogsFromCache(
   merged.sort((a, b) => messageTimeMs(a) - messageTimeMs(b));
   return merged;
 }
+
+/**
+ * Wipe every cached artefact of a signed-out account from this device.
+ *
+ * Caches are keyed per user, so the NEXT account never reads them — but without
+ * this they stayed on disk indefinitely after logout: conversation lists with
+ * names and message previews, thread message bodies, story rings, notifications.
+ * On a shared or resold phone that is the previous person's chat history sitting
+ * in plain MMKV. Logging out should take your data with it.
+ *
+ * Deliberately clears the whole store rather than enumerating key prefixes: the
+ * only thing in it is per-user cache, all of it re-fetchable from the server.
+ */
+export function clearOfflineCacheForLogout(): void {
+  try {
+    storage().clearAll();
+  } catch (e) {
+    console.warn('[offlineCache] clearOfflineCacheForLogout', e);
+  }
+}
