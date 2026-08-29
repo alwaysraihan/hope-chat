@@ -22,6 +22,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { InboxProvider, useInbox } from '../context/InboxContext';
+import WordEffectOverlay from '../components/WordEffectOverlay';
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import ForwardModal from '../components/message/ForwardModal';
 import MessageHeader from '../components/message/MessageHeader';
@@ -227,6 +228,7 @@ const InboxScreenInner: React.FC<
     sellerSheetVisible,
     closeSellerSheet,
     peerIsTyping,
+    wordEffect,
   } = useInbox();
 
   // ── GiftedChat FlatList ref for reply-tap scroll ───────────────────────────
@@ -727,6 +729,11 @@ const InboxScreenInner: React.FC<
           </View>
         );
       })()}
+      {/* Word-effect burst — above the thread, below the modals. */}
+      <WordEffectOverlay
+        emoji={wordEffect.emoji}
+        burstId={wordEffect.burstId}
+      />
       {forwardingMessage && (
         <ForwardModal message={forwardingMessage} onClose={clearForwarding} />
       )}

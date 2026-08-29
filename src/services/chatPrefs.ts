@@ -373,9 +373,30 @@ export function removeWordEffect(word: string): void {
   ));
 }
 
-/** Returns the first emoji for a word that matches any stored word effect. */
+/**
+ * Returns the effect for the first configured word present in `text`.
+ *
+ * Matching is whole-word (and whole-phrase), so an effect on "love" fires for
+ * "love you" but not for "lovely" or "glove".
+ */
 export function matchWordEffect(text: string): WordEffect | null {
+  const trimmed = (text ?? '').trim();
+  if (!trimmed) return null;
   const effects = getWordEffects();
-  const lower = text.toLowerCase();
-  return effects.find(e => lower.includes(e.word.toLowerCase())) ?? null;
+  if (effects.length === 0) return null;
+  const lower = trimmed.toLowerCase();
+  return (
+    effects.find(e => {
+      const word = e.word.trim().toLowerCase();
+      if (!word) return false;
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // \b doesn't work for emoji / non-Latin words, so bound on
+      // start-or-non-letter instead.
+      const pattern = new RegExp(
+        `(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`,
+        'u',
+      );
+      return pattern.test(lower);
+    }) ?? null
+  );
 }

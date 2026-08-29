@@ -88,6 +88,7 @@ import {
   getEffectiveDisappearingTtlSec,
   getEffectiveReactionPalette,
   isE2eeEnabled,
+  matchWordEffect,
 } from '../services/chatPrefs';
 
 import { CHAT_SCREEN_WIDTH } from '../data/chatTemplates';
@@ -125,6 +126,8 @@ interface InboxContextValue {
   replyTo: ExtendedMessage | null;
   /** True while the other participant is actively typing in this conversation. */
   peerIsTyping: boolean;
+  /** Emoji to animate for a word effect, and a counter so repeats replay. */
+  wordEffect: { emoji: string | null; burstId: number };
 
   // ── Message CRUD
   onSend: (msgs: ExtendedMessage[]) => void;
@@ -476,6 +479,16 @@ export function InboxProvider({
 
   // ── Typing indicator
   const [peerIsTyping, setPeerIsTyping] = useState(false);
+  const [wordEffect, setWordEffect] = useState<{
+    emoji: string | null;
+    burstId: number;
+  }>({ emoji: null, burstId: 0 });
+
+  /** Play the burst locally; `burstId` bumps so the same word replays. */
+  const playWordEffect = useCallback((emoji: string) => {
+    if (!emoji) return;
+    setWordEffect(prev => ({ emoji, burstId: prev.burstId + 1 }));
+  }, []);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1109,6 +1122,9 @@ export function InboxProvider({
           // Skip our own echo: the optimistic bubble is already on screen.
           if (String(mapped.user._id) !== String(localUserIdStr)) {
             appendMessageIfNew(mapped);
+            // A word I configured, arriving from them, animates on my side too.
+            const incomingEffect = matchWordEffect(mapped.text ?? '');
+            if (incomingEffect) playWordEffect(incomingEffect.emoji);
             DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
             return;
           }
@@ -1123,10 +1139,19 @@ export function InboxProvider({
       DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
     });
 
+    // The peer matched a word effect on their side. The emoji rides along with
+    // the event, so it plays here even if this device has no such word saved.
+    const unsubWordEffect = callSocket.onWordEffect(({ chatId, emoji, fromUserId }) => {
+      if (String(chatId) !== String(_conversationId)) return;
+      if (fromUserId && String(fromUserId) === String(localUserIdStr)) return;
+      playWordEffect(emoji);
+    });
+
     return () => {
       callSocket.leaveChatRoom(_conversationId);
       unsubDeleted();
       unsubNew();
+      unsubWordEffect();
     };
   }, [
     _conversationId,
@@ -1134,6 +1159,7 @@ export function InboxProvider({
     deleteMessage,
     localUserIdStr,
     mapHopenityMessage,
+    playWordEffect,
     pollMessagesNow,
   ]);
 
@@ -1223,6 +1249,18 @@ export function InboxProvider({
             user: replyTo.user,
           }
         : undefined;
+
+      // Word effects: match on what I typed, animate here, and relay the emoji so
+      // the other person sees the same burst without configuring the word.
+      outgoing.forEach(msg => {
+        const effect = matchWordEffect(msg.text ?? '');
+        if (effect) {
+          playWordEffect(effect.emoji);
+          if (_conversationId) {
+            callSocket.emitWordEffect(_conversationId, effect.emoji, effect.word);
+          }
+        }
+      });
 
       outgoing.forEach(msg => {
         const uid =
@@ -1331,6 +1369,7 @@ export function InboxProvider({
       dmCryptoKey,
       groupCryptoKey,
       isGroup,
+      playWordEffect,
     ],
   );
 
@@ -1814,6 +1853,7 @@ export function InboxProvider({
     hasMore,
     replyTo,
     peerIsTyping,
+    wordEffect,
 
     // Message CRUD
     onSend,

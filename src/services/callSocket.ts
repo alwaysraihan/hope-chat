@@ -25,6 +25,13 @@ type NewMessageListener = (data: {
   message?: Record<string, unknown>;
 }) => void;
 type TypingListener = (data: { chatId: number; userId: string }) => void;
+/** Word effects animate on BOTH devices, so the emoji travels with the event. */
+type WordEffectListener = (data: {
+  chatId: string;
+  emoji: string;
+  word: string;
+  fromUserId: string;
+}) => void;
 /** The chat theme is shared by every participant, so a change has to reach the other end live. */
 type ChatThemeUpdatedListener = (data: {
   chatId: string;
@@ -49,6 +56,7 @@ class CallSocketService {
   private userStoppedTypingListeners: Set<TypingListener> = new Set();
   private nicknamesUpdatedListeners: Set<NicknamesUpdatedListener> = new Set();
   private chatThemeUpdatedListeners: Set<ChatThemeUpdatedListener> = new Set();
+  private wordEffectListeners: Set<WordEffectListener> = new Set();
 
   connect(authToken: string, userId?: string): void {
     if (this.socket && this.token === authToken) {
@@ -155,6 +163,20 @@ class CallSocketService {
         this.nicknamesUpdatedListeners.forEach(l => {
           try { l({ chatId, nicknames }); } catch { /* */ }
         });
+      });
+      this.socket.on('word_effect', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const emoji = String(d.emoji ?? '');
+        const chatId = String(d.chatId ?? d.chat_id ?? '');
+        if (!emoji || !chatId) return;
+        const payload = {
+          chatId,
+          emoji,
+          word: String(d.word ?? ''),
+          fromUserId: String(d.fromUserId ?? ''),
+        };
+        this.wordEffectListeners.forEach(l => { try { l(payload); } catch { /* */ } });
       });
       this.socket.on('chat_theme_updated', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
@@ -281,6 +303,19 @@ class CallSocketService {
   onNicknamesUpdated(listener: NicknamesUpdatedListener): () => void {
     this.nicknamesUpdatedListeners.add(listener);
     return () => this.nicknamesUpdatedListeners.delete(listener);
+  }
+
+  /** Tell the other end to play a word effect we just matched locally. */
+  emitWordEffect(chatId: string | number, emoji: string, word: string): void {
+    if (!this.socket?.connected || !emoji) return;
+    try {
+      this.socket.emit('word_effect', { chatId: Number(chatId), emoji, word });
+    } catch { /* */ }
+  }
+
+  onWordEffect(listener: WordEffectListener): () => void {
+    this.wordEffectListeners.add(listener);
+    return () => this.wordEffectListeners.delete(listener);
   }
 
   onChatThemeUpdated(listener: ChatThemeUpdatedListener): () => void {

@@ -114,7 +114,8 @@ const WordEffectsScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.screen}>
       <BackHeader title="Word effects" navigation={navigation} />
       <Text style={styles.desc}>
-        Pair words with emojis — an animation plays when those words appear in chat.
+        Pair words with emojis. When one of these words is sent in a chat, the
+        emoji animation plays for both you and the other person.
       </Text>
 
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
