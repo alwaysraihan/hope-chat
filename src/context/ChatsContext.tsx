@@ -87,6 +87,8 @@ export type ConversationSummary = {
   remoteWallpaperUrl?: string | null;
   remoteThemePresetId?: number | null;
   remoteReactionPalette?: string[] | null;
+  /** Peer's Hopenity verification — shows the blue badge after their name. */
+  peerIsVerified?: boolean;
   /** From chat list / peer profile — drives home + Story tab rings when set. */
   peerHasActiveStory?: boolean;
   /**
@@ -559,6 +561,38 @@ function readStoryHintsFromChat(
   return { peerHasActiveStory, peerStoryCount, unviewedStoryCount };
 }
 
+/**
+ * Whether the OTHER side of a 1:1 chat is a verified Hopenity account. The flag
+ * rides on whichever participant object the API version happens to fill in, so
+ * check every side rather than assuming userA/userB ordering.
+ */
+function extractPeerVerified(
+  chat: HopenityChatItem,
+  localUserId: string | number,
+): boolean {
+  const rid = getRemoteParticipantId(chat, localUserId);
+  if (!rid) return false;
+
+  let verified = false;
+  const check = (u: unknown, sideUserId?: string | null) => {
+    if (verified || !u) return;
+    const r = asRecord(u);
+    if (!r) return;
+    const candidate = sideUserId
+      ? String(sideUserId)
+      : String(r.user_id ?? r.userId ?? r.id ?? r._id ?? '');
+    if (!sameChatParticipant(candidate, rid)) return;
+    if (r.is_verified === true || r.isVerified === true || r.verified === true) {
+      verified = true;
+    }
+  };
+
+  check(chat.userA, chat.userAId != null ? String(chat.userAId) : undefined);
+  check(chat.userB, chat.userBId != null ? String(chat.userBId) : undefined);
+  for (const p of chat.participants ?? []) check(p, undefined);
+  return verified;
+}
+
 /** Maps API chat row → home/list row (no seeded GiftedChat messages — Inbox loads history via API). */
 export function mapChatItemToSummary(
   chat: HopenityChatItem,
@@ -703,6 +737,7 @@ export function mapChatItemToSummary(
     needsAcceptance,
     isSentRequest,
     peerUserId: peerUserNorm,
+    peerIsVerified: isGroup ? undefined : extractPeerVerified(chat, localUser._id),
     peerHasActiveStory: storyHints.peerHasActiveStory,
     peerStoryCount: storyHints.peerStoryCount,
     unviewedStoryCount: storyHints.unviewedStoryCount,

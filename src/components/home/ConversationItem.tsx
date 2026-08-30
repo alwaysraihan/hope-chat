@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import VerifiedBadge from '../VerifiedBadge';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, radius, fonts, spacing } from '../../theme';
 import { useColors } from '../../hooks/useColors';
@@ -19,6 +20,8 @@ type Item = {
   pinned?: boolean;
   /** Peer presence (DMs only — undefined for groups). */
   isOnline?: boolean;
+  /** Verified Hopenity peer (DMs only) — renders the badge after the name. */
+  peerIsVerified?: boolean;
 };
 
 const ConversationItem = ({
@@ -79,12 +82,18 @@ const ConversationItem = ({
       alignItems: 'center',
       marginBottom: 3,
     },
+    nameWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      marginRight: spacing.sm,
+    },
     name: {
       fontSize: 15,
       fontWeight: fonts.semibold,
       color: colorss.textPrimary,
-      flex: 1,
-      marginRight: spacing.sm,
+      // Shrink around the badge instead of pushing it off the row.
+      flexShrink: 1,
     },
     metaRow: {
       flexDirection: 'row',
@@ -149,9 +158,12 @@ const ConversationItem = ({
 
       <View style={styles.body}>
         <View style={styles.topRow}>
-          <Text style={styles.name} numberOfLines={1}>
-            {item.name}
-          </Text>
+          <View style={styles.nameWrap}>
+            <Text style={styles.name} numberOfLines={1}>
+              {item.name}
+            </Text>
+            {item.peerIsVerified ? <VerifiedBadge size={14} /> : null}
+          </View>
           <View style={styles.metaRow}>
             {item.pinned && (
               <Pin size={12} color={colorss.textSecondary} style={styles.pinIcon} />

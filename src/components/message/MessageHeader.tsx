@@ -1,4 +1,5 @@
 import React from 'react';
+import VerifiedBadge from '../VerifiedBadge';
 import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import {
   LucideVideo,
@@ -24,6 +25,8 @@ interface MessageHeaderProps {
   avatarUri?: string | null;
   /** Show a lock badge when E2EE is active for this conversation. */
   isEncrypted?: boolean;
+  /** Verified Hopenity account — renders the badge right after the name. */
+  isVerified?: boolean;
 }
 
 function initialsFromName(name: string): string {
@@ -45,6 +48,7 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   onVideoCall,
   onMorePress,
   name,
+  isVerified,
   status,
   avatarUri,
   isEncrypted = false,
@@ -81,9 +85,13 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
         )}
         <View style={styles.nameBlock}>
           <View style={styles.nameRow}>
-            <Text style={[styles.name, { color: white }]} numberOfLines={1}>
+            <Text
+              style={[styles.name, { color: white }, styles.nameText]}
+              numberOfLines={1}
+            >
               {name || 'Chat'}
             </Text>
+            {isVerified ? <VerifiedBadge size={14} /> : null}
             {isEncrypted ? (
               <Lock size={11} color="rgba(255,255,255,0.85)" style={styles.lockIcon} />
             ) : null}
@@ -170,6 +178,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.1,
+  },
+  // Long names shrink around the badge rather than pushing it out of the row.
+  nameText: {
+    flexShrink: 1,
   },
   status: {
     color: 'rgba(255,255,255,0.75)',

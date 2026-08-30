@@ -517,6 +517,7 @@ const InboxScreenInner: React.FC<
     >
       <MessageHeader
         name={peerName}
+        isVerified={!conversation.isGroup && !!conversation.peerIsVerified}
         status={headerStatus}
         avatarUri={route.params.avatarUrl ?? conversation.avatarUrl}
         isEncrypted={isEncrypted}
