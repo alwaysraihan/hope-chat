@@ -809,7 +809,9 @@ function getUploadMimeType(mediaType: 'image' | 'video' | 'voice'): string {
     case 'video':
       return 'video/mp4';
     case 'voice':
-      return 'audio/mpeg';
+      // Recorders here produce AAC in an MP4 container (.m4a), not MP3. Claiming
+      // audio/mpeg made the server's MIME/extension check disagree with itself.
+      return 'audio/mp4';
     default:
       return 'application/octet-stream';
   }
@@ -821,6 +823,9 @@ function getUploadFileName(uri: string, mediaType: 'image' | 'video' | 'voice'):
   if (candidate.includes('.')) return candidate;
   if (mediaType === 'image') return `upload-${Date.now()}.jpg`;
   if (mediaType === 'video') return `upload-${Date.now()}.mp4`;
+  // ".dat" matched no allowed extension, so a recording whose URI had no
+  // extension was rejected on filename alone.
+  if (mediaType === 'voice') return `upload-${Date.now()}.m4a`;
   return `upload-${Date.now()}.dat`;
 }
 
@@ -913,16 +918,53 @@ export async function uploadChatMedia(
     Authorization: `Bearer ${token}`,
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: formData,
-  });
+  // Without a timeout an upload that stalls (dead spot, captive portal, server
+  // wedged mid-request) never settles, so the bubble spins forever with no way
+  // to retry. Video gets a longer budget than a photo because it is legitimately
+  // bigger, not because it is expected to be slow.
+  const timeoutMs = mediaType === 'video' ? 180_000 : 60_000;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+      signal: abort.signal,
+    });
+  } catch (e) {
+    const aborted = (e as Error)?.name === 'AbortError';
+    console.warn(
+      `[upload] ${mediaType} ${aborted ? `timed out after ${timeoutMs}ms` : 'network error'}`,
+      aborted ? '' : e,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const json = await response.json().catch(() => null);
+
+  // Every failure used to collapse into `null`, indistinguishable from success —
+  // so a rejected upload (415 wrong type, 413 too large, 401 stale token) looked
+  // to the user like the message simply never sent, with nothing logged anywhere.
+  if (!response.ok) {
+    console.warn(
+      `[upload] ${mediaType} failed HTTP ${response.status}:`,
+      String(json?.message ?? '').slice(0, 200),
+    );
+    return null;
+  }
+
   const raw = json?.responseObject ?? json?.data ?? json;
   const urlValue = raw?.url ?? raw?.responseObject?.url ?? raw?.data?.url;
-  return typeof urlValue === 'string' ? urlValue : null;
+  if (typeof urlValue !== 'string') {
+    console.warn(`[upload] ${mediaType} succeeded but returned no url`, json);
+    return null;
+  }
+  return urlValue;
 }
 
 export async function blockHopeChatUser(

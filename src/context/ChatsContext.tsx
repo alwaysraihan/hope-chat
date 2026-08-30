@@ -89,6 +89,12 @@ export type ConversationSummary = {
   remoteReactionPalette?: string[] | null;
   /** From chat list / peer profile — drives home + Story tab rings when set. */
   peerHasActiveStory?: boolean;
+  /**
+   * Real last-activity timestamp (ms). Kept so ordering survives every path a
+   * list can arrive by — server fetch, v1/v2 merge, or the offline cache — and
+   * cannot be left stale by whichever one happened to write last.
+   */
+  sortAt?: number;
   peerStoryCount?: number;
   unviewedStoryCount?: number;
   /** Group-only: total member count (including self). */
@@ -845,10 +851,32 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           pinned: pinnedIds.has(c.id),
           isMuted: mutedIds.has(c.id),
         }));
-      // Pinned chats sort to the top; within each group order is preserved from server.
+      // Stamp each row with its real activity time, then sort explicitly.
+      //
+      // "Order preserved from server" was true for a fresh fetch but not for the
+      // cache: readChatDirectoryCache replays whatever order was persisted last,
+      // so a stale list could keep an old chat pinned to the top even after the
+      // server started returning the right order. Sorting here makes the result
+      // deterministic no matter which path produced the rows.
+      const rawById = new Map<string, any>(chats.map((c: any) => [String(c.id ?? ''), c]));
+      const stamped = mapped.map(c => {
+        const raw = rawById.get(c.id) ?? {};
+        const at =
+          raw.lastMessageAt ??
+          raw.last_message_at ??
+          raw.lastMessage?.createdAt ??
+          raw.updatedAt ??
+          raw.updated_at ??
+          null;
+        const ms = at ? new Date(at).getTime() : 0;
+        return { ...c, sortAt: Number.isFinite(ms) ? ms : 0 };
+      });
+      const byRecency = (a: ConversationSummary, b: ConversationSummary) =>
+        (b.sortAt ?? 0) - (a.sortAt ?? 0);
+      // Pinned chats sort to the top; each group is ordered by real activity.
       const next = [
-        ...mapped.filter(c => c.pinned),
-        ...mapped.filter(c => !c.pinned),
+        ...stamped.filter(c => c.pinned).sort(byRecency),
+        ...stamped.filter(c => !c.pinned).sort(byRecency),
       ];
       // Prefer the server's requested count — the inbox fetch excludes received
       // requests (they live in the Requests folder), so counting needsAcceptance
@@ -984,6 +1012,58 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
    * made on the other device must land here even when the Nicknames / Theme
    * screen isn't mounted.
    */
+  /**
+   * Typing indicator in the CHAT LIST.
+   *
+   * ConversationItem already renders `item.isTyping`, but nothing ever set it —
+   * only the open thread reacted to typing events, so the list never showed
+   * "typing…" the way Messenger does. The server now also emits to the peers'
+   * user rooms, which is what makes this reachable without the thread open.
+   */
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    const setTyping = (chatId: string, value: boolean) => {
+      setConversations(prev =>
+        prev.some(c => String(c.id) === chatId && !!c.isTyping !== value)
+          ? prev.map(c =>
+              String(c.id) === chatId ? { ...c, isTyping: value } : c,
+            )
+          : prev,
+      );
+    };
+
+    const unsubTyping = callSocket.onUserTyping(({ chatId, userId }) => {
+      const id = String(chatId);
+      // Our own typing must never light up our own row.
+      if (localUser?._id && String(userId) === String(localUser._id)) return;
+      setTyping(id, true);
+      const existing = timers.get(id);
+      if (existing) clearTimeout(existing);
+      // Safety net for a dropped stop event — matches the thread's own timeout.
+      timers.set(id, setTimeout(() => setTyping(id, false), 5000));
+    });
+
+    const unsubStopped = callSocket.onUserStoppedTyping(({ chatId, userId }) => {
+      const id = String(chatId);
+      if (localUser?._id && String(userId) === String(localUser._id)) return;
+      const existing = timers.get(id);
+      if (existing) clearTimeout(existing);
+      timers.delete(id);
+      setTyping(id, false);
+    });
+
+    return () => {
+      unsubTyping();
+      unsubStopped();
+      // Clear every pending timer, or a backgrounded list leaks one per chat.
+      timers.forEach(t => clearTimeout(t));
+      timers.clear();
+    };
+  }, [token, localUser?._id]);
+
   useEffect(() => {
     if (!token) return undefined;
 

@@ -7,6 +7,9 @@ import notifee, {
 const ONGOING_CHANNEL_ID = 'hopechat_ongoing_call';
 export const ONGOING_NOTIFICATION_ID = 'hopechat_ongoing_livekit';
 
+/** Action id for the "Hang up" button on the in-progress call notification. */
+export const HANGUP_ACTION_ID = 'hopechat_call_hangup';
+
 async function ensureOngoingChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
   await notifee.createChannel({
@@ -66,6 +69,10 @@ export async function startLiveKitCallForeground(
           id: 'default',
           launchActivity: 'default',
         },
+        // Hang up without going back into the app first. An in-progress call
+        // that can only be ended by finding the call screen is a trap when the
+        // screen has been backed out of.
+        actions: [{ title: 'Hang up', pressAction: { id: HANGUP_ACTION_ID } }],
       },
     });
   } catch (e) {
@@ -94,6 +101,7 @@ export async function updateLiveKitCallForegroundStatus(
         id: 'default',
         launchActivity: 'default',
       },
+      actions: [{ title: 'Hang up', pressAction: { id: HANGUP_ACTION_ID } }],
     },
   });
 }

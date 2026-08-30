@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IMessage } from 'react-native-gifted-chat';
+import { Toast } from '../components/Toast';
 import {
   launchCamera,
   launchImageLibrary,
@@ -489,6 +490,8 @@ export function InboxProvider({
     if (!emoji) return;
     setWordEffect(prev => ({ emoji, burstId: prev.burstId + 1 }));
   }, []);
+  /** Last "typing" ping sent, for throttling. 0 = free to ping immediately. */
+  const lastTypingPingRef = useRef(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1209,17 +1212,33 @@ export function InboxProvider({
     };
   }, [_conversationId, localUserIdStr]);
 
+  /** Throttle window for "still typing" pings — see setText. */
+  const TYPING_PING_MS = 2500;
+  /** Silence after which the peer's indicator should clear. */
+  const TYPING_STOP_MS = 2000;
+
   const setText = useCallback(
     (t: string) => {
       setTextRaw(t);
       if (!_conversationId || !localUserIdStr) return;
 
-      callSocket.emitTyping(_conversationId, localUserIdStr);
+      // Throttled: this fired a socket emit on EVERY keystroke, so a normal
+      // sentence sent 40+ messages, each of which the server answered with two
+      // database queries to resolve participants. One ping every 2.5s conveys
+      // exactly the same thing — the peer's indicator is refreshed well inside
+      // its own 5s safety timeout.
+      const now = Date.now();
+      if (now - lastTypingPingRef.current > TYPING_PING_MS) {
+        lastTypingPingRef.current = now;
+        callSocket.emitTyping(_conversationId, localUserIdStr);
+      }
 
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
+        // Allow the next keystroke after the pause to ping immediately.
+        lastTypingPingRef.current = 0;
         callSocket.emitStopTyping(_conversationId, localUserIdStr);
-      }, 1000);
+      }, TYPING_STOP_MS);
     },
     [_conversationId, localUserIdStr],
   );
@@ -1227,8 +1246,14 @@ export function InboxProvider({
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      // Leaving the thread mid-word used to leave the peer's indicator running
+      // until their 5s fallback — tell them explicitly.
+      if (_conversationId && localUserIdStr && lastTypingPingRef.current > 0) {
+        lastTypingPingRef.current = 0;
+        callSocket.emitStopTyping(_conversationId, localUserIdStr);
+      }
     };
-  }, []);
+  }, [_conversationId, localUserIdStr]);
 
   // ─── Send text / media ─────────────────────────────────────────────────────
 
@@ -1732,6 +1757,24 @@ export function InboxProvider({
 
   // ─── Camera ────────────────────────────────────────────────────────────────
 
+/**
+ * Gallery videos are NOT compressed.
+ *
+ * react-native-image-picker's `quality` / `maxWidth` / `maxHeight` apply to
+ * images only, and `videoQuality` only affects what the CAMERA records — a video
+ * chosen from the gallery is handed over at its original size. A phone-shot clip
+ * is easily 100 MB+, and pushing that through one multipart POST on a mobile
+ * uplink is what made "video won't send" look like a silent failure.
+ *
+ * Until a real transcode step exists, refuse oversized clips with a message the
+ * user can act on instead of letting them stall.
+ */
+const MAX_VIDEO_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+function videoTooLarge(sizeBytes?: number | null): boolean {
+  return typeof sizeBytes === 'number' && sizeBytes > MAX_VIDEO_UPLOAD_BYTES;
+}
+
   const handleCameraPress = useCallback(async () => {
     const ok = await checkCameraPermission();
     if (!ok) return;
@@ -1751,10 +1794,12 @@ export function InboxProvider({
         if (response.didCancel || response.errorCode) return;
         const asset = response.assets?.[0];
         if (!asset?.uri) return;
-        sendMediaMessage(
-          asset.uri,
-          asset.type?.startsWith('video') ? 'video' : 'image',
-        );
+        const isVideo = !!asset.type?.startsWith('video');
+        if (isVideo && videoTooLarge(asset.fileSize)) {
+          Toast.error('That video is too large to send. Try a shorter clip.');
+          return;
+        }
+        void sendMediaMessage(asset.uri, isVideo ? 'video' : 'image');
       },
     );
   }, [sendMediaMessage]);
@@ -1776,14 +1821,30 @@ export function InboxProvider({
         if (response.didCancel || response.errorCode) return;
         const assets = response.assets ?? [];
         if (assets.length === 0) return;
-        // Send each asset sequentially so the order is preserved
-        assets.forEach(asset => {
-          if (!asset?.uri) return;
-          sendMediaMessage(
-            asset.uri,
-            asset.type?.startsWith('video') ? 'video' : 'image',
-          );
-        });
+        // Genuinely sequential. `assets.forEach(sendMediaMessage)` fired all ten
+        // uploads at once despite the comment claiming otherwise: on a mobile
+        // uplink that makes every one of them slower, and a burst of parallel
+        // multipart POSTs is what tips a large batch into timeouts. One at a
+        // time is faster end-to-end and actually preserves order.
+        void (async () => {
+          let skipped = 0;
+          for (const asset of assets) {
+            if (!asset?.uri) continue;
+            const isVideo = !!asset.type?.startsWith('video');
+            if (isVideo && videoTooLarge(asset.fileSize)) {
+              skipped += 1;
+              continue;
+            }
+            await sendMediaMessage(asset.uri, isVideo ? 'video' : 'image');
+          }
+          if (skipped > 0) {
+            Toast.error(
+              skipped === 1
+                ? 'One video was too large to send.'
+                : `${skipped} videos were too large to send.`,
+            );
+          }
+        })();
       },
     );
   }, [sendMediaMessage]);

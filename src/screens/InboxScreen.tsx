@@ -213,6 +213,7 @@ const InboxScreenInner: React.FC<
 
   const {
     messages,
+    text,
     setText,
     initialText,
     setInitialText,
@@ -252,11 +253,15 @@ const InboxScreenInner: React.FC<
     });
   }, [messages, registerScrollToMessage]);
 
+  // Seed the composer once from initialText (draft / forward / share), then
+  // clear the seed. The composer itself stays controlled by `text` throughout —
+  // see the note on the GiftedChat `text` prop below.
   useEffect(() => {
     if (!initialText) return;
+    setText(initialText);
     const t = setTimeout(() => setInitialText(''), 100);
     return () => clearTimeout(t);
-  }, [initialText, setInitialText]);
+  }, [initialText, setInitialText, setText]);
 
   const audioRoom = useMemo(
     () =>
@@ -710,7 +715,9 @@ const InboxScreenInner: React.FC<
 
         const mainChat = (
           <GiftedChat
-            messageContainerRef={messageContainerRef}
+            // gifted-chat v3 renamed this to messagesContainerRef; the old name was
+            // silently ignored, so reply-tap scroll-to-message never worked.
+            messagesContainerRef={messageContainerRef}
             placeholder={
               needsAcceptance
                 ? 'Accept the request above to reply…'
@@ -724,7 +731,21 @@ const InboxScreenInner: React.FC<
             }
             textInputProps={{ editable: !inputLocked }}
             messages={messages as unknown as IMessage[]}
-            {...(initialText ? { text: initialText } : {})}
+            // ALWAYS pass text. This used to be a conditional spread —
+            // `{...(initialText ? { text: initialText } : {})}` — which flipped
+            // GiftedChat between controlled and uncontrolled at runtime: it was
+            // controlled while initialText was set, then went uncontrolled 100ms
+            // later when initialText cleared. GiftedChat's internal text state
+            // reset to '' on that switch, so the toolbar saw props.text === ''
+            // while characters were still on screen, and swapped the Send button
+            // for the thumbs-up. Controlled throughout, driven by
+            // onInputTextChanged below.
+            // Spread rather than a direct prop: several props passed to this
+            // element below (placeholder, textInputProps, …) are not in
+            // gifted-chat v3's public types, and a direct attribute turns on
+            // JSX excess-property checking for the whole element. The spread
+            // keeps the existing type surface while ALWAYS supplying text.
+            {...{ text }}
             onSend={(msgs: IMessage[]) => onSend(msgs as ExtendedMessage[])}
             // @ts-ignore
             onInputTextChanged={setText}
@@ -809,34 +830,54 @@ const InboxScreenInner: React.FC<
 
 const InboxGate: React.FC<Props> = props => {
   const colorss = useColors();
-  const { conversations } = useChats();
+  const { conversations, listLoading } = useChats();
   const id = props.route.params.conversationId;
   const seed = props.route.params.seedConversation;
-  const conv =
-    conversations.find(c => c.id === id) ??
-    (seed?.id === id
-      ? { ...seed, messages: seed.messages?.length ? seed.messages : [] }
-      : undefined);
 
-  if (!conv) {
-    return (
-      <SafeAreaView
-        style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
-      >
-        <Text style={{ color: colorss.textSecondary }}>
-          Conversation not found.
-        </Text>
-      </SafeAreaView>
-    );
-  }
+  /**
+   * Resolve the conversation for this screen.
+   *
+   * A THIRD source was added: the route params themselves. Opening a chat from a
+   * notification or a deep link passes only conversationId + displayName, so when
+   * the in-memory list had not loaded yet (cold start, or after an identity
+   * switch clears it) this screen rendered "Conversation not found" for a chat
+   * that exists perfectly well. A params-derived stub lets the thread mount
+   * immediately; the real row replaces it as soon as the list arrives.
+   */
+  const conv = useMemo(() => {
+    const found = conversations.find(c => c.id === id);
+    if (found) return found;
+    if (seed?.id === id) {
+      return { ...seed, messages: seed.messages?.length ? seed.messages : [] };
+    }
+    if (!id) return undefined;
+    return {
+      id,
+      name: props.route.params.displayName ?? '',
+      avatarUrl: props.route.params.avatarUrl ?? null,
+      isGroup: !!props.route.params.isGroupBooking,
+      needsAcceptance: false,
+      preview: '',
+      time: '',
+      unreadCount: 0,
+      messages: [],
+    } as ConversationSummary;
+  }, [
+    conversations,
+    id,
+    seed,
+    props.route.params.displayName,
+    props.route.params.avatarUrl,
+    props.route.params.isGroupBooking,
+  ]);
 
   const threadIntroPeer = useMemo(() => {
-    const name = props.route.params.displayName?.trim() || conv.name;
-    const avatarUrl = props.route.params.avatarUrl ?? conv.avatarUrl ?? null;
+    const name = props.route.params.displayName?.trim() || conv?.name || '';
+    const avatarUrl = props.route.params.avatarUrl ?? conv?.avatarUrl ?? null;
 
     // Groups: show member count instead of friendship status
-    if (conv.isGroup) {
-      const count = conv.groupMemberCount;
+    if (conv?.isGroup) {
+      const count = conv?.groupMemberCount;
       return {
         name,
         avatarUrl,
@@ -847,24 +888,40 @@ const InboxGate: React.FC<Props> = props => {
 
     // 1-to-1: subtitle depends on relationship
     let subtitle: string;
-    if (conv.needsAcceptance) {
+    if (conv?.needsAcceptance) {
       subtitle = 'Wants to connect with you on Hopenity';
-    } else if (conv.peerUserId) {
+    } else if (conv?.peerUserId) {
       subtitle = "You're friends on Hopenity";
     } else {
       subtitle = 'Hopenity user';
     }
     return { name, avatarUrl, subtitle };
   }, [
-    conv.avatarUrl,
-    conv.groupMemberCount,
-    conv.isGroup,
-    conv.name,
-    conv.needsAcceptance,
-    conv.peerUserId,
+    conv?.avatarUrl,
+    conv?.groupMemberCount,
+    conv?.isGroup,
+    conv?.name,
+    conv?.needsAcceptance,
+    conv?.peerUserId,
     props.route.params.avatarUrl,
     props.route.params.displayName,
   ]);
+
+  // Bail-out AFTER every hook. This used to sit above `useMemo`, so the hook
+  // count changed between the "not found" and "found" renders — React's
+  // "rendered fewer hooks than expected" error, which unmounts the tree and
+  // leaves a black screen. Never early-return before hooks.
+  if (!conv) {
+    return (
+      <SafeAreaView
+        style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+      >
+        <Text style={{ color: colorss.textSecondary }}>
+          {listLoading ? 'Loading…' : 'Conversation not found.'}
+        </Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <InboxProvider

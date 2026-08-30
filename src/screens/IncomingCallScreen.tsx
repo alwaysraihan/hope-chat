@@ -30,7 +30,7 @@ import {
   getActiveCall,
 } from '../services/livekit/activeCallRegistry';
 import { beginCallTransition } from '../services/callTransitionGuard';
-import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
+import { notifyCallEndedByRoom } from '../services/invitePeerToHopeChatCall';
 import {
   isCallCancelled,
   markCallCancelled,
@@ -87,12 +87,12 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     // Group calls: one member declining must NOT cancel the call — other members
     // can still answer, so only dismiss locally.
     const token = store.getState().auth.token;
-    if (token && conversationId?.trim() && liveKitRoom && !isGroupRing) {
-      void notifyPeerCallRejected({
-        token,
-        conversationId: conversationId.trim(),
-        liveKitRoom,
-      });
+    // Room-keyed, so a decline still reaches the caller when the invite carried
+    // no conversationId. It previously required one, and a payload without it
+    // silently skipped this call entirely — the caller then rang for the full
+    // 60s no-answer timeout with no idea they had been declined.
+    if (token && liveKitRoom && !isGroupRing) {
+      void notifyCallEndedByRoom({ token, liveKitRoom });
     }
     navigation.goBack();
   }, [

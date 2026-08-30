@@ -3,6 +3,7 @@ import { getMessaging, setBackgroundMessageHandler } from '@react-native-firebas
 import notifee, { EventType } from '@notifee/react-native';
 
 import { store } from '../../redux/store';
+import { HANGUP_ACTION_ID } from '../livekit/liveKitCallForeground';
 import { notifyCallEndedByRoom } from '../invitePeerToHopeChatCall';
 
 import {
@@ -84,6 +85,26 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     // Ongoing-call notification tapped while the app is backgrounded. This
     // context has no navigation, so record the intent; the main context acts on
     // it the moment the app foregrounds.
+    // "Hang up" from the in-progress call notification while backgrounded.
+    // Ends it server-side straight away so the peer is not left in a dead call
+    // waiting for this app to be opened again.
+    if (actionId === HANGUP_ACTION_ID) {
+      const room = String(
+        (detail.notification?.data as Record<string, string> | undefined)?.liveKitRoom ?? '',
+      ).trim();
+      const token = store.getState().auth.token;
+      try {
+        await notifee.stopForegroundService();
+      } catch { /* best-effort */ }
+      if (notifId) await notifee.cancelNotification(notifId);
+      if (room && token) {
+        try {
+          await notifyCallEndedByRoom({ token, liveKitRoom: room, reason: 'hangup' });
+        } catch { /* best-effort */ }
+      }
+      return;
+    }
+
     if (notifId === ONGOING_NOTIFICATION_ID) {
       setPendingOpenActiveCall();
       return;

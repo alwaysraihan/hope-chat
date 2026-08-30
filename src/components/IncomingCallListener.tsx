@@ -54,11 +54,17 @@ import {
   endActiveCallForReplacement,
   endActiveCallForRemoteHangup,
 } from '../services/livekit/activeCallRegistry';
-import { ONGOING_NOTIFICATION_ID } from '../services/livekit/liveKitCallForeground';
+import {
+  HANGUP_ACTION_ID,
+  ONGOING_NOTIFICATION_ID,
+} from '../services/livekit/liveKitCallForeground';
 import { consumePendingOpenActiveCall } from '../services/livekit/pendingCallScreenOpen';
 import { StackActions, CommonActions } from '@react-navigation/native';
 import { emitCallOutcome } from '../services/callOutcomeBus';
-import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
+import {
+  notifyCallEndedByRoom,
+  notifyPeerCallRejected,
+} from '../services/invitePeerToHopeChatCall';
 import { callSocket } from '../services/callSocket';
 import {
   displayMessagingNotification,
@@ -195,24 +201,28 @@ function openActiveCallScreenWhenReady(attempt = 0): void {
  */
 function processRejectPayload(raw: Record<string, string>): void {
   const parsed = parseIncomingCallPayload(raw);
-  if (!parsed?.conversationId || !parsed?.callerId) return;
-  emitCallOutcome({
-    conversationId: parsed.conversationId,
-    callKind: parsed.callKind,
-    variant: 'incoming_missed',
-    peerUserId: parsed.callerId,
-    peerDisplayName: parsed.displayName,
-  });
-  // Signal the backend so it sends a call_cancelled FCM to the caller, stopping
-  // their outgoing ring immediately instead of waiting up to 60s for the timeout.
-  // Group calls: one member declining must NOT cancel the call for everyone —
-  // other members can still answer, so only dismiss locally.
+  if (!parsed) return;
+
+  // NOTE: this used to bail out entirely when conversationId or callerId was
+  // missing — `if (!parsed?.conversationId || !parsed?.callerId) return;` — so a
+  // push without those fields dropped the WHOLE decline, server signal included,
+  // and the caller kept ringing until the 60s timeout. Telling the server is the
+  // part that must never be skipped, so it now runs off the room alone.
   const token = store.getState().auth.token;
   if (token && parsed.liveKitRoom && !parsed.isGroupCall) {
-    void notifyPeerCallRejected({
-      token,
+    // Room-keyed: the server resolves the peer from the room it recorded at
+    // invite time, so no conversationId is required.
+    void notifyCallEndedByRoom({ token, liveKitRoom: parsed.liveKitRoom });
+  }
+
+  // The missed-call row is best-effort and genuinely does need these ids.
+  if (parsed.conversationId && parsed.callerId) {
+    emitCallOutcome({
       conversationId: parsed.conversationId,
-      liveKitRoom: parsed.liveKitRoom,
+      callKind: parsed.callKind,
+      variant: 'incoming_missed',
+      peerUserId: parsed.callerId,
+      peerDisplayName: parsed.displayName,
     });
   }
   dismissIncomingCallIfShowing(parsed.liveKitRoom);
@@ -331,10 +341,16 @@ const IncomingCallListener = () => {
       // Socket path: tear down any existing call BEFORE navigating so the user
       // never sees two call screens simultaneously. await ensures the old room
       // is disconnected and its audio session released before the ringing UI appears.
-      // Already on a call? Offer the new one as call waiting instead of tearing
-      // the live conversation down without asking. CallWaitingBanner decides.
       const active = getActiveCall();
-      if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+      // GLARE: both sides dialled each other at the same moment. Room names are
+      // derived from the sorted user-id pair, so both computed the SAME room and
+      // are already joining each other — this "incoming call" is our own call
+      // seen from the other side. Ignore it; ringing here would throw the user
+      // out of the call they are already in.
+      if (active && active.liveKitRoom === parsed.liveKitRoom) return;
+      // A DIFFERENT call while on one: offer it as call waiting rather than
+      // tearing the live conversation down without asking.
+      if (active) {
         emitCallWaiting(parsed);
         return;
       }
@@ -524,7 +540,10 @@ const IncomingCallListener = () => {
           // Tear down any existing call before navigating so the user never sees
           // two call screens at once (mirrors the socket path above).
           const active = getActiveCall();
-          if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+          // Same glare rule as the socket path above.
+          if (active && active.liveKitRoom === parsed.liveKitRoom) {
+            /* our own call, seen from the other side — ignore */
+          } else if (active) {
             emitCallWaiting(parsed);
           } else {
             navigateIncomingCall(parsed);
@@ -575,6 +594,15 @@ const IncomingCallListener = () => {
 
       unsubNotifee = notifee.onForegroundEvent(({ type, detail }) => {
         if (type !== EventType.PRESS) return;
+
+        // "Hang up" on the in-progress call notification.
+        if (detail.pressAction?.id === HANGUP_ACTION_ID) {
+          // Ends the room AND leaves the call screen, and the registry's
+          // teardown signals the peer over both channels.
+          const room = getActiveCall()?.liveKitRoom;
+          if (room) void endActiveCallForRemoteHangup(room);
+          return;
+        }
 
         // Ongoing call notification tapped — bring the active call screen back into view.
         if (detail.notification?.id === ONGOING_NOTIFICATION_ID) {

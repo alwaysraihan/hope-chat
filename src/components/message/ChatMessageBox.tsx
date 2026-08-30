@@ -37,10 +37,24 @@ import {
   markAutoSaved,
   releaseAutoSave,
 } from '../../services/autoSavedMedia';
+import { useWindowDimensions } from 'react-native';
+
 import { useAppTheme } from '../../context/ThemeContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+/**
+ * Bubble widths.
+ *
+ * `Dimensions.get('window')` is read ONCE at module load, so these constants are
+ * a snapshot of whatever the window was at that instant. On a device where the
+ * app starts before the window is measured, in split-screen, on a foldable, or
+ * after a rotation, every bubble keeps sizing to a stale width — which is why
+ * message text appeared cut off on some devices and not others.
+ *
+ * The constants remain as the initial value for the StyleSheet; the component
+ * overrides them from useWindowDimensions() so the real width always wins.
+ */
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_BUBBLE_WIDTH = SCREEN_WIDTH * 0.78;
 const MIN_BUBBLE_WIDTH_WITH_REPLY = SCREEN_WIDTH * 0.58;
@@ -334,6 +348,11 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const media = msg?.media;
   const isOwn = position === 'right';
 
+  // Live window width — see the note on MAX_BUBBLE_WIDTH above.
+  const { width: windowWidth } = useWindowDimensions();
+  const liveBubbleMax = windowWidth * 0.78;
+  const bubbleWidthStyle = { maxWidth: liveBubbleMax };
+
   /**
    * Auto-save incoming photos.
    *
@@ -450,7 +469,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
         >
           {SenderHeader}
           {ReplySnippet && (
@@ -483,7 +502,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
         >
           {SenderHeader}
           {ReplySnippet && (
@@ -546,7 +565,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
         >
           {SenderHeader}
           <TouchableOpacity
@@ -636,12 +655,13 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   return (
     <Reaction {...reactionProps}>
       <View
-        style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+        style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
       >
         {SenderHeader}
         <View
           style={[
             styles.textBubble,
+              bubbleWidthStyle,
             isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
             hasReply && styles.textBubbleWithReply,
             { backgroundColor: textBg },
@@ -756,7 +776,9 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 8,
     flexDirection: 'column',
-    flexShrink: 0,
+    // Must be allowed to shrink, or the bubble refuses to narrow for wrapped
+    // text and the content is cut at the edge.
+    flexShrink: 1,
   },
   textBubbleLeft: {
     alignSelf: 'flex-start',
@@ -769,10 +791,20 @@ const styles = StyleSheet.create({
   textBubbleWithReply: { minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY },
   messageText: {
     fontSize: 14.5,
-    lineHeight: 20,
+    // Emoji glyphs are drawn taller than the text they sit in. At lineHeight 20
+    // for a 14.5 font, Android clipped them — they rendered blank or sliced,
+    // which is why emoji "did not show" on some devices and were fine on others
+    // (it depends on the system emoji font's metrics).
+    lineHeight: 22,
     letterSpacing: 0.1,
-    flexShrink: 0,
-    flexWrap: 'wrap',
+    // Was flexShrink: 0, which stops the Text shrinking inside the bubble's
+    // maxWidth — so long messages were clipped instead of wrapping. That is the
+    // "message kete ase" (text cut off) report. flexWrap is a View-only style
+    // and did nothing here.
+    flexShrink: 1,
+    // Android adds asymmetric padding from font metrics that compounds the
+    // clipping above; the explicit lineHeight already controls spacing.
+    includeFontPadding: false,
   },
   callLogText: { fontStyle: 'italic', fontSize: 14 },
   linkText: { textDecorationLine: 'underline', opacity: 0.85 },
