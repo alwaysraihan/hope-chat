@@ -38,17 +38,40 @@ export const ProductCardPreview: React.FC<Props> = ({ slug, onPress, isDark }) =
     return () => { cancelled = true; };
   }, [slug]);
 
-  if (failed) return null;
-
-  // The card always gets its own neutral surface rather than a tint of the
-  // bubble. Inside an outgoing (brand-pink) bubble the translucent overlay left
-  // the pink price and pink CTA sitting on pink — unreadable. A solid surface
-  // also makes the preview read as a distinct card rather than bubble chrome.
   const cardBg = isDark ? '#1E1E2E' : '#FFFFFF';
   const cardBorder = isDark ? '#33334A' : '#E6E6EF';
   const titleColor = isDark ? '#F0F0F0' : '#111827';
   const subColor = isDark ? '#9A9AB0' : '#6B7280';
 
+  // A failed lookup must still render SOMETHING. Returning null here is what
+  // made a shared product arrive as a completely blank bubble: the sender's
+  // message was only the link, the bubble hides that link because the card is
+  // supposed to replace it, and then the card drew nothing at all. A minimal
+  // "open this product" card keeps the message meaningful and still tappable.
+  if (failed) {
+    return (
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}
+        onPress={onPress}
+        activeOpacity={0.8}
+      >
+        <View style={styles.info}>
+          <Text style={[styles.title, { color: titleColor }]} numberOfLines={2}>
+            Product
+          </Text>
+          <View style={styles.viewBtn}>
+            <ExternalLink size={12} color="#fff" />
+            <Text style={styles.viewBtnText}>View product</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  // The card always gets its own neutral surface rather than a tint of the
+  // bubble. Inside an outgoing (brand-pink) bubble the translucent overlay left
+  // the pink price and pink CTA sitting on pink — unreadable. A solid surface
+  // also makes the preview read as a distinct card rather than bubble chrome.
   if (loading) {
     return (
       <TouchableOpacity

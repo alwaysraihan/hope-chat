@@ -141,6 +141,11 @@ const EmojiPicker: React.FC<{ onSelect: (emoji: string) => void }> = ({
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.emojiScroll}
+      // Without this the FIRST tap after typing is consumed by dismissing the
+      // keyboard instead of selecting the emoji — the "emoji doesn't work the
+      // first time once you've typed something" report. The keyboard is only
+      // focused after typing, which is exactly when it was reproducible.
+      keyboardShouldPersistTaps="handled"
     >
       {COMMON_EMOJIS.map(emoji => (
         <TouchableOpacity
@@ -213,7 +218,11 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const replyHeight = useRef(new Animated.Value(0)).current;
 
   const appendEmoji = (emoji: string) => {
-    const current = props.text ?? '';
+    // Same two sources as `hasText` below, and for the same reason: props.text
+    // can be undefined depending on how the toolbar is rendered. Trusting it
+    // alone meant an emoji tap REPLACED everything already typed with just the
+    // emoji, because `current` fell back to ''.
+    const current = props.text ?? contextText ?? '';
     props.textInputProps?.onChangeText?.(current + emoji);
   };
 

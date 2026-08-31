@@ -122,10 +122,16 @@ export async function fetchSellerProducts(
 export async function fetchProductBySlug(
   ref: string,
 ): Promise<HoppiProduct | null> {
-  const looksLikeObjectId = /^[a-f\d]{24}$/i.test(ref);
-  const paths = looksLikeObjectId
-    ? [`/add-product/${ref}`, `/add-product/by-slug/${ref}`]
-    : [`/add-product/by-slug/${ref}`, `/add-product/${ref}`];
+  // The reference MUST be encoded: live slugs contain spaces (e.g.
+  // "Premium Combo Set"), and pasting one straight into the path produced a
+  // malformed request that always 404'd.
+  const encoded = encodeURIComponent(ref);
+
+  // `/add-product/by-slug/:ref` does not exist on the API — it 404s for every
+  // input, verified against production. Keeping it first meant every product
+  // preview paid a wasted round trip before the request that actually works.
+  // `/add-product/:ref` resolves BOTH an object id and a slug.
+  const paths = [`/add-product/${encoded}`];
 
   for (const path of paths) {
     try {

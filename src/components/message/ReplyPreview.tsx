@@ -45,6 +45,25 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
     if (mediaType === 'video') return '🎬  Video';
     if (mediaType === 'image') return '📷  Photo';
     if (replyTo.text) {
+      // A quoted media/link message carries a bare URL as its text. Echoing that
+      // URL is what made a reply to a product look like a raw link, and a reply
+      // to a video read as an ordinary message. Name the thing instead.
+      const t = replyTo.text.trim();
+      if (/^https?:\/\/(www\.)?hoppi\.live\/product\//i.test(t)) {
+        return '🛍️  Product';
+      }
+      if (/^https?:\/\/(www\.)?hopenity\.com\/(post|post_id|feels)\//i.test(t)) {
+        return '📷  Post';
+      }
+      if (/^https?:\/\/\S+\.(m4a|mp3|aac|ogg|oga|opus|wav|amr|3ga|caf|weba|flac)(\?|$)/i.test(t)) {
+        return '🎤  Voice message';
+      }
+      if (/^https?:\/\/\S+\.(mp4|mov|m3u8|webm|mkv|avi|3gp|m4v)(\?|$)/i.test(t)) {
+        return '🎬  Video';
+      }
+      if (/^https?:\/\/\S+\.(jpg|jpeg|png|gif|webp|heic|heif|avif)(\?|$)/i.test(t)) {
+        return '📷  Photo';
+      }
       // Belt and braces: the quoted text is decrypted upstream now, but if the
       // conversation key is unavailable (fresh install, key not yet derived)
       // showing the raw "HC1:…" envelope is worse than saying nothing useful.

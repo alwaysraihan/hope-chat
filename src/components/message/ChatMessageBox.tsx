@@ -78,22 +78,42 @@ const URL_RE = /(https?:\/\/[^\s]+)/gi;
 // such character, so the card looked up a product id that does not exist and
 // rendered nothing — which is why sharing a product VARIANT showed an empty
 // message. Take everything up to a path/query boundary and decode it.
-const HOPPI_PRODUCT_RE = /^https?:\/\/(www\.)?hoppi\.live\/product\/([^/?#\s]+)/i;
+/**
+ * The same link, matched against the RAW MESSAGE TEXT so the reference may
+ * contain spaces.
+ *
+ * Hoppi "slugs" are not slugs — the live catalogue contains values like
+ * "Premium Combo Set" and "--". Shares build the URL from that value verbatim,
+ * so the link genuinely has spaces in it, and `URL_RE` (which stops at the
+ * first whitespace) handed the card just "…/product/Premium". That 404s, the
+ * card renders nothing, and when the message is only the link the bubble came
+ * out completely EMPTY — the "sharing a product shows nothing" report.
+ *
+ * The reference therefore runs to a query/fragment or end of line, and trailing
+ * whitespace is trimmed back off.
+ */
+const HOPPI_PRODUCT_IN_TEXT_RE =
+  /https?:\/\/(?:www\.)?hoppi\.live\/product\/([^\n\r?#]+)/i;
+
+/** The product link in `text`, with its full (possibly space-bearing) ref. */
+function findProductLink(
+  text: string,
+): { url: string; slug: string } | null {
+  const m = text.match(HOPPI_PRODUCT_IN_TEXT_RE);
+  if (!m?.[1]) return null;
+  const ref = m[1].replace(/\s+$/, '');
+  if (!ref) return null;
+  let slug = ref;
+  try {
+    slug = decodeURIComponent(ref);
+  } catch {
+    /* already decoded */
+  }
+  return { url: m[0].replace(/\s+$/, ''), slug };
+}
 // /post/:id and /post_id/:id both reach a post; feels are posts too.
 const HOPENITY_POST_RE =
   /^https?:\/\/(www\.)?hopenity\.com\/(?:post|post_id|feels)\/([a-zA-Z0-9_-]+)/i;
-
-function extractProductSlug(url: string): string | null {
-  const m = url.match(HOPPI_PRODUCT_RE);
-  if (m?.[2]) {
-    try {
-      return decodeURIComponent(m[2]);
-    } catch {
-      return m[2];
-    }
-  }
-  return null;
-}
 
 function extractPostId(url: string): string | null {
   const m = url.match(HOPENITY_POST_RE);
@@ -145,6 +165,36 @@ function handleLinkPress(url: string): void {
 }
 
 /** Splits text into plain segments and URL segments for inline link rendering. */
+/**
+ * Does this text use a complex (shaped) script?
+ *
+ * Bengali, Devanagari and their neighbours render as CLUSTERS: conjuncts and
+ * matras are positioned by the shaper relative to the base glyph rather than
+ * laid out one box at a time. Two of the bubble's text styles fight that:
+ *
+ *   letterSpacing          Android inserts space between glyph clusters, which
+ *                          desynchronises measured width from drawn width. The
+ *                          last word then measures as "does not fit" when it
+ *                          does, and is dropped — the message appears cut off.
+ *   includeFontPadding:false
+ *                          strips the ascent/descent room the matras occupy, so
+ *                          the marks above and below the line get clipped.
+ *
+ * Both were added for LATIN text (tighter tracking, and emoji that Android drew
+ * taller than their line box). They are wrong for Bengali, which is why the same
+ * string renders fully in the inbox row — that style sets neither — and comes
+ * out truncated in the bubble.
+ *
+ * Range covers Devanagari through Sinhala, plus Thai/Myanmar/Khmer, which shape
+ * the same way.
+ */
+const COMPLEX_SCRIPT_RE =
+  /[\u0900-\u0DFF\u0E00-\u0E7F\u1000-\u109F\u1780-\u17FF]/;
+
+function hasComplexScript(text: string): boolean {
+  return COMPLEX_SCRIPT_RE.test(text);
+}
+
 function parseTextWithLinks(text: string): Array<{ text: string; isLink: boolean; url?: string }> {
   const parts: Array<{ text: string; isLink: boolean; url?: string }> = [];
   let last = 0;
@@ -681,8 +731,11 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   // Detect the first hoppi.live product URL in the message for a preview card.
   const rawText = msg?.text ?? '';
   const allUrls = rawText.match(URL_RE) ?? [];
-  const productUrl = allUrls.find(u => extractProductSlug(u) != null) ?? null;
-  const productSlug = productUrl ? extractProductSlug(productUrl) : null;
+  // Matched against the raw text, not the whitespace-split URL list, so a
+  // reference containing spaces survives intact.
+  const productLink = findProductLink(rawText);
+  const productUrl = productLink?.url ?? null;
+  const productSlug = productLink?.slug ?? null;
   // When the message is nothing but the product link, the card already says
   // everything the URL would — showing both stacks a long unreadable URL on it.
   const postUrl = allUrls.find(u => extractPostId(u) != null) ?? null;
@@ -713,6 +766,9 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             <Text
               style={[
                 styles.messageText,
+                // Let the shaper do its job for Bengali & co. — see
+                // hasComplexScript.
+                hasComplexScript(rawText) ? styles.messageTextComplex : null,
                 { color: textColor },
                 msg.messageKind === 'call_log' ? styles.callLogText : null,
               ]}
@@ -846,6 +902,16 @@ const styles = StyleSheet.create({
     // Android adds asymmetric padding from font metrics that compounds the
     // clipping above; the explicit lineHeight already controls spacing.
     includeFontPadding: false,
+  },
+  /**
+   * Overrides for shaped scripts. `lineHeight` is deliberately left to the font:
+   * a fixed 22 is too tight for Bengali's stacked matras once the font's own
+   * padding is restored.
+   */
+  messageTextComplex: {
+    letterSpacing: 0,
+    includeFontPadding: true,
+    lineHeight: undefined,
   },
   callLogText: { fontStyle: 'italic', fontSize: 14 },
   linkText: { textDecorationLine: 'underline', opacity: 0.85 },
