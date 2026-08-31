@@ -76,10 +76,24 @@ export const WIRE_V2 = 'HC2:';
  */
 export const E2EE_V2_SENDING_ENABLED = false;
 
-type Envelope = {
+type Sealed = {
   h: RatchetHeader;
   x?: InitialMessageHeader;
   b: string;
+};
+
+/**
+ * One message, sealed once per RECIPIENT DEVICE.
+ *
+ * A ratchet session is between two devices, so ciphertext sealed for someone's
+ * phone cannot be opened by their tablet. `m` maps the recipient's deviceId to
+ * their own copy; a reader looks up the entry for the device it is running on.
+ *
+ * The single-envelope shape is still accepted on read, so a message produced by
+ * an earlier build stays readable.
+ */
+type Envelope = Sealed & {
+  m?: Record<string, Sealed>;
 };
 
 function encode(env: Envelope): string {
@@ -168,8 +182,18 @@ export function decryptIncoming(
   }
 
   if (isV2Envelope(content)) {
-    const env = decode(content);
-    if (!env) return '🔒 Message could not be read';
+    const parsed = decode(content);
+    if (!parsed) return '🔒 Message could not be read';
+
+    // Multi-device: take the copy sealed for THIS device. Anything else was
+    // sealed for a different ratchet session and will not open.
+    const mine = parsed.m ? parsed.m[deviceId()] : undefined;
+    if (parsed.m && !mine) {
+      // Nothing addressed to this device — usually a message sent before this
+      // install existed, which no key here can open.
+      return '🔒 Message was not sent to this device';
+    }
+    const env: Envelope = mine ?? parsed;
 
     let state = loadSession(conversationId, peerDeviceId);
     if (!state && env.x) {
@@ -226,13 +250,35 @@ export function encryptOutgoingMultiDevice(
   conversationId: string,
   bundles: PeerBundle[],
   plaintext: string,
-): Array<{ deviceId: string; envelope: string }> {
-  const out: Array<{ deviceId: string; envelope: string }> = [];
+): string | null {
+  if (!E2EE_V2_SENDING_ENABLED) return null;
+
+  const m: Record<string, Sealed> = {};
   for (const bundle of bundles) {
-    const envelope = encryptOutgoing(conversationId, bundle, plaintext);
-    if (envelope) out.push({ deviceId: bundle.deviceId, envelope });
+    let state: RatchetState | null = loadSession(conversationId, bundle.deviceId);
+    let x3dhHeader: InitialMessageHeader | undefined;
+    if (!state) {
+      const session = initiateSession(bundle, deviceId());
+      // Skip a device whose bundle fails signature verification rather than
+      // abandoning the send — but if EVERY device fails we return null so the
+      // caller falls back instead of sending something nobody can read.
+      if (!session) continue;
+      state = initSender(session.secret, unb64(bundle.signedPreKey));
+      x3dhHeader = session.header;
+    }
+    const out = ratchetEncrypt(state, plaintext);
+    if (!out) continue;
+    saveSession(conversationId, bundle.deviceId, out.state);
+    m[bundle.deviceId] = { h: out.header, x: x3dhHeader, b: out.body };
   }
-  return out;
+
+  const devices = Object.keys(m);
+  if (devices.length === 0) return null;
+
+  // The top-level fields carry the first device's copy so a reader that does not
+  // understand `m` still finds something valid rather than failing outright.
+  const first = m[devices[0]!]!;
+  return encode({ ...first, m });
 }
 
 /**

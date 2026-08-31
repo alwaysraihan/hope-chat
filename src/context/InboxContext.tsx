@@ -25,11 +25,16 @@ import {
   decryptIncoming,
   encryptOutgoing,
   encryptGroupOutgoing,
+  encryptOutgoingMultiDevice,
   isV2Envelope,
   rememberOwnMessage,
 } from '../services/e2ee/secureMessaging';
 import { isSenderKeyEnvelope } from '../services/e2ee/senderKey';
-import { cachedPeerDeviceId, resolvePeerKeys } from '../services/e2ee/peerSession';
+import {
+  cachedPeerBundles,
+  cachedPeerDeviceId,
+  resolvePeerKeys,
+} from '../services/e2ee/peerSession';
 import {
   launchCamera,
   launchImageLibrary,
@@ -1450,7 +1455,14 @@ export function InboxProvider({
                 return;
               }
               if (keys.mode === 'e2ee') {
-                const sealed = encryptOutgoing(_conversationId, keys.bundle, plain);
+                // Seal for EVERY device the peer has published, not just the
+                // newest: a session is between two devices, so a copy sealed for
+                // their phone is unreadable on their tablet.
+                const all = cachedPeerBundles(peerUserId);
+                const sealed =
+                  all.length > 1
+                    ? encryptOutgoingMultiDevice(_conversationId, all, plain)
+                    : encryptOutgoing(_conversationId, keys.bundle, plain);
                 // Remember our own plaintext: the ratchet key for a message we
                 // sent is consumed, so this is the only way to render it back.
                 if (sealed) {
@@ -1588,7 +1600,11 @@ export function InboxProvider({
               } else if (peerUserId && token && _conversationId) {
                 const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
                 if (keys.mode === 'e2ee') {
-                  sealedMedia = encryptOutgoing(_conversationId, keys.bundle, remoteUri);
+                  const all = cachedPeerBundles(peerUserId);
+                  sealedMedia =
+                    all.length > 1
+                      ? encryptOutgoingMultiDevice(_conversationId, all, remoteUri)
+                      : encryptOutgoing(_conversationId, keys.bundle, remoteUri);
                 }
               }
               wire = sealedMedia
@@ -1713,7 +1729,11 @@ export function InboxProvider({
               } else if (peerUserId && token && _conversationId) {
                 const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
                 if (keys.mode === 'e2ee') {
-                  sealedMedia = encryptOutgoing(_conversationId, keys.bundle, remoteUri);
+                  const all = cachedPeerBundles(peerUserId);
+                  sealedMedia =
+                    all.length > 1
+                      ? encryptOutgoingMultiDevice(_conversationId, all, remoteUri)
+                      : encryptOutgoing(_conversationId, keys.bundle, remoteUri);
                 }
               }
               wire = sealedMedia
