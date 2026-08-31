@@ -750,6 +750,10 @@ export function InboxProvider({
           preview: content,
           time: timeStr,
           unreadCount: 0,
+          // Keep the sort key in step with the visual bump, or the row returns
+          // to its old position the next time the list is sorted or restored
+          // from cache.
+          sortAt: new Date(iso).getTime() || Date.now(),
         };
         const next = [row, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
         // Persist new order so cold-start cache reflects the latest message.

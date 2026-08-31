@@ -68,6 +68,7 @@ export async function displayAndroidIncomingCallNotification(
     },
     android: {
       channelId: INCOMING_CALL_ANDROID_CHANNEL_ID,
+      smallIcon: 'ic_stat_notification',
       category: AndroidCategory.CALL,
       importance: AndroidImportance.HIGH,
       visibility: AndroidVisibility.PUBLIC,

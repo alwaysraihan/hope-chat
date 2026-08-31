@@ -60,6 +60,7 @@ export async function startLiveKitCallForeground(
       body,
       android: {
         channelId: ONGOING_CHANNEL_ID,
+        smallIcon: 'ic_stat_notification',
         asForegroundService: true,
         foregroundServiceTypes: serviceTypes(kind),
         ongoing: true,
@@ -92,6 +93,7 @@ export async function updateLiveKitCallForegroundStatus(
     body: statusLine,
     android: {
       channelId: ONGOING_CHANNEL_ID,
+      smallIcon: 'ic_stat_notification',
       asForegroundService: true,
       foregroundServiceTypes: serviceTypes(kind),
       ongoing: true,

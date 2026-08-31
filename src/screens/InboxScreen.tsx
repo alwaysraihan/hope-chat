@@ -213,7 +213,6 @@ const InboxScreenInner: React.FC<
 
   const {
     messages,
-    text,
     setText,
     initialText,
     setInitialText,
@@ -253,15 +252,11 @@ const InboxScreenInner: React.FC<
     });
   }, [messages, registerScrollToMessage]);
 
-  // Seed the composer once from initialText (draft / forward / share), then
-  // clear the seed. The composer itself stays controlled by `text` throughout —
-  // see the note on the GiftedChat `text` prop below.
   useEffect(() => {
     if (!initialText) return;
-    setText(initialText);
     const t = setTimeout(() => setInitialText(''), 100);
     return () => clearTimeout(t);
-  }, [initialText, setInitialText, setText]);
+  }, [initialText, setInitialText]);
 
   const audioRoom = useMemo(
     () =>
@@ -371,6 +366,20 @@ const InboxScreenInner: React.FC<
       setSharingPost(false);
     }
   }, [pendingShare, sharingPost, onSend, user._id]);
+
+  /**
+   * Props gifted-chat v3 accepts at runtime but does not expose in its public
+   * types (this element also passes `placeholder` and `textInputProps`). Spread
+   * as a loose record so naming them does not switch on JSX excess-property
+   * checking for the whole element.
+   *
+   * `messagesContainerRef` is the v3 name — it used to be passed as
+   * `messageContainerRef`, which the library silently ignored, so reply-tap
+   * scroll-to-message never worked.
+   */
+  const giftedChatCompatProps: Record<string, unknown> = {
+    messagesContainerRef: messageContainerRef,
+  };
 
   const renderInputToolbar = useCallback(
     (p: unknown) => (
@@ -718,9 +727,19 @@ const InboxScreenInner: React.FC<
           <GiftedChat
             // gifted-chat v3 renamed this to messagesContainerRef; the old name was
             // silently ignored, so reply-tap scroll-to-message never worked.
-            messagesContainerRef={messageContainerRef}
-            placeholder={
-              needsAcceptance
+            // gifted-chat v3 renamed this to messagesContainerRef; the old name was
+            // silently ignored, so reply-tap scroll-to-message never worked. Cast
+            // because several other props on this element (placeholder,
+            // textInputProps) are outside the library's public types, and naming a
+            // valid prop directly turns on excess-property checking for all of them.
+            {...giftedChatCompatProps}
+            // `placeholder` is not a GiftedChat v3 prop — it belongs to the text
+            // input. Passing it at the top level was silently ignored, which is
+            // why the composer always read "Type here…" even when the thread was
+            // locked awaiting acceptance.
+            textInputProps={{
+              editable: !inputLocked,
+              placeholder: needsAcceptance
                 ? 'Accept the request above to reply…'
                 : sentRequestLocked
                   ? 'Waiting for acceptance…'
@@ -728,9 +747,8 @@ const InboxScreenInner: React.FC<
                     ? bookingClosed
                       ? 'This booking has ended…'
                       : 'Messaging restricted for this booking…'
-                    : 'Type here…'
-            }
-            textInputProps={{ editable: !inputLocked }}
+                    : 'Type here…',
+            }}
             messages={messages as unknown as IMessage[]}
             // ALWAYS pass text. This used to be a conditional spread —
             // `{...(initialText ? { text: initialText } : {})}` — which flipped
@@ -741,12 +759,17 @@ const InboxScreenInner: React.FC<
             // while characters were still on screen, and swapped the Send button
             // for the thumbs-up. Controlled throughout, driven by
             // onInputTextChanged below.
-            // Spread rather than a direct prop: several props passed to this
-            // element below (placeholder, textInputProps, …) are not in
-            // gifted-chat v3's public types, and a direct attribute turns on
-            // JSX excess-property checking for the whole element. The spread
-            // keeps the existing type surface while ALWAYS supplying text.
-            {...{ text }}
+            // GiftedChat stays UNCONTROLLED.
+            //
+            // Passing `text` made it controlled, but nothing in this app ever
+            // clears that state after a send — so the prop fought the composer's
+            // own value and wiped what the user was typing. The send button's
+            // dependence on props.text is handled inside CustomInputToolbar
+            // instead, which falls back to the context value.
+            //
+            // Do NOT reintroduce a conditional `{...(cond ? { text } : {})}`
+            // either: flipping controlled/uncontrolled at runtime is what made
+            // the Send button disappear mid-typing.
             onSend={(msgs: IMessage[]) => onSend(msgs as ExtendedMessage[])}
             // @ts-ignore
             onInputTextChanged={setText}

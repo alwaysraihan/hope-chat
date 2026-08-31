@@ -58,6 +58,22 @@ import { normalizeChatUserId } from '../utils/chatUserId';
 import { getLocalNickname, setLocalNickname } from '../services/nicknameCache';
 import { getPinnedConversationIds, getMutedConversationIds, setConvAppearance } from '../services/chatPrefs';
 
+/**
+ * Pinned first, then real activity (sortAt). Used by EVERY path that produces a
+ * list — fresh fetch, cache restore, identity switch — so a stale persisted
+ * order can never resurface. `sortAt` is stamped from the server's
+ * lastMessageAt when the rows are mapped, and is persisted with the cache.
+ */
+export function sortConversations<T extends { pinned?: boolean; sortAt?: number }>(
+  rows: T[],
+): T[] {
+  const byRecency = (a: T, b: T) => (b.sortAt ?? 0) - (a.sortAt ?? 0);
+  return [
+    ...rows.filter(c => c.pinned).sort(byRecency),
+    ...rows.filter(c => !c.pinned).sort(byRecency),
+  ];
+}
+
 export type ConversationSummary = {
   id: string;
   name: string;
@@ -802,10 +818,10 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       const visible = cached
         .filter(c => !hidden.has(c.id))
         .map(c => ({ ...c, pinned: pinnedIds.has(c.id) }));
-      setConversations([
-        ...visible.filter(c => c.pinned),
-        ...visible.filter(c => !c.pinned),
-      ]);
+      // Sorted, not replayed. The cache preserves the order it was written in,
+      // so without this a cold start showed whatever ordering was persisted
+      // before the server-side fix — which is why old chats kept sitting on top.
+      setConversations(sortConversations(visible));
     }
   }, [token, localUser._id]);
 
@@ -839,7 +855,9 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       } else {
         // Back to personal: restore this user's own cached list, never the page's.
         const uid = String(localUser?._id ?? '');
-        setConversations(uid ? readChatDirectoryCache(uid) ?? [] : []);
+        setConversations(
+          uid ? sortConversations(readChatDirectoryCache(uid) ?? []) : [],
+        );
       }
     }
   }, [activePage, localUser]);
@@ -906,13 +924,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         const ms = at ? new Date(at).getTime() : 0;
         return { ...c, sortAt: Number.isFinite(ms) ? ms : 0 };
       });
-      const byRecency = (a: ConversationSummary, b: ConversationSummary) =>
-        (b.sortAt ?? 0) - (a.sortAt ?? 0);
-      // Pinned chats sort to the top; each group is ordered by real activity.
-      const next = [
-        ...stamped.filter(c => c.pinned).sort(byRecency),
-        ...stamped.filter(c => !c.pinned).sort(byRecency),
-      ];
+      const next = sortConversations(stamped);
       // Prefer the server's requested count — the inbox fetch excludes received
       // requests (they live in the Requests folder), so counting needsAcceptance
       // rows in this list always yielded 0 and the Requests badge never showed.
@@ -1210,6 +1222,11 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
             ...prev[idx],
             preview: line,
             time: formatChatTime(iso),
+            // A call outcome IS new activity (the server writes a call row into
+            // the thread). Without bumping sortAt the row jumps to the top now
+            // and then falls back on the next sorted load — the list would
+            // disagree with itself.
+            sortAt: Date.now(),
           };
           const next = [row, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
           const uidStr = String(localUser._id ?? '');

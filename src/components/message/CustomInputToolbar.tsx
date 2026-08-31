@@ -193,6 +193,7 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const {
     isRecording,
     replyTo,
+    text: contextText,
     handleCameraPress,
     handleGalleryPress,
     handleVoiceRecordingStart,
@@ -256,7 +257,12 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
     );
   }
 
-  const hasText = Boolean(props.text?.trim());
+  // props.text comes from GiftedChat's internal composer state. It can be
+  // undefined depending on how the toolbar is rendered, and when it was the ONLY
+  // source the Send button silently turned back into the thumbs-up while the
+  // user had text on screen. The context value is updated by
+  // onInputTextChanged, so it is a reliable second source.
+  const hasText = Boolean((props.text ?? contextText ?? '').trim());
   const bottomPadding = isKeyboardVisible ? 10 : bottom;
 
   return (

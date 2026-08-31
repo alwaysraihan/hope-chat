@@ -107,6 +107,9 @@ export async function displayMessagingNotification(
       channelId: MESSAGE_CHANNEL_ID,
       importance: AndroidImportance.HIGH,
       // Round avatar next to the message, like Messenger.
+      // Without an explicit smallIcon Android falls back to the launcher icon and
+      // flattens it to a silhouette — the empty ring beside HopeChat messages.
+      smallIcon: 'ic_stat_notification',
       largeIcon: avatarUrl || undefined,
       circularLargeIcon: true,
       // MESSAGING style renders it as a conversation with the sender.
@@ -114,11 +117,23 @@ export async function displayMessagingNotification(
         ? undefined
         : {
             type: AndroidStyle.MESSAGING,
-            person: {
-              name: title,
-              icon: avatarUrl || undefined,
-            },
-            messages: [{ text: body, timestamp: Date.now() }],
+            // In Notifee's MessagingStyle the TOP-LEVEL person is the device
+            // user, and the sender of each message goes on messages[].person.
+            // These were the wrong way round: the sender was set as "self" and
+            // the message itself had no person, so Android rendered it as sent
+            // BY you — which is why the avatar circle came up empty while
+            // WhatsApp/Messenger/Discord showed the photo.
+            person: { name: 'You' },
+            messages: [
+              {
+                text: body,
+                timestamp: Date.now(),
+                person: {
+                  name: title,
+                  icon: avatarUrl || undefined,
+                },
+              },
+            ],
           },
       groupId: chatId ? `chat_${chatId}` : undefined,
       pressAction: { id: 'default', launchActivity: 'default' },
