@@ -3,7 +3,10 @@ import { Platform } from 'react-native';
 import type { Room } from 'livekit-client';
 import { ConnectionState, RoomEvent } from 'livekit-client';
 
-import type { LiveKitCallForegroundKind } from '../services/livekit/liveKitCallForeground';
+import type {
+  LiveKitCallForegroundContext,
+  LiveKitCallForegroundKind,
+} from '../services/livekit/liveKitCallForeground';
 import {
   startLiveKitCallForeground,
   stopLiveKitCallForeground,
@@ -20,15 +23,29 @@ export function useLiveKitAndroidForeground(
   room: Room | undefined,
   displayName: string,
   kind: LiveKitCallForegroundKind,
+  /**
+   * The room this notification represents. Without it the notification's
+   * "Hang up" button cannot tell the server which call ended, so the peer is
+   * left in a dead call.
+   */
+  liveKitRoom?: string,
 ): void {
   const displayRef = useRef(displayName);
   displayRef.current = displayName;
+  const roomNameRef = useRef(liveKitRoom);
+  roomNameRef.current = liveKitRoom;
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !room) return;
 
     let active = false;
     let videoFsDelayTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const ctx = (): LiveKitCallForegroundContext => ({
+      liveKitRoom: roomNameRef.current ?? '',
+      displayName: displayRef.current,
+      kind,
+    });
 
     const refreshFs = async (status: string) => {
       if (!active) return;
@@ -37,6 +54,7 @@ export function useLiveKitAndroidForeground(
           displayRef.current,
           kind,
           status,
+          ctx(),
         );
       } catch (e) {
         console.warn('[LiveKit FGS] refreshFs', e);
@@ -63,6 +81,7 @@ export function useLiveKitAndroidForeground(
                     displayRef.current,
                     kind,
                     'Video · Connected',
+                    ctx(),
                   );
                 } catch (e) {
                   console.warn('[LiveKit FGS] delayed video start', e);
@@ -75,6 +94,26 @@ export function useLiveKitAndroidForeground(
             displayRef.current,
             kind,
             'Voice · Connected',
+            ctx(),
+          );
+          return;
+        }
+        // Show the notification while still CONNECTING too.
+        //
+        // It previously appeared only once connected, so during the connecting
+        // phase there was nothing to tap and nothing to hang up from — which is
+        // why a call stuck on "Connecting…" could neither be returned to nor
+        // ended from the shade. `refreshFs` is a no-op until `active`, so this
+        // has to start the service rather than update it.
+        if (cs === ConnectionState.Connecting) {
+          active = true;
+          await startLiveKitCallForeground(
+            displayRef.current,
+            kind,
+            kind === 'video' ? 'Video · Connecting…' : 'Voice · Connecting…',
+            ctx(),
+            // Audio-only service types until connected — see serviceKind.
+            'audio',
           );
           return;
         }
@@ -114,7 +153,12 @@ export function useLiveKitAndroidForeground(
       }
     };
 
+    const onConnectionStateChanged = () => {
+      void syncFromState();
+    };
+
     room.on(RoomEvent.Connected, onConnected);
+    room.on(RoomEvent.ConnectionStateChanged, onConnectionStateChanged);
     room.on(RoomEvent.Reconnecting, onReconnecting);
     room.on(RoomEvent.Reconnected, onReconnected);
     room.on(RoomEvent.Disconnected, onDisconnected);
@@ -126,6 +170,7 @@ export function useLiveKitAndroidForeground(
         clearTimeout(videoFsDelayTimer);
       }
       room.off(RoomEvent.Connected, onConnected);
+      room.off(RoomEvent.ConnectionStateChanged, onConnectionStateChanged);
       room.off(RoomEvent.Reconnecting, onReconnecting);
       room.off(RoomEvent.Reconnected, onReconnected);
       room.off(RoomEvent.Disconnected, onDisconnected);

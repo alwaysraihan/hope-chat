@@ -167,7 +167,7 @@ function VideoCallGate({
   leaveRef.current = leaveCall;
 
   /** Android: foreground service + ongoing notification so the call survives minimize. */
-  useLiveKitAndroidForeground(room, displayName, 'video');
+  useLiveKitAndroidForeground(room, displayName, 'video', room.name);
 
   /** Prevent the screen from sleeping while in a video call. */
   useEffect(() => {

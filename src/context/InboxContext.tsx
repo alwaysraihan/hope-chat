@@ -1959,6 +1959,37 @@ function videoTooLarge(sizeBytes?: number | null): boolean {
   return typeof sizeBytes === 'number' && sizeBytes > MAX_VIDEO_UPLOAD_BYTES;
 }
 
+const VIDEO_EXTENSIONS =
+  /\.(mp4|mov|m4v|3gp|3g2|mkv|webm|avi|wmv|flv|mpeg|mpg|ts|ogv|qt)(\?|$)/i;
+
+/**
+ * Is this picked asset a video?
+ *
+ * `asset.type` alone is NOT reliable and relying on it is what broke video
+ * sending. react-native-image-picker copies a picked video to app storage and
+ * then derives its `type` via Android's `getMimeTypeFromExtension`, which
+ * returns null for plenty of ordinary paths (unrecognised or upper-case
+ * extension, characters that trip `getFileExtensionFromUrl`). With `type` null,
+ * `type?.startsWith('video')` is false, so the clip took the IMAGE branch and
+ * was uploaded as `image/jpeg` named `.jpg` — the server stored a "photo" that
+ * was really an MP4, and the bubble rendered as a broken image.
+ *
+ * So we corroborate with two things the picker fills in independently:
+ * the file extension, and `duration` — which is present ONLY on
+ * `getVideoResponseMap`, never on an image asset.
+ */
+function isVideoAsset(asset: {
+  type?: string | null;
+  uri?: string | null;
+  fileName?: string | null;
+  duration?: number | null;
+}): boolean {
+  if (asset.type?.toLowerCase().startsWith('video')) return true;
+  if (typeof asset.duration === 'number' && asset.duration > 0) return true;
+  const name = asset.fileName ?? asset.uri ?? '';
+  return VIDEO_EXTENSIONS.test(name);
+}
+
   const handleCameraPress = useCallback(async () => {
     const ok = await checkCameraPermission();
     if (!ok) return;
@@ -1978,7 +2009,7 @@ function videoTooLarge(sizeBytes?: number | null): boolean {
         if (response.didCancel || response.errorCode) return;
         const asset = response.assets?.[0];
         if (!asset?.uri) return;
-        const isVideo = !!asset.type?.startsWith('video');
+        const isVideo = isVideoAsset(asset);
         if (isVideo && videoTooLarge(asset.fileSize)) {
           Toast.error('That video is too large to send. Try a shorter clip.');
           return;
@@ -2014,7 +2045,7 @@ function videoTooLarge(sizeBytes?: number | null): boolean {
           let skipped = 0;
           for (const asset of assets) {
             if (!asset?.uri) continue;
-            const isVideo = !!asset.type?.startsWith('video');
+            const isVideo = isVideoAsset(asset);
             if (isVideo && videoTooLarge(asset.fileSize)) {
               skipped += 1;
               continue;

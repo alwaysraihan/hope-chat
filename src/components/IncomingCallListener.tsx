@@ -59,8 +59,14 @@ import {
 import {
   HANGUP_ACTION_ID,
   ONGOING_NOTIFICATION_ID,
+  stopLiveKitCallForeground,
 } from '../services/livekit/liveKitCallForeground';
-import { consumePendingOpenActiveCall } from '../services/livekit/pendingCallScreenOpen';
+import {
+  consumePendingOpenActiveCall,
+  consumePendingOpenActiveCallData,
+  OPEN_ACTIVE_CALL_EVENT,
+  type PendingCallScreenData,
+} from '../services/livekit/pendingCallScreenOpen';
 import { StackActions, CommonActions } from '@react-navigation/native';
 import { emitCallOutcome } from '../services/callOutcomeBus';
 import {
@@ -168,7 +174,10 @@ function navigateToActiveCallScreen(): void {
       // ongoing "connected" notification looked dead when tapped.
       const params = active.screenParams;
       if (params) {
-        navigationRef.dispatch(StackActions.push(targetRoute, params));
+        navigationRef.dispatch({
+          ...StackActions.push(targetRoute, params),
+          target: state?.key,
+        });
       } else if (__DEV__) {
         console.warn('[HopeChat] active call has no screenParams — cannot restore screen');
       }
@@ -176,7 +185,14 @@ function navigateToActiveCallScreen(): void {
     }
     const popCount = routes.length - 1 - callIdx;
     if (popCount > 0) {
-      navigationRef.dispatch(StackActions.pop(popCount));
+      // Target the ROOT navigator explicitly. An untargeted StackActions.pop is
+      // delivered to the focused navigator, which after backing out of the call
+      // is a stack nested inside BottomTab — popping there would shuffle the
+      // chat list and leave the call screen exactly where it was.
+      navigationRef.dispatch({
+        ...StackActions.pop(popCount),
+        target: state?.key,
+      });
     }
   } catch (e) {
     if (__DEV__) console.warn('[HopeChat] navigateToActiveCallScreen', e);
@@ -188,13 +204,89 @@ function navigateToActiveCallScreen(): void {
  * or land as a cold-start initial notification — in both cases navigation only
  * becomes possible once we are foregrounded and mounted.
  */
-function openActiveCallScreenWhenReady(attempt = 0): void {
+function openActiveCallScreenWhenReady(
+  attempt = 0,
+  notifData?: Record<string, string>,
+): void {
   if (attempt > 20) return;
-  if (!navigationRef.isReady() || !getActiveCall()) {
-    setTimeout(() => openActiveCallScreenWhenReady(attempt + 1), 150);
+  if (!navigationRef.isReady()) {
+    setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
+    return;
+  }
+  if (!getActiveCall()) {
+    // Keep waiting for the registry — but not forever. A call that is still
+    // connecting has no registered entry yet, and the old code simply gave up
+    // after 3s and left the tap doing nothing. If the notification told us
+    // which call it is, restore the screen from that instead.
+    if (attempt <= 20) {
+      setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
+      return;
+    }
+    navigateToCallFromNotificationData(notifData);
     return;
   }
   navigateToActiveCallScreen();
+}
+
+/**
+ * Last-resort navigation when no call is registered: rebuild the call route
+ * from what the ongoing notification carries.
+ */
+function navigateToCallFromNotificationData(
+  data?: Record<string, string>,
+): void {
+  const liveKitRoom = String(data?.liveKitRoom ?? '').trim();
+  if (!liveKitRoom || !navigationRef.isReady()) return;
+  const targetRoute =
+    String(data?.callKind ?? '') === 'video' ? 'VideoCall' : 'AudioCall';
+  try {
+    const state = navigationRef.getRootState();
+    const routes = (state?.routes ?? []) as Array<{ name: string }>;
+    // The press can be delivered to BOTH the foreground and background handler.
+    // Without this, the two would push two call screens onto the stack.
+    if (routes.some(r => r.name === targetRoute)) {
+      navigateToActiveCallScreen();
+      return;
+    }
+    navigationRef.dispatch({
+      ...StackActions.push(targetRoute, {
+        displayName: String(data?.displayName ?? ''),
+        liveKitRoom,
+        avatarUrl: null,
+        callDirection: 'outgoing' as const,
+      }),
+      target: state?.key,
+    });
+  } catch (e) {
+    if (__DEV__) console.warn('[HopeChat] restore call from notification', e);
+  }
+}
+
+/**
+ * Hang up from the ongoing notification.
+ *
+ * Tears the call down locally AND tells the server, so the peer's phone stops
+ * ringing / leaves the call. The server signal is the part that must always
+ * run: when the call screen is unmounted there is no registry entry and no
+ * LiveKit teardown to signal the peer, so without this the other end stayed in
+ * the call indefinitely.
+ */
+async function hangUpOngoingCall(liveKitRoom: string): Promise<void> {
+  const active = getActiveCall();
+  if (active && (!liveKitRoom || active.liveKitRoom === liveKitRoom)) {
+    try {
+      await endActiveCallForRemoteHangup(active.liveKitRoom);
+    } catch { /* the notification and server signal below still have to run */ }
+  }
+  try {
+    await stopLiveKitCallForeground();
+  } catch { /* best-effort */ }
+  const token = store.getState().auth.token;
+  if (liveKitRoom && token) {
+    try {
+      await notifyCallEndedByRoom({ token, liveKitRoom, reason: 'hangup' });
+    } catch { /* best-effort */ }
+  }
 }
 
 /**
@@ -458,11 +550,30 @@ const IncomingCallListener = () => {
       });
     };
 
+    // The ongoing-call notification was tapped. This fires whichever context
+    // received the press, and — unlike the AppState listener below — it does not
+    // require the app to have been backgrounded first. Backing out of the call
+    // screen leaves the app 'active', so this is the path that actually runs in
+    // the "I'm still in the app, tap the notification to get back" case.
+    const unsubOpenCall = DeviceEventEmitter.addListener(
+      OPEN_ACTIVE_CALL_EVENT,
+      (pending?: PendingCallScreenData) => {
+        // Clear the flag so the AppState/mount paths do not fire a second time.
+        consumePendingOpenActiveCall();
+        const data = consumePendingOpenActiveCallData() ?? pending;
+        openActiveCallScreenWhenReady(0, data ?? undefined);
+      },
+    );
+
     const unsubAppState = AppState.addEventListener('change', next => {
       if (next === 'active') {
         consumePending();
         // Ongoing-call notification was tapped while backgrounded.
-        if (consumePendingOpenActiveCall()) openActiveCallScreenWhenReady();
+        if (consumePendingOpenActiveCall()) {
+        // Pass the recorded call through, so a screen that is no longer in the
+        // stack can still be rebuilt rather than the tap doing nothing.
+        openActiveCallScreenWhenReady(0, consumePendingOpenActiveCallData() ?? undefined);
+      }
         const auth = store.getState().auth;
         callSocket.ensureConnected(
           auth.token,
@@ -598,7 +709,10 @@ const IncomingCallListener = () => {
 
       const notInitial = await notifee.getInitialNotification();
       if (notInitial?.notification?.id === ONGOING_NOTIFICATION_ID) {
-        openActiveCallScreenWhenReady();
+        openActiveCallScreenWhenReady(
+          0,
+          notInitial.notification.data as Record<string, string> | undefined,
+        );
       } else if (notInitial?.notification?.data) {
         const wasAcceptButton = notInitial.pressAction?.id === 'accept';
         openFromNotificationData(
@@ -614,14 +728,27 @@ const IncomingCallListener = () => {
         if (detail.pressAction?.id === HANGUP_ACTION_ID) {
           // Ends the room AND leaves the call screen, and the registry's
           // teardown signals the peer over both channels.
-          const room = getActiveCall()?.liveKitRoom;
-          if (room) void endActiveCallForRemoteHangup(room);
+          //
+          // The registry is the preferred source, but it is EMPTY whenever the
+          // call screen is not mounted — during connect, and after the user
+          // backs out of a running call. Falling back to the room the
+          // notification carries is what makes Hang up work in exactly those
+          // cases, where previously it silently did nothing on both ends.
+          const notifRoom = String(
+            (detail.notification?.data as Record<string, string> | undefined)
+              ?.liveKitRoom ?? '',
+          ).trim();
+          const room = getActiveCall()?.liveKitRoom || notifRoom;
+          void hangUpOngoingCall(room);
           return;
         }
 
         // Ongoing call notification tapped — bring the active call screen back into view.
         if (detail.notification?.id === ONGOING_NOTIFICATION_ID) {
-          openActiveCallScreenWhenReady();
+          openActiveCallScreenWhenReady(
+            0,
+            detail.notification?.data as Record<string, string> | undefined,
+          );
           return;
         }
 
@@ -643,7 +770,11 @@ const IncomingCallListener = () => {
       // Also consume on initial mount — the AppState 'change' listener doesn't fire
       // if the app launches directly into the 'active' state (cold-start via notification tap).
       consumePending();
-      if (consumePendingOpenActiveCall()) openActiveCallScreenWhenReady();
+      if (consumePendingOpenActiveCall()) {
+        // Pass the recorded call through, so a screen that is no longer in the
+        // stack can still be rebuilt rather than the tap doing nothing.
+        openActiveCallScreenWhenReady(0, consumePendingOpenActiveCallData() ?? undefined);
+      }
     })().catch(() => undefined);
 
     return () => {
@@ -651,6 +782,7 @@ const IncomingCallListener = () => {
       unsubTokenRefresh?.();
       unsubNet();
       unsubAppState.remove();
+      unsubOpenCall.remove();
       unsubMessage?.();
       unsubOpenedApp?.();
       unsubNotifee?.();

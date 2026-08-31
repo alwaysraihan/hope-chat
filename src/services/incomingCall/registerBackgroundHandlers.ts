@@ -1,6 +1,7 @@
 import { getApp } from '@react-native-firebase/app';
 import { getMessaging, setBackgroundMessageHandler } from '@react-native-firebase/messaging';
 import notifee, { EventType } from '@notifee/react-native';
+import { DeviceEventEmitter } from 'react-native';
 
 import { store } from '../../redux/store';
 import { HANGUP_ACTION_ID } from '../livekit/liveKitCallForeground';
@@ -24,7 +25,10 @@ import {
   parseIncomingCallPayload,
 } from './payload';
 import { ONGOING_NOTIFICATION_ID } from '../livekit/liveKitCallForeground';
-import { setPendingOpenActiveCall } from '../livekit/pendingCallScreenOpen';
+import {
+  OPEN_ACTIVE_CALL_EVENT,
+  setPendingOpenActiveCall,
+} from '../livekit/pendingCallScreenOpen';
 import {
   startIncomingCallRingtone,
   stopIncomingCallRingtone,
@@ -106,7 +110,21 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     }
 
     if (notifId === ONGOING_NOTIFICATION_ID) {
-      setPendingOpenActiveCall();
+      // Record WHICH call to return to, not merely that a return was requested.
+      // The main context may find no registered call (the screen was backed out
+      // of, or the process was restarted), in which case the room from the
+      // notification is the only way to rebuild the screen.
+      const d = detail.notification?.data as Record<string, string> | undefined;
+      const pending = {
+        liveKitRoom: String(d?.liveKitRoom ?? '').trim(),
+        callKind: String(d?.callKind ?? ''),
+        displayName: String(d?.displayName ?? ''),
+      };
+      setPendingOpenActiveCall(pending);
+      // The flag alone is not enough: if the app is still 'active' (the call
+      // screen was backed out of rather than the app backgrounded) no AppState
+      // transition will ever occur to read it. Tell the live listener directly.
+      DeviceEventEmitter.emit(OPEN_ACTIVE_CALL_EVENT, pending);
       return;
     }
 

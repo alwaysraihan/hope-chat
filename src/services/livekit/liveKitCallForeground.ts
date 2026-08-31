@@ -23,6 +23,35 @@ async function ensureOngoingChannel(): Promise<void> {
 
 export type LiveKitCallForegroundKind = 'audio' | 'video';
 
+/**
+ * Identifies WHICH call the ongoing notification belongs to.
+ *
+ * The notification used to carry no data at all, which quietly broke both of
+ * its buttons once the app was backgrounded: the background handler reads
+ * `notification.data.liveKitRoom` to tell the server the call ended, so with no
+ * data it found an empty room, skipped the server call, and the peer was left
+ * in a call the other side had already hung up on. Tapping the body had the
+ * same problem in reverse — nothing identified the call to navigate back to.
+ */
+export type LiveKitCallForegroundContext = {
+  liveKitRoom: string;
+  displayName: string;
+  kind: LiveKitCallForegroundKind;
+};
+
+function contextData(
+  ctx: LiveKitCallForegroundContext | undefined,
+  kind: LiveKitCallForegroundKind,
+  displayName: string,
+): Record<string, string> {
+  return {
+    liveKitRoom: ctx?.liveKitRoom ?? '',
+    callKind: ctx?.kind ?? kind,
+    displayName: ctx?.displayName ?? displayName,
+    ongoingCall: '1',
+  };
+}
+
 function serviceTypes(
   kind: LiveKitCallForegroundKind,
 ): AndroidForegroundServiceType[] {
@@ -41,6 +70,15 @@ export async function startLiveKitCallForeground(
   displayName: string,
   kind: LiveKitCallForegroundKind,
   statusLine?: string,
+  ctx?: LiveKitCallForegroundContext,
+  /**
+   * Which foreground-service types to claim, when that must differ from the
+   * call kind. Claiming the CAMERA type before the room is connected is what
+   * the delayed video start below exists to avoid, so the connecting-phase
+   * notification passes 'audio' here: the user gets something to tap and hang
+   * up from immediately, without the camera type being claimed early.
+   */
+  serviceKind?: LiveKitCallForegroundKind,
 ): Promise<void> {
   if (Platform.OS !== 'android') return;
   try {
@@ -58,11 +96,12 @@ export async function startLiveKitCallForeground(
       id: ONGOING_NOTIFICATION_ID,
       title: displayName,
       body,
+      data: contextData(ctx, kind, displayName),
       android: {
         channelId: ONGOING_CHANNEL_ID,
         smallIcon: 'ic_stat_notification',
         asForegroundService: true,
-        foregroundServiceTypes: serviceTypes(kind),
+        foregroundServiceTypes: serviceTypes(serviceKind ?? kind),
         ongoing: true,
         colorized: true,
         importance: AndroidImportance.DEFAULT,
@@ -85,12 +124,14 @@ export async function updateLiveKitCallForegroundStatus(
   displayName: string,
   kind: LiveKitCallForegroundKind,
   statusLine: string,
+  ctx?: LiveKitCallForegroundContext,
 ): Promise<void> {
   if (Platform.OS !== 'android') return;
   await notifee.displayNotification({
     id: ONGOING_NOTIFICATION_ID,
     title: displayName,
     body: statusLine,
+    data: contextData(ctx, kind, displayName),
     android: {
       channelId: ONGOING_CHANNEL_ID,
       smallIcon: 'ic_stat_notification',

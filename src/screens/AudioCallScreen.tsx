@@ -137,7 +137,7 @@ function AudioCallGate({
   leaveRef.current = leaveCall;
 
   /** Android: foreground service + ongoing notification so the call survives minimize. */
-  useLiveKitAndroidForeground(room, displayName, 'audio');
+  useLiveKitAndroidForeground(room, displayName, 'audio', room.name);
 
   /**
    * Register the current call so a second incoming call (concurrent-call handling) can tear this

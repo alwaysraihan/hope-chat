@@ -802,7 +802,72 @@ export async function sendHopenityChatMessage(
   return typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
 }
 
-function getUploadMimeType(mediaType: 'image' | 'video' | 'voice'): string {
+/**
+ * The server cross-checks the declared MIME against the file EXTENSION and
+ * rejects the upload when they disagree, so the MIME must follow the actual
+ * file rather than the broad media category.
+ *
+ * Sending every video as `video/mp4` was exactly that disagreement: `video/mp4`
+ * is only valid for `.mp4`/`.m4v`, so a `.mov` from the iOS camera roll — or a
+ * `.3gp`/`.mkv`/`.webm` from an Android gallery — was refused with 415 and the
+ * bubble just failed. Same class of bug as the voice `audio/mpeg` one already
+ * fixed below; this generalises the fix instead of hardcoding one more default.
+ */
+const EXTENSION_MIME_TYPES: Record<string, string> = {
+  // Video — pairs mirror MIME_ALLOWED_EXTENSIONS in the backend's uploadMiddleware.
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/x-m4v',
+  '.mov': 'video/quicktime',
+  '.qt': 'video/quicktime',
+  '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska',
+  '.webm': 'video/webm',
+  '.3gp': 'video/3gpp',
+  '.3g2': 'video/3gpp2',
+  '.mpeg': 'video/mpeg',
+  '.mpg': 'video/mpeg',
+  '.wmv': 'video/x-ms-wmv',
+  '.ts': 'video/mp2t',
+  '.ogv': 'video/ogg',
+  '.flv': 'video/x-flv',
+  // Image
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
+  '.avif': 'image/avif',
+  // Audio
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.wav': 'audio/wav',
+  '.amr': 'audio/amr',
+  '.caf': 'audio/x-caf',
+  '.flac': 'audio/flac',
+};
+
+function extensionOf(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  if (dot < 0) return '';
+  // Strip any query string a content:// or https:// URI may carry.
+  return fileName.slice(dot).split(/[?#]/)[0]!.toLowerCase();
+}
+
+function getUploadMimeType(
+  mediaType: 'image' | 'video' | 'voice',
+  fileName?: string,
+): string {
+  // Prefer the extension the file actually has — that is what the server
+  // validates against.
+  const byExtension = fileName ? EXTENSION_MIME_TYPES[extensionOf(fileName)] : undefined;
+  if (byExtension) return byExtension;
+
   switch (mediaType) {
     case 'image':
       return 'image/jpeg';
@@ -819,8 +884,14 @@ function getUploadMimeType(mediaType: 'image' | 'video' | 'voice'): string {
 
 function getUploadFileName(uri: string, mediaType: 'image' | 'video' | 'voice'): string {
   const parts = uri.split('/');
-  const candidate = parts.pop() ?? '';
-  if (candidate.includes('.')) return candidate;
+  const candidate = (parts.pop() ?? '').split(/[?#]/)[0]!;
+  // Only keep the original name when its extension is one the server actually
+  // recognises. An unknown extension (or a bare `content://` id that merely
+  // happens to contain a dot) would be rejected on the filename alone, so fall
+  // through to a safe default rather than sending something we know fails.
+  if (candidate.includes('.') && EXTENSION_MIME_TYPES[extensionOf(candidate)]) {
+    return candidate;
+  }
   if (mediaType === 'image') return `upload-${Date.now()}.jpg`;
   if (mediaType === 'video') return `upload-${Date.now()}.mp4`;
   // ".dat" matched no allowed extension, so a recording whose URI had no
@@ -905,7 +976,9 @@ export async function uploadChatMedia(
 
   const url = `${API_BASE_URL}/api/v1/upload`;
   const fileName = getUploadFileName(localUri, mediaType);
-  const mimeType = getUploadMimeType(mediaType);
+  // Derived from the RESOLVED filename, so the pair the server receives is
+  // always self-consistent.
+  const mimeType = getUploadMimeType(mediaType, fileName);
 
   const formData = new FormData();
   formData.append('file', {

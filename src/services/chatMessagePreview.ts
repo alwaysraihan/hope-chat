@@ -411,21 +411,37 @@ export function mapApiMessageToTimeline(
     return { text, messageKind: 'call_log', delivery };
   }
 
+  // A voice note is recognised EITHER by its declared type OR by the file it
+  // points at. Type alone was not enough: the send path stores voice notes with
+  // a plain text type, so the message fell through every branch below — the
+  // audio extension matches no image or video pattern — and rendered as the raw
+  // CDN link. That is the "…m4a showing as a URL" bug: the player existed and
+  // was simply never reached.
+  const trimmedText = messageText.trim();
+  const looksLikeAudioOnly =
+    /^https?:\/\/.+\.(m4a|mp3|aac|ogg|oga|opus|wav|amr|3ga|caf|weba|flac)(\?|$)/i.test(
+      trimmedText,
+    );
+
   if (
     combined.includes('voice') ||
-    combined.includes('audio_message') ||
-    rawType === 'voice'
+    combined.includes('audio') ||
+    rawType === 'voice' ||
+    looksLikeAudioOnly
   ) {
     const base = durClock
       ? `🎤 Voice message · ${durClock}`
       : '🎤 Voice message';
-    if (messageText.trim().match(/^https?:\/\//i)) {
+    if (trimmedText.match(/^https?:\/\//i)) {
       return {
         text: base,
         messageKind: 'voice_note',
         media: {
           type: 'voice',
-          remoteUri: messageText.trim(),
+          // AudioPlayer reads `remoteUri ?? url ?? localUri`; populate both so
+          // it resolves regardless of which field a caller looks at.
+          remoteUri: trimmedText,
+          url: trimmedText,
           duration: durationSec ?? 0,
         },
         delivery,
