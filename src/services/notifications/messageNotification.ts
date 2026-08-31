@@ -3,6 +3,8 @@ import notifee, {
   AndroidStyle,
 } from '@notifee/react-native';
 
+import { decryptNotificationBody } from './decryptNotificationBody';
+
 export const MESSAGE_CHANNEL_ID = 'hopechat_messages_v1';
 
 /**
@@ -89,10 +91,17 @@ export async function displayMessagingNotification(
     targetPage?.name && !isDonationRequest
       ? `${baseTitle} → ${targetPage.name}`
       : baseTitle;
+  // Prefer text the DEVICE decrypted. The server can only ever send
+  // "🔒 New message" for an encrypted chat, so without this the banner is
+  // permanently useless — while WhatsApp/Telegram show the real message by
+  // decrypting locally, which is exactly what this does.
+  const decrypted = isDonationRequest ? null : decryptNotificationBody(data);
+
   const body = isDonationRequest
     ? pick(data, 'text', 'body', 'message', 'content') ||
       'Someone is interested in your request.'
-    : pick(data, 'message_preview', 'body', 'message', 'content') ||
+    : decrypted ||
+      pick(data, 'message_preview', 'body', 'message', 'content') ||
       'You have a new message';
 
   await ensureMessagesChannel();

@@ -148,6 +148,10 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   DisappearingMessages: { conversationId?: string } | undefined;
   Settings: undefined;
   MessageRequests: undefined;
+  /** Encryption passphrase: first-time setup, or unlock on a new device. */
+  EncryptionSetup: undefined;
+  /** Out-of-band verification that nobody is intercepting a conversation. */
+  SafetyNumber: { peerUserId?: string; peerName?: string } | undefined;
   Reactions: { conversationId?: string } | undefined;
   VideoCall: {
     displayName?: string;

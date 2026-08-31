@@ -49,6 +49,8 @@ import {
   emitCallWaitingCleared,
 } from '../services/incomingCall/callWaitingBus';
 import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
+import { publishKeys } from '../services/e2ee/keyDirectory';
+import { scheduleArchiveSync } from '../services/e2ee/archive';
 import {
   getActiveCall,
   endActiveCallForReplacement,
@@ -503,6 +505,19 @@ const IncomingCallListener = () => {
       }, 4_000);
 
       await syncFcmToBackend();
+
+      // Publish this device's PUBLIC encryption keys so peers can start a
+      // session with us while we are offline. Runs alongside FCM registration
+      // because both answer the same question — "how do I reach this install?"
+      // Cheap after the first launch: the bundle upserts and one-time prekeys
+      // are only topped up when they run low.
+      {
+        const apiToken = store.getState().auth.token;
+        if (apiToken) void publishKeys(apiToken);
+        // Keep the encrypted history archive current. No-ops unless the vault is
+        // unlocked AND something actually changed, so this is nearly free.
+        if (apiToken) scheduleArchiveSync(apiToken);
+      }
 
       unsubTokenRefresh = onTokenRefresh(messaging, async newToken => {
         const apiToken = store.getState().auth.token;

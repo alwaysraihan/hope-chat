@@ -35,6 +35,9 @@ import {
   deriveGroupMessageKey,
   maybeDecryptGroupContent,
 } from '../services/e2ee/groupConversationCrypto';
+import { isV2Envelope } from '../services/e2ee/secureMessaging';
+import { readPlaintext } from '../services/e2ee/sessionStore';
+import { writeCachedGroupMembers } from '../services/e2ee/groupMemberCache';
 import { isE2eeEnabled } from '../services/chatPrefs';
 import type { ExtendedMessage } from '../components/types/chat';
 import {
@@ -631,11 +634,28 @@ export function mapChatItemToSummary(
   const created = lastRaw.createdAt ?? lastRaw.created_at;
 
   let lastForPreview = lastRaw as ApiLastMessageLike;
+  // HC2 (real E2EE) previews come from the plaintext cache the thread filled
+  // when it decrypted the message. The list must never run the ratchet itself:
+  // ratchet keys are single-use and ordered, so decrypting here would consume a
+  // key the thread still needs and desync the session.
   if (
+    typeof lastForPreview?.content === 'string' &&
+    isV2Envelope(lastForPreview.content)
+  ) {
+    const cached = readPlaintext(
+      String((lastForPreview as { id?: unknown }).id ?? ''),
+    );
+    lastForPreview = {
+      ...lastForPreview,
+      content: cached ?? '🔒 New message',
+    };
+  } else if (
+
     peerUserNorm &&
     typeof lastForPreview.content === 'string' &&
     lastForPreview.content.startsWith('HC1:')
   ) {
+    // NOTE: HC2 previews are handled before this branch — see below.
     const key = deriveConversationMessageKey(
       localId,
       peerUserNorm,
@@ -904,6 +924,29 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           pinned: pinnedIds.has(c.id),
           isMuted: mutedIds.has(c.id),
         }));
+      // Seed the group-member cache from the chat list.
+      //
+      // Group message keys are derived from the member list, and until it is
+      // known a group thread has no key — which is why opening a group flashed
+      // "🔒 Decrypting…" while fetchGroupInfo made a round trip. The list
+      // response ALREADY carries participants, so every group the user can see
+      // gets its key material cached here, long before they tap into one.
+      // Opening a group is then instant, the way WhatsApp/Telegram feel,
+      // because the key derives synchronously from local storage.
+      try {
+        for (const c of chats as any[]) {
+          if (!c?.isGroup || !c?.id) continue;
+          const memberIds: string[] = (c.participants ?? [])
+            .map((p: any) => String(p?.user_id ?? '').trim())
+            .filter(Boolean);
+          if (memberIds.length > 0) {
+            writeCachedGroupMembers(String(c.id), memberIds);
+          }
+        }
+      } catch {
+        // Never let a cache warm-up break the inbox.
+      }
+
       // Stamp each row with its real activity time, then sort explicitly.
       //
       // "Order preserved from server" was true for a fresh fetch but not for the

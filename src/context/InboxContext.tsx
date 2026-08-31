@@ -22,6 +22,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IMessage } from 'react-native-gifted-chat';
 import { Toast } from '../components/Toast';
 import {
+  decryptIncoming,
+  encryptOutgoing,
+  encryptGroupOutgoing,
+  isV2Envelope,
+  rememberOwnMessage,
+} from '../services/e2ee/secureMessaging';
+import { isSenderKeyEnvelope } from '../services/e2ee/senderKey';
+import { cachedPeerDeviceId, resolvePeerKeys } from '../services/e2ee/peerSession';
+import {
   launchCamera,
   launchImageLibrary,
   MediaType,
@@ -553,15 +562,65 @@ export function InboxProvider({
 
       const rawObj = { ...(raw as Record<string, unknown>) };
       const rawContent = String(rawObj.content ?? rawObj.text ?? '').trimStart();
-      if (dmCryptoKey && rawContent.startsWith('HC1:')) {
+      if (isV2Envelope(rawContent) || isSenderKeyEnvelope(rawContent)) {
+        // New scheme. decryptIncoming reads the plaintext cache first, so this
+        // is a cache hit for every message after the first — which is what
+        // keeps a long thread instant instead of re-walking the ratchet.
+        rawObj.content = decryptIncoming(
+          id,
+          _conversationId ?? '',
+          cachedPeerDeviceId(peerUserId ?? '') ?? '',
+          rawContent,
+          { dm: dmCryptoKey, group: groupCryptoKey },
+        );
+      } else if (dmCryptoKey && rawContent.startsWith('HC1:')) {
         rawObj.content = maybeDecryptContent(rawContent, dmCryptoKey);
       } else if (groupCryptoKey && rawContent.startsWith('HCG1:')) {
         rawObj.content = maybeDecryptGroupContent(rawContent, groupCryptoKey);
+      } else if (rawContent.startsWith('HC1:') || rawContent.startsWith('HCG1:')) {
+        // Envelope with no key available YET.
+        //
+        // Group keys are derived from the member list, which needs a network
+        // round trip (fetchGroupInfo), so on first open groupCryptoKey is null
+        // for a moment. The raw envelope used to go straight into message state
+        // and render — that is the "HCG1:…" flash before the text appears.
+        // WhatsApp/Telegram never show this because their keys are local and
+        // decryption happens before the message reaches the UI.
+        //
+        // We cannot make the key local, but we can refuse to render internals:
+        // show a neutral placeholder and let the re-map swap in the real text
+        // when the key lands.
+        rawObj.content = '🔒 Decrypting…';
       }
 
       const parsed = mapApiMessageToTimeline(rawObj);
 
       let media = parsed.media;
+      // HC2 media, decrypted through the same path (and the same cache) as text.
+      if (media?.remoteUri && (isV2Envelope(media.remoteUri) || isSenderKeyEnvelope(media.remoteUri))) {
+        media = {
+          ...media,
+          remoteUri: decryptIncoming(
+            `${id}:remote`,
+            _conversationId ?? '',
+            cachedPeerDeviceId(peerUserId ?? '') ?? '',
+            media.remoteUri,
+            { dm: dmCryptoKey, group: groupCryptoKey },
+          ),
+        };
+      }
+      if (media?.url && (isV2Envelope(media.url) || isSenderKeyEnvelope(media.url))) {
+        media = {
+          ...media,
+          url: decryptIncoming(
+            `${id}:url`,
+            _conversationId ?? '',
+            cachedPeerDeviceId(peerUserId ?? '') ?? '',
+            media.url,
+            { dm: dmCryptoKey, group: groupCryptoKey },
+          ),
+        };
+      }
       if (dmCryptoKey && media?.remoteUri?.startsWith('HC1:')) {
         media = {
           ...media,
@@ -1363,11 +1422,48 @@ export function InboxProvider({
           let wire = plain;
           if (isE2eeEnabled() && plain.length > 0) {
             if (isGroup) {
-              // Wait for the key rather than downgrading: sending before it
-              // resolved used to put a plaintext message into an otherwise
-              // encrypted thread.
-              const gk = await resolveGroupKey();
-              if (gk) wire = encryptGroupMessage(plain, gk);
+              // Sender keys (HCG2) — one ciphertext for the whole group, and a
+              // key the server never sees. The legacy group key derived from the
+              // group id + member list, both of which the server knows, so it
+              // could read every group message; it stays only as a fallback for
+              // members who have not updated yet.
+              const sealed = _conversationId && localUserIdStr
+                ? encryptGroupOutgoing(_conversationId, localUserIdStr, plain)
+                : null;
+              if (sealed) {
+                wire = sealed;
+                rememberOwnMessage(String(stamped._id), plain);
+              } else {
+                const gk = await resolveGroupKey();
+                if (gk) wire = encryptGroupMessage(plain, gk);
+              }
+            } else if (peerUserId && token) {
+              // Real end-to-end (HC2) when the peer has published keys.
+              const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
+              if (keys.mode === 'blocked') {
+                // This conversation has been encrypted before and the peer's
+                // keys have vanished. That is what a downgrade attack looks
+                // like, so refuse to send rather than fall back to the weaker
+                // scheme behind the user's back.
+                updateMessage(stamped._id, { pending: false, failed: true });
+                Toast.error('Could not send securely. Try again in a moment.');
+                return;
+              }
+              if (keys.mode === 'e2ee') {
+                const sealed = encryptOutgoing(_conversationId, keys.bundle, plain);
+                // Remember our own plaintext: the ratchet key for a message we
+                // sent is consumed, so this is the only way to render it back.
+                if (sealed) {
+                  wire = sealed;
+                  rememberOwnMessage(String(stamped._id), plain);
+                } else if (dmCryptoKey) {
+                  wire = encryptMessagePayload(plain, dmCryptoKey);
+                }
+              } else if (dmCryptoKey) {
+                // Peer has not updated yet — legacy scheme keeps the
+                // conversation working instead of breaking it on day one.
+                wire = encryptMessagePayload(plain, dmCryptoKey);
+              }
             } else if (dmCryptoKey) {
               wire = encryptMessagePayload(plain, dmCryptoKey);
             }
@@ -1482,9 +1578,24 @@ export function InboxProvider({
             });
             let wire = remoteUri;
             if (shouldEncryptOutgoing) {
-              wire = isGroup
-                ? encryptGroupMessage(remoteUri, groupCryptoKey!)
-                : encryptMessagePayload(remoteUri, dmCryptoKey!);
+              // Media URLs go through the SAME scheme as text. Leaving them on
+              // the old key meant an upgraded conversation protected what was
+              // said and leaked every photo, video and voice note in it — worse
+              // than not claiming protection at all.
+              let sealedMedia: string | null = null;
+              if (isGroup && _conversationId && localUserIdStr) {
+                sealedMedia = encryptGroupOutgoing(_conversationId, localUserIdStr, remoteUri);
+              } else if (peerUserId && token && _conversationId) {
+                const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
+                if (keys.mode === 'e2ee') {
+                  sealedMedia = encryptOutgoing(_conversationId, keys.bundle, remoteUri);
+                }
+              }
+              wire = sealedMedia
+                ? sealedMedia
+                : isGroup
+                  ? encryptGroupMessage(remoteUri, groupCryptoKey!)
+                  : encryptMessagePayload(remoteUri, dmCryptoKey!);
             }
             const sent = await sendHopenityChatMessage(
               _conversationId,
@@ -1592,9 +1703,24 @@ export function InboxProvider({
             });
             let wire = remoteUri;
             if (shouldEncryptOutgoing) {
-              wire = isGroup
-                ? encryptGroupMessage(remoteUri, groupCryptoKey!)
-                : encryptMessagePayload(remoteUri, dmCryptoKey!);
+              // Media URLs go through the SAME scheme as text. Leaving them on
+              // the old key meant an upgraded conversation protected what was
+              // said and leaked every photo, video and voice note in it — worse
+              // than not claiming protection at all.
+              let sealedMedia: string | null = null;
+              if (isGroup && _conversationId && localUserIdStr) {
+                sealedMedia = encryptGroupOutgoing(_conversationId, localUserIdStr, remoteUri);
+              } else if (peerUserId && token && _conversationId) {
+                const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
+                if (keys.mode === 'e2ee') {
+                  sealedMedia = encryptOutgoing(_conversationId, keys.bundle, remoteUri);
+                }
+              }
+              wire = sealedMedia
+                ? sealedMedia
+                : isGroup
+                  ? encryptGroupMessage(remoteUri, groupCryptoKey!)
+                  : encryptMessagePayload(remoteUri, dmCryptoKey!);
             }
             const sent = await sendHopenityChatMessage(
               _conversationId,

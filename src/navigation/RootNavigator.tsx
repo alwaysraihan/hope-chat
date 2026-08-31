@@ -35,6 +35,8 @@ import ReportProblemScreen from '../screens/ReportProblemScreen';
 import MessagePermissionsScreen from '../screens/MessagePermissionsScreen';
 import RestrictUserScreen from '../screens/RestrictUserScreen';
 import MessageRequestsScreen from '../screens/MessegeRequestScreen';
+import EncryptionSetupScreen from '../screens/EncryptionSetupScreen';
+import SafetyNumberScreen from '../screens/SafetyNumberScreen';
 import ReactionsScreen from '../screens/ReactionsScreen';
 import VideoCallScreen from '../screens/VideoCallScreen';
 import EmailLoginScreen from '../screens/EmailLoginScreen';
@@ -139,6 +141,8 @@ const StackNavigator = () => {
         component={MessagePermissionsScreen}
       />
       <RootStack.Screen name="RestrictUser" component={RestrictUserScreen} />
+      <RootStack.Screen name="EncryptionSetup" component={EncryptionSetupScreen} />
+      <RootStack.Screen name="SafetyNumber" component={SafetyNumberScreen} />
       <RootStack.Screen
         name="MessageRequests"
         component={MessageRequestsScreen}

@@ -23,6 +23,7 @@ import {
   Timer,
   User,
   Phone,
+  Lock,
 } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -266,6 +267,13 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
                 onPress: () => navigation.navigate('BlockedPeople'),
               } as SettingRow,
             ]),
+        {
+          id: 'encryption',
+          icon: <Lock size={20} color={iconColor} />,
+          label: 'Encryption passphrase',
+          sub: 'Needed to read your messages after signing in on a new device',
+          onPress: () => navigation.navigate('EncryptionSetup'),
+        },
         {
           id: 'report',
           icon: <Shield size={20} color={iconColor} />,

@@ -27,6 +27,11 @@ import { store } from '../redux/store';
 import { logOut } from '../redux/features/auth/authSlice';
 import { clearAutoLoginAck } from './chatPrefs';
 import { clearOfflineCacheForLogout } from './offlineCache';
+import { clearAllE2eeData } from './e2ee/sessionStore';
+import { clearPeerIdentities } from './e2ee/safetyNumber';
+import { clearSenderKeys } from './e2ee/senderKey';
+import { clearPeerBundles } from './e2ee/peerSession';
+import { lockArchive } from './e2ee/archive';
 import { getActiveCall } from './livekit/activeCallRegistry';
 import {
   deleteFcmTokenFromHopenity,
@@ -83,6 +88,20 @@ export function performLogout(dispatch: AppDispatch): void {
   //    device. They are keyed per user so the next account never reads them, but
   //    leaving them on disk keeps one person's chat history on a shared phone.
   clearOfflineCacheForLogout();
+
+  // 3b. Wipe encryption state: ratchet sessions, cached plaintext and known
+  //     peer identities. Leaving decrypted message bodies and live sessions on
+  //     a shared device would undo the point of encrypting them.
+  clearAllE2eeData();
+  clearPeerIdentities();
+  // Group sender keys and cached peer bundles are key material too — leaving
+  // them behind on a shared device would let the next account's owner decrypt
+  // the previous user's group traffic.
+  clearSenderKeys();
+  clearPeerBundles();
+  // Drop the in-memory master key so the archive cannot be re-uploaded or read
+  // under the next session.
+  lockArchive();
 
   // 4. Clear the auto-login ack so the next cold start requires "Continue as {name}".
   clearAutoLoginAck();
