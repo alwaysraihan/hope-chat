@@ -45,6 +45,12 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
     if (mediaType === 'video') return '🎬  Video';
     if (mediaType === 'image') return '📷  Photo';
     if (replyTo.text) {
+      // Belt and braces: the quoted text is decrypted upstream now, but if the
+      // conversation key is unavailable (fresh install, key not yet derived)
+      // showing the raw "HC1:…" envelope is worse than saying nothing useful.
+      if (replyTo.text.startsWith('HC1:') || replyTo.text.startsWith('HCG1:')) {
+        return '🔒 Encrypted message';
+      }
       return replyTo.text.length > 80
         ? replyTo.text.slice(0, 80) + '…'
         : replyTo.text;

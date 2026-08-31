@@ -657,11 +657,45 @@ export function InboxProvider({
       const rawReplyTo = raw.replyTo ?? raw.reply_to;
       const replyToSenderPage: Record<string, unknown> | null =
         rawReplyTo?.senderPage ?? rawReplyTo?.sender_page ?? null;
+      // The quoted message needs the SAME treatment as the message itself:
+      // decrypted, and with its media mapped.
+      //
+      //  - text was used raw, so replying to an encrypted message quoted the
+      //    literal "HC1:…" ciphertext.
+      //  - media was hardcoded `undefined`, so a reply to a photo/video/voice
+      //    had nothing to render a thumbnail or a "🎤 Voice message" label from
+      //    and fell through to the text field — which for a media message is
+      //    the raw file URL. That is the "voice shows a link" report.
+      const rawReplyContent = String(
+        rawReplyTo?.content ?? rawReplyTo?.text ?? '',
+      ).trimStart();
+      let replyText = rawReplyContent;
+      if (dmCryptoKey && rawReplyContent.startsWith('HC1:')) {
+        replyText = maybeDecryptContent(rawReplyContent, dmCryptoKey);
+      } else if (groupCryptoKey && rawReplyContent.startsWith('HCG1:')) {
+        replyText = maybeDecryptGroupContent(rawReplyContent, groupCryptoKey);
+      }
+
+      let replyMedia = rawReplyTo
+        ? mapApiMessageToTimeline({ ...rawReplyTo, content: replyText }).media
+        : undefined;
+      if (dmCryptoKey && replyMedia?.url?.startsWith('HC1:')) {
+        replyMedia = { ...replyMedia, url: maybeDecryptContent(replyMedia.url, dmCryptoKey) };
+      }
+      if (dmCryptoKey && replyMedia?.remoteUri?.startsWith('HC1:')) {
+        replyMedia = {
+          ...replyMedia,
+          remoteUri: maybeDecryptContent(replyMedia.remoteUri, dmCryptoKey),
+        };
+      }
+
       const replyToMapped = rawReplyTo
         ? {
             _id: String(rawReplyTo.id ?? rawReplyTo._id ?? ''),
-            text: String(rawReplyTo.content ?? rawReplyTo.text ?? ''),
-            media: undefined,
+            // Media messages carry a URL as their content — showing that as the
+            // quote is meaningless, so let ReplyPreview use its media label.
+            text: replyMedia ? '' : replyText,
+            media: replyMedia,
             user: (() => {
               const uid = String(
                 rawReplyTo.sender?.user_id ?? rawReplyTo.senderUserId ?? rawReplyTo.senderId ?? '',

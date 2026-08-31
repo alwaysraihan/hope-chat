@@ -251,5 +251,9 @@ export async function fetchMyPurchases(
  * (legacy orders) — callers should render those rows as not shareable.
  */
 export function productIdShareUrl(productId: string | undefined): string | null {
-  return productId ? `${HOPPI_BASE_URL}/product/${productId}` : null;
+  if (!productId) return null;
+  // Encode: variant cart lines use composite references that can contain
+  // characters (":", "/", spaces) which would otherwise break the path and make
+  // the receiving card resolve the wrong product — or none at all.
+  return `${HOPPI_BASE_URL}/product/${encodeURIComponent(productId)}`;
 }

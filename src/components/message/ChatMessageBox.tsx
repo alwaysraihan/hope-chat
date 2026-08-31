@@ -72,14 +72,27 @@ type ChatMessageBoxProps = {
 // ─── Link helpers ─────────────────────────────────────────────────────────────
 
 const URL_RE = /(https?:\/\/[^\s]+)/gi;
-const HOPPI_PRODUCT_RE = /^https?:\/\/(www\.)?hoppi\.live\/product\/([a-zA-Z0-9_-]+)/i;
+// The trailing segment is a product REFERENCE, not a tidy slug: a variant line
+// carries composite ids that include characters outside [A-Za-z0-9_-] (and are
+// percent-encoded in the URL). The old class silently truncated at the first
+// such character, so the card looked up a product id that does not exist and
+// rendered nothing — which is why sharing a product VARIANT showed an empty
+// message. Take everything up to a path/query boundary and decode it.
+const HOPPI_PRODUCT_RE = /^https?:\/\/(www\.)?hoppi\.live\/product\/([^/?#\s]+)/i;
 // /post/:id and /post_id/:id both reach a post; feels are posts too.
 const HOPENITY_POST_RE =
   /^https?:\/\/(www\.)?hopenity\.com\/(?:post|post_id|feels)\/([a-zA-Z0-9_-]+)/i;
 
 function extractProductSlug(url: string): string | null {
   const m = url.match(HOPPI_PRODUCT_RE);
-  return m ? m[2] : null;
+  if (m?.[2]) {
+    try {
+      return decodeURIComponent(m[2]);
+    } catch {
+      return m[2];
+    }
+  }
+  return null;
 }
 
 function extractPostId(url: string): string | null {
@@ -222,10 +235,17 @@ function MediaActionSheet({
   url,
   type,
   onClose,
+  onDelete,
 }: {
   url: string | null;
   type: 'image' | 'video';
   onClose: () => void;
+  /**
+   * Only present for the user's own media. Long-pressing media opens THIS sheet,
+   * which swallowed the gesture before the reaction tray (where Delete lives)
+   * could appear — so a photo or video could never be deleted after sending.
+   */
+  onDelete?: () => void;
 }) {
   if (!url) return null;
   const label = type === 'video' ? 'video' : 'photo';
@@ -250,6 +270,24 @@ function MediaActionSheet({
           <Text style={sheet.actionIcon}>{type === 'video' ? '🎬' : '🖼️'}</Text>
           <Text style={sheet.actionText}>Save {label} to gallery</Text>
         </TouchableOpacity>
+        {onDelete ? (
+          <>
+            <View style={sheet.divider} />
+            <TouchableOpacity
+              style={sheet.action}
+              onPress={() => {
+                onClose();
+                onDelete();
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={sheet.actionIcon}>🗑️</Text>
+              <Text style={[sheet.actionText, sheet.destructiveText]}>
+                Delete {label}
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
         <View style={sheet.divider} />
         <TouchableOpacity
           style={sheet.action}
@@ -264,6 +302,7 @@ function MediaActionSheet({
 }
 
 const sheet = StyleSheet.create({
+  destructiveText: { color: '#E5484D' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
   container: {
     backgroundColor: colorss.white,
@@ -308,7 +347,7 @@ const sheet = StyleSheet.create({
 
 export default function ChatMessageBox(props: ChatMessageBoxProps) {
   const { currentMessage, position, onPressReactions, isGroup, onSenderPress } = props;
-  const { handlePressReplyPreview } = useInbox();
+  const { handlePressReplyPreview, handleDelete } = useInbox();
   const msg = currentMessage as ExtendedMessage;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
@@ -552,6 +591,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           url={sheetUrl}
           type={sheetType}
           onClose={() => setSheetUrl(null)}
+          onDelete={isOwn ? () => handleDelete(msg as IMessage) : undefined}
         />
       </Reaction>
     );
@@ -614,6 +654,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             url={sheetUrl}
             type={sheetType}
             onClose={() => setSheetUrl(null)}
+            onDelete={isOwn ? () => handleDelete(msg as IMessage) : undefined}
           />
         </View>
       </Reaction>
