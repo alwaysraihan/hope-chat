@@ -104,6 +104,24 @@ export async function displayMessagingNotification(
       pick(data, 'message_preview', 'body', 'message', 'content') ||
       'You have a new message';
 
+  /**
+   * When the message was sent.
+   *
+   * Android shows no time in the notification header unless BOTH `timestamp`
+   * and `showTimestamp` are set — notifee's own docs: "If no timestamp is set,
+   * this field has no effect." Neither was set, which is why every other app in
+   * the shade showed a time and HopeChat showed none.
+   *
+   * Prefer the server's send time so a push that arrives late (device offline,
+   * doze) is stamped when it was SENT rather than when it landed; fall back to
+   * now when the payload carries no time.
+   */
+  const sentAtRaw = Number(
+    pick(data, 'sentAt', 'sent_at', 'createdAt', 'created_at') || 0,
+  );
+  const sentAt =
+    Number.isFinite(sentAtRaw) && sentAtRaw > 0 ? sentAtRaw : Date.now();
+
   await ensureMessagesChannel();
   await notifee.displayNotification({
     // One notification per chat, so a burst of messages updates the same banner
@@ -115,6 +133,8 @@ export async function displayMessagingNotification(
     android: {
       channelId: MESSAGE_CHANNEL_ID,
       importance: AndroidImportance.HIGH,
+      timestamp: sentAt,
+      showTimestamp: true,
       // Round avatar next to the message, like Messenger.
       // Without an explicit smallIcon Android falls back to the launcher icon and
       // flattens it to a silhouette — the empty ring beside HopeChat messages.
@@ -136,7 +156,7 @@ export async function displayMessagingNotification(
             messages: [
               {
                 text: body,
-                timestamp: Date.now(),
+                timestamp: sentAt,
                 person: {
                   name: title,
                   icon: avatarUrl || undefined,

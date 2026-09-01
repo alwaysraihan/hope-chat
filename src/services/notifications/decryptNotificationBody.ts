@@ -18,6 +18,7 @@
  * server's placeholder. A wrong or partial decrypt must never be shown.
  */
 import { store } from '../../redux/store';
+import { readPersistedHopenityUser } from '../hopenitySharedAuth';
 import {
   deriveConversationMessageKey,
   maybeDecryptContent,
@@ -31,6 +32,34 @@ import { readPlaintext } from '../e2ee/sessionStore';
 
 const DM_PREFIX = 'HC1:';
 const GROUP_PREFIX = 'HCG1:';
+
+/**
+ * Our own user id, resolved in a way that works in the NOTIFICATION context.
+ *
+ * Redux alone is not enough here. The store deliberately "always start[s] with
+ * an empty session" and is hydrated by AuthBootstrap, which is a React
+ * component — it never mounts in the headless JS context that handles a push
+ * while the app is backgrounded or killed. So `auth.profile` was null exactly
+ * when a notification needed it, the DM key could not be derived, and every
+ * banner fell back to the server's "🔒 New message" placeholder.
+ *
+ * MMKV is readable from any JS context, so the persisted session blob is the
+ * reliable source. Redux is still preferred when populated (app in foreground),
+ * since it is the freshest.
+ */
+function localUserIdForNotification(): string {
+  const fromRedux = String(
+    store.getState().auth.profile?.userId ?? '',
+  ).trim();
+  if (fromRedux) return fromRedux;
+
+  try {
+    const u = readPersistedHopenityUser()?.user;
+    return String(u?.user_id ?? u?.userId ?? u?.id ?? u?._id ?? '').trim();
+  } catch {
+    return '';
+  }
+}
 
 export function decryptNotificationBody(
   data: Record<string, string>,
@@ -61,9 +90,7 @@ export function decryptNotificationBody(
     }
 
     if (cipher.startsWith(DM_PREFIX)) {
-      const localUserId = String(
-        store.getState().auth.profile?.userId ?? '',
-      ).trim();
+      const localUserId = localUserIdForNotification();
       const peerUserId = String(
         data.sender_user_id ?? data.senderUserId ?? '',
       ).trim();
