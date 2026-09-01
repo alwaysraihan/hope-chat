@@ -104,6 +104,7 @@ import {
   isCallTransitioning,
 } from '../services/callTransitionGuard';
 import { callSocket } from '../services/callSocket';
+import { leaveGroupCall, notifyGroupCall } from '../services/groupService';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
 
@@ -167,7 +168,7 @@ function VideoCallGate({
   leaveRef.current = leaveCall;
 
   /** Android: foreground service + ongoing notification so the call survives minimize. */
-  useLiveKitAndroidForeground(room, displayName, 'video', room.name);
+  useLiveKitAndroidForeground(room, displayName, 'video', room.name, peerAvatarUrl);
 
   /** Prevent the screen from sleeping while in a video call. */
   useEffect(() => {
@@ -303,6 +304,34 @@ function VideoCallGate({
   csRef.current = cs;
   const outgoing = outcomeOpts.callDirection === 'outgoing';
   const isGroupCallRoute = !!routeParams?.isGroupCall;
+
+  /**
+   * Group calls are tracked server-side so the thread can show a "Join call"
+   * banner and post the join/leave/ended rows. Leaving has to be reported, or
+   * the group keeps offering a call nobody is in.
+   */
+  const groupThreadId = routeParams?.conversationId;
+  useEffect(() => {
+    if (!isGroupCallRoute || !groupThreadId) return;
+    const token = store.getState().auth.token;
+    // Answering the ring joins the call too — without this only the people who
+    // pressed the call button counted as participants, so the banner's count was
+    // wrong and nobody saw "{name} joined the call" for someone who accepted.
+    if (token && routeParams?.callDirection !== 'outgoing') {
+      void notifyGroupCall({
+        groupId: groupThreadId,
+        liveKitRoom: routeParams?.liveKitRoom ?? '',
+        callKind: 'video',
+        token,
+        displayName,
+      });
+    }
+    return () => {
+      const t = store.getState().auth.token;
+      if (t) void leaveGroupCall(groupThreadId, t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGroupCallRoute, groupThreadId]);
 
   // Track whether callee acknowledged the ring so "Calling…" → "Ringing…" only fires
   // when the callee's device is actually ringing, not just when LiveKit has connected.

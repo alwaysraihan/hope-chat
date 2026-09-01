@@ -37,6 +37,8 @@ export type LiveKitCallForegroundContext = {
   liveKitRoom: string;
   displayName: string;
   kind: LiveKitCallForegroundKind;
+  /** Peer / group photo, so the ongoing-call notification is not a bare icon. */
+  avatarUrl?: string | null;
 };
 
 function contextData(
@@ -100,6 +102,9 @@ export async function startLiveKitCallForeground(
       android: {
         channelId: ONGOING_CHANNEL_ID,
         smallIcon: 'ic_stat_notification',
+        // Remote photo of whoever is on the call; launcher icon when there is none.
+        largeIcon: ctx?.avatarUrl || 'ic_launcher',
+        circularLargeIcon: true,
         asForegroundService: true,
         foregroundServiceTypes: serviceTypes(serviceKind ?? kind),
         ongoing: true,
@@ -135,6 +140,8 @@ export async function updateLiveKitCallForegroundStatus(
     android: {
       channelId: ONGOING_CHANNEL_ID,
       smallIcon: 'ic_stat_notification',
+      largeIcon: ctx?.avatarUrl || 'ic_launcher',
+      circularLargeIcon: true,
       asForegroundService: true,
       foregroundServiceTypes: serviceTypes(kind),
       ongoing: true,

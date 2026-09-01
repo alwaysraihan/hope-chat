@@ -29,11 +29,15 @@ export function useLiveKitAndroidForeground(
    * left in a dead call.
    */
   liveKitRoom?: string,
+  /** Peer / group photo for the ongoing-call notification's large icon. */
+  avatarUrl?: string | null,
 ): void {
   const displayRef = useRef(displayName);
   displayRef.current = displayName;
   const roomNameRef = useRef(liveKitRoom);
   roomNameRef.current = liveKitRoom;
+  const avatarRef = useRef(avatarUrl);
+  avatarRef.current = avatarUrl;
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !room) return;
@@ -45,6 +49,7 @@ export function useLiveKitAndroidForeground(
       liveKitRoom: roomNameRef.current ?? '',
       displayName: displayRef.current,
       kind,
+      avatarUrl: avatarRef.current ?? null,
     });
 
     const refreshFs = async (status: string) => {

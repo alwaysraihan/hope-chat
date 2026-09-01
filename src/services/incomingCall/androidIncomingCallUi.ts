@@ -69,6 +69,15 @@ export async function displayAndroidIncomingCallNotification(
     android: {
       channelId: INCOMING_CALL_ANDROID_CHANNEL_ID,
       smallIcon: 'ic_stat_notification',
+      /**
+       * Caller photo (group photo for a group ring). Notifee fetches the remote
+       * URL itself; the launcher icon is the fallback so the ring never shows an
+       * empty circle when the URL is missing or fails to load.
+       */
+      largeIcon:
+        (isGroupRing ? parsed.groupPhotoUrl || parsed.avatarUrl : parsed.avatarUrl) ||
+        'ic_launcher',
+      circularLargeIcon: true,
       category: AndroidCategory.CALL,
       importance: AndroidImportance.HIGH,
       visibility: AndroidVisibility.PUBLIC,

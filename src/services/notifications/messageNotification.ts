@@ -68,7 +68,7 @@ export async function displayMessagingNotification(
     'displayName',
     'callerName',
   );
-  const avatarUrl = pick(
+  const senderAvatarUrl = pick(
     data,
     'sender_image',
     'senderImage',
@@ -79,6 +79,27 @@ export async function displayMessagingNotification(
   );
   const chatId = notificationChatId(data);
 
+  /**
+   * Group messages belong to the GROUP: the banner is titled by the group and
+   * shows the group photo, with the sender named on the message line itself —
+   * the same shape Messenger and WhatsApp use. Titling it by the sender left no
+   * way to tell which group a message came from.
+   */
+  const isGroup = pick(data, 'is_group', 'isGroup', 'isGroupCall') === 'true';
+  const groupName = pick(data, 'group_name', 'groupName');
+  const groupPhoto = pick(data, 'group_photo', 'groupPhoto', 'groupPhotoUrl');
+
+  /**
+   * Notifee downloads `largeIcon` from a remote URL, but a missing/failed URL
+   * leaves an empty circle. The launcher icon is a guaranteed local fallback so
+   * every banner shows SOMETHING recognisable.
+   */
+  const DEFAULT_LARGE_ICON = 'ic_launcher';
+  const avatarUrl = isGroup
+    ? groupPhoto || senderAvatarUrl
+    : senderAvatarUrl;
+  const largeIcon = avatarUrl || DEFAULT_LARGE_ICON;
+
   const isDonationRequest = type === 'DONATION_REQUEST';
   // A message sent TO one of this user's pages is labelled with the page, so an
   // operator running several pages can tell which inbox it belongs to without
@@ -87,8 +108,9 @@ export async function displayMessagingNotification(
   const baseTitle = isDonationRequest
     ? senderName || 'Donation Request'
     : senderName || 'New message';
-  const title =
-    targetPage?.name && !isDonationRequest
+  const title = isGroup
+    ? groupName || 'Group message'
+    : targetPage?.name && !isDonationRequest
       ? `${baseTitle} → ${targetPage.name}`
       : baseTitle;
   // Prefer text the DEVICE decrypted. The server can only ever send
@@ -139,7 +161,7 @@ export async function displayMessagingNotification(
       // Without an explicit smallIcon Android falls back to the launcher icon and
       // flattens it to a silhouette — the empty ring beside HopeChat messages.
       smallIcon: 'ic_stat_notification',
-      largeIcon: avatarUrl || undefined,
+      largeIcon,
       circularLargeIcon: true,
       // MESSAGING style renders it as a conversation with the sender.
       style: isDonationRequest
@@ -153,13 +175,18 @@ export async function displayMessagingNotification(
             // BY you — which is why the avatar circle came up empty while
             // WhatsApp/Messenger/Discord showed the photo.
             person: { name: 'You' },
+            group: isGroup,
+            title: isGroup ? groupName || undefined : undefined,
             messages: [
               {
                 text: body,
                 timestamp: sentAt,
                 person: {
-                  name: title,
-                  icon: avatarUrl || undefined,
+                  // The person on the message is always the SENDER — in a group
+                  // the title is the group, so using it here would attribute
+                  // every message to the group itself.
+                  name: isGroup ? senderName || 'Someone' : title,
+                  icon: (isGroup ? senderAvatarUrl : avatarUrl) || undefined,
                 },
               },
             ],

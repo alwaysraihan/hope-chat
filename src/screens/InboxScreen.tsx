@@ -18,6 +18,7 @@ import {
   TimeProps,
 } from 'react-native-gifted-chat';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Phone as PhoneIcon, Video as VideoIcon } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -45,7 +46,12 @@ import { useAppSelector } from '../hooks/redux';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
-import { notifyGroupCall } from '../services/groupService';
+import {
+  fetchGroupCallState,
+  notifyGroupCall,
+  type GroupCallState,
+} from '../services/groupService';
+import { callSocket } from '../services/callSocket';
 import { getEffectiveAppearance, getConvAppearance } from '../services/chatPrefs';
 import { Toast } from '../components/Toast';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
@@ -98,6 +104,39 @@ const InboxScreenInner: React.FC<
     pageBannerText: {
       fontSize: 12,
       color: colorss.primary,
+    },
+    joinCallBanner: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      backgroundColor: `${colorss.success}1A`,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: `${colorss.success}55`,
+    },
+    joinCallText: {
+      flex: 1,
+      fontSize: 13,
+      color: colorss.textPrimary,
+      fontWeight: '600' as const,
+    },
+    joinCallSub: {
+      fontSize: 11,
+      color: colorss.textSecondary,
+      marginTop: 1,
+      fontWeight: '400' as const,
+    },
+    joinCallBtn: {
+      backgroundColor: colorss.success,
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+      borderRadius: 18,
+    },
+    joinCallBtnText: {
+      color: '#FFFFFF',
+      fontWeight: '700' as const,
+      fontSize: 13,
     },
   }), [colorss]);
   const token = useAppSelector(selectAuthToken);
@@ -258,6 +297,77 @@ const InboxScreenInner: React.FC<
     return () => clearTimeout(t);
   }, [initialText, setInitialText]);
 
+  const peerName = route.params.displayName ?? conversation.name;
+
+  /**
+   * A group's live call. Drives the "Join call" banner so a member who missed
+   * the ring can still walk into the conversation that is already happening —
+   * previously the only way in was to press call, which started a rival room.
+   */
+  const [groupCall, setGroupCall] = useState<GroupCallState | null>(null);
+  useEffect(() => {
+    if (!conversation.isGroup || !token) {
+      setGroupCall(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchGroupCallState(conversation.id, token).then(state => {
+      if (!cancelled) setGroupCall(state?.active ? state : null);
+    });
+    const unsub = callSocket.onGroupCallState(evt => {
+      if (String(evt.threadId) !== String(conversation.id)) return;
+      setGroupCall(
+        evt.active
+          ? {
+              active: true,
+              liveKitRoom: evt.liveKitRoom,
+              callKind: evt.callKind === 'video' ? 'video' : 'audio',
+              startedByUserId: evt.startedByUserId,
+              startedByName: evt.startedByName,
+              participantCount: evt.participantCount,
+            }
+          : null,
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [conversation.isGroup, conversation.id, token]);
+
+  const joinGroupCall = useCallback(async () => {
+    if (!groupCall?.liveKitRoom) return;
+    const kind = groupCall.callKind === 'video' ? 'video' : 'audio';
+    if (!(await ensureCallPermissions(kind))) return;
+    if (token) {
+      // Registers us as a participant and posts "{name} joined the call".
+      void notifyGroupCall({
+        groupId: conversation.id,
+        liveKitRoom: groupCall.liveKitRoom,
+        callKind: kind,
+        token,
+        displayName: peerName,
+      });
+    }
+    navigation.navigate(kind === 'video' ? 'VideoCall' : 'AudioCall', {
+      displayName: peerName,
+      liveKitRoom: groupCall.liveKitRoom,
+      avatarUrl: route.params.avatarUrl ?? conversation.avatarUrl,
+      conversationId: conversation.id,
+      // Joining an in-progress call: not an outgoing ring.
+      callDirection: 'incoming',
+      isGroupCall: true,
+    });
+  }, [
+    groupCall,
+    token,
+    conversation.id,
+    conversation.avatarUrl,
+    peerName,
+    navigation,
+    route.params.avatarUrl,
+  ]);
+
   const audioRoom = useMemo(
     () =>
       resolveLiveKitRoomName({
@@ -275,7 +385,6 @@ const InboxScreenInner: React.FC<
       user._id,
     ],
   );
-  const peerName = route.params.displayName ?? conversation.name;
 
   const headerStatus = useMemo(() => {
     if (conversation.isGroup) {
@@ -564,15 +673,20 @@ const InboxScreenInner: React.FC<
           // attempt) must not be suppressed — room names repeat for a pair.
           clearCallCancelled(audioRoom);
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
+          // A group has ONE call: the server hands back the room of a call that
+          // is already running, so this joins it rather than opening a second
+          // room beside the people already talking.
+          let dispatchRoom = audioRoom;
           if (isGroupDispatch) {
             if (token) {
-              notifyGroupCall({
+              const res = await notifyGroupCall({
                 groupId: conversation.id,
                 liveKitRoom: audioRoom,
                 callKind: 'audio',
                 token,
                 displayName: peerName,
               });
+              if (res?.liveKitRoom) dispatchRoom = res.liveKitRoom;
             }
           } else {
             // Stop on a deliberate refusal — see notifyPeerIncomingHopeChatCall.
@@ -589,7 +703,7 @@ const InboxScreenInner: React.FC<
           }
           navigation.navigate('AudioCall', {
             displayName: peerName,
-            liveKitRoom: audioRoom,
+            liveKitRoom: dispatchRoom,
             avatarUrl: route.params.avatarUrl ?? conversation.avatarUrl,
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
@@ -613,15 +727,18 @@ const InboxScreenInner: React.FC<
           // attempt) must not be suppressed — room names repeat for a pair.
           clearCallCancelled(audioRoom);
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
+          // Join the group's live call when there is one — see the audio path.
+          let dispatchRoom = audioRoom;
           if (isGroupDispatch) {
             if (token) {
-              notifyGroupCall({
+              const res = await notifyGroupCall({
                 groupId: conversation.id,
                 liveKitRoom: audioRoom,
                 callKind: 'video',
                 token,
                 displayName: peerName,
               });
+              if (res?.liveKitRoom) dispatchRoom = res.liveKitRoom;
             }
           } else {
             const ring = await notifyPeerIncomingHopeChatCall({
@@ -637,7 +754,7 @@ const InboxScreenInner: React.FC<
           }
           navigation.navigate('VideoCall', {
             displayName: peerName,
-            liveKitRoom: audioRoom,
+            liveKitRoom: dispatchRoom,
             avatarUrl: route.params.avatarUrl ?? conversation.avatarUrl,
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
@@ -662,6 +779,35 @@ const InboxScreenInner: React.FC<
           })
         }
       />
+
+      {/* A call is live in this group — offer to walk into it. */}
+      {conversation.isGroup && groupCall?.active ? (
+        <View style={acceptStyles.joinCallBanner}>
+          {groupCall.callKind === 'video' ? (
+            <VideoIcon size={18} color={colorss.success} />
+          ) : (
+            <PhoneIcon size={18} color={colorss.success} />
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={acceptStyles.joinCallText} numberOfLines={1}>
+              {groupCall.callKind === 'video' ? 'Video call' : 'Audio call'} in
+              progress
+            </Text>
+            <Text style={acceptStyles.joinCallSub} numberOfLines={1}>
+              {groupCall.participantCount > 0
+                ? `${groupCall.participantCount} in the call`
+                : `Started by ${groupCall.startedByName ?? 'someone'}`}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={acceptStyles.joinCallBtn}
+            onPress={() => void joinGroupCall()}
+            activeOpacity={0.8}
+          >
+            <Text style={acceptStyles.joinCallBtnText}>Join</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {activePage && (
         <View style={acceptStyles.pageBanner}>

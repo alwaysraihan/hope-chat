@@ -102,6 +102,20 @@ function dismissIncomingCallIfShowing(liveKitRoom?: string): void {
  * and calling it here is what left the caller's phone showing "Calling…" forever
  * after the other side declined.
  */
+/**
+ * Every notification surface a call can own, cleared in one place.
+ *
+ * The cancel paths used to clear only the *incoming* notification and the
+ * ringtone, leaving the ongoing-call notification (and its foreground service)
+ * alive after the other side hung up — the tray kept showing a call that no
+ * longer existed, and its Hang up button acted on a dead room.
+ */
+function clearAllCallNotifications(): void {
+  stopIncomingCallRingtone();
+  void cancelAndroidIncomingCallNotification();
+  void stopLiveKitCallForeground().catch(() => undefined);
+}
+
 function endActiveCallIfMatchesRoom(liveKitRoom?: string): void {
   if (!liveKitRoom) return;
   const active = getActiveCall();
@@ -204,28 +218,44 @@ function navigateToActiveCallScreen(): void {
  * or land as a cold-start initial notification — in both cases navigation only
  * becomes possible once we are foregrounded and mounted.
  */
+const OPEN_CALL_MAX_ATTEMPTS = 20;
+
 function openActiveCallScreenWhenReady(
   attempt = 0,
   notifData?: Record<string, string>,
 ): void {
-  if (attempt > 20) return;
   if (!navigationRef.isReady()) {
+    if (attempt >= OPEN_CALL_MAX_ATTEMPTS) return;
     setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
     return;
   }
-  if (!getActiveCall()) {
-    // Keep waiting for the registry — but not forever. A call that is still
-    // connecting has no registered entry yet, and the old code simply gave up
-    // after 3s and left the tap doing nothing. If the notification told us
-    // which call it is, restore the screen from that instead.
-    if (attempt <= 20) {
-      setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
-      return;
-    }
-    navigateToCallFromNotificationData(notifData);
+
+  if (getActiveCall()) {
+    navigateToActiveCallScreen();
     return;
   }
-  navigateToActiveCallScreen();
+
+  /**
+   * No registry entry. Two reasons, and BOTH must be handled or the tap does
+   * nothing at all:
+   *   1. the call is still connecting and hasn't registered yet — wait briefly;
+   *   2. the call screen was unmounted (backed out of, or the process was
+   *      restarted) and will never register — rebuild the screen from the room
+   *      the notification carries.
+   *
+   * The previous version returned on `attempt > 20` at the top of the function,
+   * which made the case-2 fallback below unreachable: after ~3 s of retries the
+   * tap was silently dropped. That is exactly the "notification does nothing"
+   * report — it only ever worked while the screen happened to still be mounted.
+   */
+  // When the notification names the room we do not need the full wait: a short
+  // grace for a still-connecting call, then rebuild from the payload.
+  const maxAttempts = notifData?.liveKitRoom ? 4 : OPEN_CALL_MAX_ATTEMPTS;
+  if (attempt < maxAttempts) {
+    setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
+    return;
+  }
+  navigateToCallFromNotificationData(notifData);
 }
 
 /**
@@ -253,7 +283,10 @@ function navigateToCallFromNotificationData(
         displayName: String(data?.displayName ?? ''),
         liveKitRoom,
         avatarUrl: null,
-        callDirection: 'outgoing' as const,
+        // NOT 'outgoing': this is a re-entry into a call already in progress.
+        // Marking it outgoing restarts the ringback, the 60 s no-answer timer
+        // and the "not connected" call-log row.
+        callDirection: 'incoming' as const,
       }),
       target: state?.key,
     });
@@ -456,8 +489,7 @@ const IncomingCallListener = () => {
       // Withdraw a call-waiting offer if that caller gave up before we answered.
       if (cancelledRoom) emitCallWaitingCleared(cancelledRoom);
       if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
-      stopIncomingCallRingtone();
-      void cancelAndroidIncomingCallNotification();
+      clearAllCallNotifications();
       dismissIncomingCallIfShowing(cancelledRoom);
       endActiveCallIfMatchesRoom(cancelledRoom);
       clearPendingIncomingCall(cancelledRoom);
@@ -650,9 +682,8 @@ const IncomingCallListener = () => {
           const cancelledRoom = data.liveKitRoom || data.room;
           if (cancelledRoom) emitCallWaitingCleared(cancelledRoom);
           if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
-          // Stop any in-process ringtone immediately before anything else.
-          stopIncomingCallRingtone();
-          void cancelAndroidIncomingCallNotification();
+          // Stop every ringing/ongoing surface immediately before anything else.
+          clearAllCallNotifications();
           dismissIncomingCallIfShowing(cancelledRoom);
           endActiveCallIfMatchesRoom(cancelledRoom);
           // Kill any buffered pending navigation that hasn't fired yet — prevents

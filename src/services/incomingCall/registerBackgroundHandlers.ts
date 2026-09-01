@@ -4,7 +4,7 @@ import notifee, { EventType } from '@notifee/react-native';
 import { DeviceEventEmitter } from 'react-native';
 
 import { store } from '../../redux/store';
-import { HANGUP_ACTION_ID } from '../livekit/liveKitCallForeground';
+import { HANGUP_ACTION_ID, stopLiveKitCallForeground } from '../livekit/liveKitCallForeground';
 import { notifyCallEndedByRoom } from '../invitePeerToHopeChatCall';
 
 import {
@@ -250,6 +250,11 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
   if (isCancelled) {
     stopIncomingCallRingtone();
     await cancelAndroidIncomingCallNotification();
+    // The other side ended it: the ongoing-call notification and its foreground
+    // service must go too, or the tray keeps showing a live call that is over.
+    try {
+      await stopLiveKitCallForeground();
+    } catch { /* best-effort */ }
     // If the user pressed "Accept" on the notification before the call was
     // cancelled, discard the stored auto-accept data so the app doesn't
     // join a dead LiveKit room when it next foregrounds.

@@ -25,6 +25,16 @@ type NewMessageListener = (data: {
   message?: Record<string, unknown>;
 }) => void;
 type TypingListener = (data: { chatId: number; userId: string }) => void;
+/** A group has one live call; this keeps every member's "Join call" banner in sync. */
+type GroupCallStateListener = (data: {
+  threadId: string;
+  active: boolean;
+  liveKitRoom: string;
+  callKind: string;
+  startedByUserId: string;
+  startedByName: string;
+  participantCount: number;
+}) => void;
 /** Word effects animate on BOTH devices, so the emoji travels with the event. */
 type WordEffectListener = (data: {
   chatId: string;
@@ -57,6 +67,7 @@ class CallSocketService {
   private nicknamesUpdatedListeners: Set<NicknamesUpdatedListener> = new Set();
   private chatThemeUpdatedListeners: Set<ChatThemeUpdatedListener> = new Set();
   private wordEffectListeners: Set<WordEffectListener> = new Set();
+  private groupCallStateListeners: Set<GroupCallStateListener> = new Set();
 
   connect(authToken: string, userId?: string): void {
     if (this.socket && this.token === authToken) {
@@ -163,6 +174,22 @@ class CallSocketService {
         this.nicknamesUpdatedListeners.forEach(l => {
           try { l({ chatId, nicknames }); } catch { /* */ }
         });
+      });
+      this.socket.on('group_call_state', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const threadId = String(d.threadId ?? d.chatId ?? '');
+        if (!threadId) return;
+        const payload = {
+          threadId,
+          active: d.active === true || d.active === 'true',
+          liveKitRoom: String(d.liveKitRoom ?? ''),
+          callKind: String(d.callKind ?? ''),
+          startedByUserId: String(d.startedByUserId ?? ''),
+          startedByName: String(d.startedByName ?? ''),
+          participantCount: Number(d.participantCount ?? 0),
+        };
+        this.groupCallStateListeners.forEach(l => { try { l(payload); } catch { /* */ } });
       });
       this.socket.on('word_effect', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
@@ -311,6 +338,11 @@ class CallSocketService {
     try {
       this.socket.emit('word_effect', { chatId: Number(chatId), emoji, word });
     } catch { /* */ }
+  }
+
+  onGroupCallState(listener: GroupCallStateListener): () => void {
+    this.groupCallStateListeners.add(listener);
+    return () => this.groupCallStateListeners.delete(listener);
   }
 
   onWordEffect(listener: WordEffectListener): () => void {
