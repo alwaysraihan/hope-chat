@@ -170,8 +170,12 @@ export async function displayMessagingNotification(
    * the same shape Messenger and WhatsApp use. Titling it by the sender left no
    * way to tell which group a message came from.
    */
-  const isGroup = pick(data, 'is_group', 'isGroup', 'isGroupCall') === 'true';
   const groupName = pick(data, 'group_name', 'groupName');
+  // `isGroupCall` is deliberately NOT accepted here — that key belongs to call
+  // payloads. A named group is treated as a group even if the flag is missing,
+  // so an older server build still gets the group layout.
+  const isGroup =
+    pick(data, 'is_group', 'isGroup') === 'true' || groupName.length > 0;
   const groupPhoto = pick(data, 'group_photo', 'groupPhoto', 'groupPhotoUrl');
 
   /**
@@ -204,12 +208,21 @@ export async function displayMessagingNotification(
   // decrypting locally, which is exactly what this does.
   const decrypted = isDonationRequest ? null : decryptNotificationBody(data);
 
-  const body = isDonationRequest
+  const messageText = isDonationRequest
     ? pick(data, 'text', 'body', 'message', 'content') ||
       'Someone is interested in your request.'
     : decrypted ||
       pick(data, 'message_preview', 'body', 'message', 'content') ||
       'You have a new message';
+
+  /**
+   * Collapsed row text. Android shows only title + body when the notification is
+   * not expanded, so in a group the sender has to be in the body — otherwise the
+   * row reads as if the GROUP said it. (Expanded, MessagingStyle names the
+   * sender per line, so the prefix is only for the collapsed view.)
+   */
+  const body =
+    isGroup && senderName ? `${senderName}: ${messageText}` : messageText;
 
   /**
    * When the message was sent.
@@ -237,7 +250,7 @@ export async function displayMessagingNotification(
   const history: HistoryLine[] = [
     ...previous,
     {
-      text: body,
+      text: messageText,
       timestamp: sentAt,
       senderName: isGroup ? senderName || 'Someone' : title,
       senderIcon: (isGroup ? senderAvatarUrl : avatarUrl) || undefined,
