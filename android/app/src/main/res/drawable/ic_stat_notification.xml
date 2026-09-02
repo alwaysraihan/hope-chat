@@ -1,13 +1,15 @@
 <!--
-  Status-bar / small notification icon.
+  Status-bar / small notification icon — the HopeChat mark.
 
   Android renders the small icon as a SILHOUETTE: every non-transparent pixel is
-  painted in the notification tint, so it must be a flat white-on-transparent
-  shape. There was no such drawable at all, so notifications fell back to the
-  launcher icon, which the system flattened into the empty ring seen next to
-  HopeChat messages while WhatsApp/Messenger/Discord showed a proper mark.
+  repainted in the notification tint, so this must be a flat white-on-transparent
+  shape with no colour of its own. It is also what Android badges over the large
+  icon in MessagingStyle — the little app mark in the corner of the sender's
+  photo, exactly like WhatsApp. It was a generic speech bubble, so that badge did
+  not read as HopeChat.
 
-  A vector is used so it scales to every density without shipping six PNGs.
+  Traced from ic_launcher_foreground: bubble outline + "H" + smile. Strokes are
+  1.7dp so the shape survives the 24dp status-bar render.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -15,8 +17,41 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFFFF">
-  <!-- Speech bubble with a tail: reads clearly at 24dp in a status bar. -->
+
+  <!-- Speech bubble with the tail at the lower left. -->
   <path
-      android:fillColor="#FFFFFFFF"
-      android:pathData="M12,3C7.03,3 3,6.58 3,11c0,2.27 1.07,4.31 2.79,5.74C5.6,17.9 4.96,19.1 4,20c1.86,-0.13 3.3,-0.72 4.35,-1.35C9.5,18.87 10.72,19 12,19c4.97,0 9,-3.58 9,-8S16.97,3 12,3z" />
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="1.7"
+      android:strokeLineCap="round"
+      android:strokeLineJoin="round"
+      android:fillColor="#00000000"
+      android:pathData="M12,2.9c4.8,0 8.6,3.7 8.6,8.2c0,4.5 -3.8,8.2 -8.6,8.2c-1,0 -2,-0.2 -2.9,-0.5l-3.2,1.9c-0.4,0.2 -0.9,-0.2 -0.8,-0.7l0.6,-2.4C3.6,16.1 2.4,13.9 2.4,11.1C2.4,6.6 6.3,2.9 12,2.9z" />
+
+  <!-- The "H": two uprights crossed by the diagonal. -->
+  <path
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="1.7"
+      android:strokeLineCap="round"
+      android:fillColor="#00000000"
+      android:pathData="M9.9,7.4L9.9,12.4" />
+  <path
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="1.7"
+      android:strokeLineCap="round"
+      android:fillColor="#00000000"
+      android:pathData="M14.1,7.4L14.1,12.4" />
+  <path
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="1.7"
+      android:strokeLineCap="round"
+      android:fillColor="#00000000"
+      android:pathData="M8.7,11.2L15.3,8.6" />
+
+  <!-- Smile. -->
+  <path
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="1.7"
+      android:strokeLineCap="round"
+      android:fillColor="#00000000"
+      android:pathData="M9,13.9c0.7,1.2 1.8,1.9 3,1.9c1.2,0 2.3,-0.7 3,-1.9" />
 </vector>

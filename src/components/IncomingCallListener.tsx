@@ -55,6 +55,7 @@ import {
   getActiveCall,
   endActiveCallForReplacement,
   endActiveCallForRemoteHangup,
+  readPersistedActiveCall,
 } from '../services/livekit/activeCallRegistry';
 import {
   HANGUP_ACTION_ID,
@@ -255,7 +256,25 @@ function openActiveCallScreenWhenReady(
     setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
     return;
   }
-  navigateToCallFromNotificationData(notifData);
+  /**
+   * Last resort: the process was restarted, so nothing is registered and the
+   * notification may not have carried the room either (older builds). The
+   * on-disk mirror of the live call still has the params to re-enter it.
+   */
+  const persisted = readPersistedActiveCall();
+  navigateToCallFromNotificationData(
+    notifData?.liveKitRoom
+      ? notifData
+      : persisted
+        ? {
+            liveKitRoom: persisted.liveKitRoom,
+            callKind: persisted.kind,
+            displayName: String(
+              (persisted.screenParams?.displayName as string) ?? '',
+            ),
+          }
+        : undefined,
+  );
 }
 
 /**
@@ -278,11 +297,18 @@ function navigateToCallFromNotificationData(
       navigateToActiveCallScreen();
       return;
     }
+    // Prefer the exact params the screen was mounted with — they carry the
+    // conversation id, avatar and group flag that a bare push payload lacks.
+    const persisted = readPersistedActiveCall();
+    const savedParams =
+      persisted?.liveKitRoom === liveKitRoom ? persisted.screenParams : undefined;
     navigationRef.dispatch({
       ...StackActions.push(targetRoute, {
-        displayName: String(data?.displayName ?? ''),
+        ...(savedParams ?? {}),
+        displayName:
+          String(savedParams?.displayName ?? data?.displayName ?? ''),
         liveKitRoom,
-        avatarUrl: null,
+        avatarUrl: (savedParams?.avatarUrl as string | null) ?? null,
         // NOT 'outgoing': this is a re-entry into a call already in progress.
         // Marking it outgoing restarts the ringback, the 60 s no-answer timer
         // and the "not connected" call-log row.

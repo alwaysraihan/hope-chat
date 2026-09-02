@@ -24,6 +24,7 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { InboxProvider, useInbox } from '../context/InboxContext';
 import WordEffectOverlay from '../components/WordEffectOverlay';
+import { clearChatNotification } from '../services/notifications/messageNotification';
 import { clearCallCancelled } from '../services/incomingCall/navigateIncomingCall';
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import ForwardModal from '../components/message/ForwardModal';
@@ -170,6 +171,15 @@ const InboxScreenInner: React.FC<
   // Block means no text AND no call — re-checked on every focus so an
   // in-session block/unblock (from Profile or the conversation menu) is reflected.
   const [isBlocked, setIsBlocked] = useState(false);
+  // Reading a chat clears its banner — a shade full of messages the user is
+  // currently looking at is the classic "notifications feel broken" complaint.
+  useFocusEffect(
+    useCallback(() => {
+      void clearChatNotification(conversation.id);
+      return undefined;
+    }, [conversation.id]),
+  );
+
   useFocusEffect(
     useCallback(() => {
       if (!token || conversation.isGroup) return undefined;

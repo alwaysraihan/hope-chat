@@ -8,6 +8,91 @@ import { decryptNotificationBody } from './decryptNotificationBody';
 export const MESSAGE_CHANNEL_ID = 'hopechat_messages_v1';
 
 /**
+ * ONE group for every chat notification, plus a summary row — the WhatsApp
+ * shade layout ("2 messages from 2 chats", expandable into one row per chat).
+ *
+ * Each chat previously had its OWN groupId, so Android never had a group to
+ * summarise: notifications stacked as unrelated banners with no roll-up.
+ */
+const MESSAGE_GROUP_ID = 'hopechat_messages';
+const SUMMARY_NOTIFICATION_ID = 'hopechat_messages_summary';
+
+/** How many past lines a single chat's expanded notification keeps. */
+const MAX_HISTORY = 6;
+
+type HistoryLine = { text: string; timestamp: number; senderName: string; senderIcon?: string };
+
+/**
+ * Previous lines for this chat, read back off the notification already in the
+ * shade. Android keeps our `data` payload, so the thread's history survives
+ * without any storage of our own.
+ */
+async function readHistory(notificationId: string): Promise<HistoryLine[]> {
+  try {
+    const displayed = await notifee.getDisplayedNotifications();
+    const existing = displayed.find(n => n.id === notificationId);
+    const raw = (existing?.notification?.data as Record<string, string> | undefined)?.history;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as HistoryLine[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Roll-up row shown above the individual chats. Android requires a group
+ * summary before it will collapse a group; without one each chat sits loose in
+ * the shade.
+ */
+async function refreshSummary(): Promise<void> {
+  try {
+    const displayed = await notifee.getDisplayedNotifications();
+    const chats = displayed.filter(
+      n =>
+        n.notification?.android?.channelId === MESSAGE_CHANNEL_ID &&
+        n.id !== SUMMARY_NOTIFICATION_ID,
+    );
+    if (chats.length === 0) {
+      await notifee.cancelNotification(SUMMARY_NOTIFICATION_ID);
+      return;
+    }
+
+    let messageCount = 0;
+    for (const n of chats) {
+      const raw = (n.notification?.data as Record<string, string> | undefined)?.history;
+      try {
+        const parsed = raw ? JSON.parse(raw) : null;
+        messageCount += Array.isArray(parsed) ? parsed.length : 1;
+      } catch {
+        messageCount += 1;
+      }
+    }
+
+    // A single chat needs no roll-up — WhatsApp shows the chat alone too.
+    if (chats.length < 2) {
+      await notifee.cancelNotification(SUMMARY_NOTIFICATION_ID);
+      return;
+    }
+
+    await notifee.displayNotification({
+      id: SUMMARY_NOTIFICATION_ID,
+      title: 'HopeChat',
+      body: `${messageCount} message${messageCount === 1 ? '' : 's'} from ${chats.length} chats`,
+      android: {
+        channelId: MESSAGE_CHANNEL_ID,
+        smallIcon: 'ic_stat_notification',
+        groupId: MESSAGE_GROUP_ID,
+        groupSummary: true,
+        pressAction: { id: 'default', launchActivity: 'default' },
+      },
+    });
+  } catch {
+    /* the individual notifications are what matter — a missing summary is cosmetic */
+  }
+}
+
+/**
  * FCM data.type values that are allowed to produce a push notification.
  * Calls are handled separately via the call-notification path.
  * FRIEND_REQUEST / FRIEND_REQUEST_ACCEPTED belong to Hopenity — only Hopenity
@@ -144,14 +229,29 @@ export async function displayMessagingNotification(
   const sentAt =
     Number.isFinite(sentAtRaw) && sentAtRaw > 0 ? sentAtRaw : Date.now();
 
+  const notificationId = chatId ? `msg_${chatId}` : `msg_${Date.now()}`;
+
+  // Append to whatever this chat already shows, so an expanded notification
+  // reads as a conversation instead of replacing the previous line.
+  const previous = isDonationRequest ? [] : await readHistory(notificationId);
+  const history: HistoryLine[] = [
+    ...previous,
+    {
+      text: body,
+      timestamp: sentAt,
+      senderName: isGroup ? senderName || 'Someone' : title,
+      senderIcon: (isGroup ? senderAvatarUrl : avatarUrl) || undefined,
+    },
+  ].slice(-MAX_HISTORY);
+
   await ensureMessagesChannel();
   await notifee.displayNotification({
     // One notification per chat, so a burst of messages updates the same banner
     // instead of stacking a dozen of them.
-    id: chatId ? `msg_${chatId}` : undefined,
+    id: notificationId,
     title,
     body,
-    data,
+    data: { ...data, history: JSON.stringify(history) },
     android: {
       channelId: MESSAGE_CHANNEL_ID,
       importance: AndroidImportance.HIGH,
@@ -177,26 +277,42 @@ export async function displayMessagingNotification(
             person: { name: 'You' },
             group: isGroup,
             title: isGroup ? groupName || undefined : undefined,
-            messages: [
-              {
-                text: body,
-                timestamp: sentAt,
-                person: {
-                  // The person on the message is always the SENDER — in a group
-                  // the title is the group, so using it here would attribute
-                  // every message to the group itself.
-                  name: isGroup ? senderName || 'Someone' : title,
-                  icon: (isGroup ? senderAvatarUrl : avatarUrl) || undefined,
-                },
+            messages: history.map(line => ({
+              text: line.text,
+              timestamp: line.timestamp,
+              person: {
+                // The person on a message is always the SENDER — in a group the
+                // title is the group, so using it here would attribute every
+                // message to the group itself.
+                name: line.senderName,
+                icon: line.senderIcon,
               },
-            ],
+            })),
           },
-      groupId: chatId ? `chat_${chatId}` : undefined,
+      groupId: MESSAGE_GROUP_ID,
       pressAction: { id: 'default', launchActivity: 'default' },
     },
     ios: {
       attachments: avatarUrl ? [{ url: avatarUrl }] : undefined,
       threadId: chatId ? `chat_${chatId}` : undefined,
+      // iOS rolls its own summary up from the thread id.
+      summaryArgument: isGroup ? groupName || senderName : senderName,
     },
   });
+
+  await refreshSummary();
+}
+
+/**
+ * Drop a chat's notification (and refresh the roll-up) — called when the user
+ * opens that conversation, so the shade matches what they have actually read.
+ */
+export async function clearChatNotification(chatId: string): Promise<void> {
+  if (!chatId) return;
+  try {
+    await notifee.cancelNotification(`msg_${chatId}`);
+    await refreshSummary();
+  } catch {
+    /* best-effort */
+  }
 }
