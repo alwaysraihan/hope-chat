@@ -67,7 +67,7 @@ class HopeChatCallRingtoneModule(private val reactContext: ReactApplicationConte
    */
   @ReactMethod
   fun setKeepScreenOn(on: Boolean) {
-    val activity = currentActivity ?: return
+    val activity = reactContext.currentActivity ?: return
     // Window flags must be touched on the UI thread.
     activity.runOnUiThread {
       try {
