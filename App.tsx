@@ -154,6 +154,8 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
           // and unnecessary because chatId short-circuits the peer lookup.
           peerId: '',
           chatId: decodeURIComponent(tm[1]),
+          displayName: parseQs(qs, 'name'),
+          avatarUrl: parseQs(qs, 'avatar') ?? null,
           senderPageId: parseQs(qs, 'senderPageId') ?? null,
           senderPageName: parseQs(qs, 'senderPageName') ?? null,
           senderPageImage: parseQs(qs, 'senderPageImage') ?? null,

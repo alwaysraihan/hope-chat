@@ -465,6 +465,16 @@ const InboxScreenInner: React.FC<
   );
   const [sharingPost, setSharingPost] = useState(false);
 
+  // route.params.pendingShare only seeds the initial mount — when this screen is
+  // already focused (user shares again into the same open chat), React Navigation
+  // merges the new params into the existing route without remounting, so the
+  // useState initializer above never re-runs. Sync it live instead.
+  useEffect(() => {
+    if (route.params.pendingShare) {
+      setPendingShare(route.params.pendingShare);
+    }
+  }, [route.params.pendingShare]);
+
   const sendPendingShare = useCallback(async () => {
     const share = pendingShare;
     if (!share || sharingPost) return;

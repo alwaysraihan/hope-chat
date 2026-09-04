@@ -231,7 +231,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       if (!peerId && chatId) {
         navigation.navigate('Inbox', {
           conversationId: chatId,
-          displayName: displayName ?? '',
+          displayName: displayName ?? undefined,
           avatarUrl: avatarUrl ?? null,
           pendingShare: share ?? undefined,
         });
