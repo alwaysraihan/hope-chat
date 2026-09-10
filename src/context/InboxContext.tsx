@@ -816,6 +816,15 @@ export function InboxProvider({
   const mapHopenityMessageRef = useRef(mapHopenityMessage);
   mapHopenityMessageRef.current = mapHopenityMessage;
 
+  // seedMessages gets a new array reference on almost every inbox poll (the
+  // whole `conversations` list re-renders for unrelated previews/unread
+  // counts), not just when this thread's own messages change. Reading it via
+  // ref keeps the initial-load effect below off that churn — without this it
+  // was in the effect's deps and re-ran on every poll, resetting pageRef to 1
+  // and discarding any older messages "load earlier" had just prepended.
+  const seedMessagesRef = useRef(seedMessages);
+  seedMessagesRef.current = seedMessages;
+
   const messagesForUi = useMemo(() => {
     if (disappearingTtlSec <= 0) return messages;
     const now = Date.now();
@@ -899,7 +908,7 @@ export function InboxProvider({
       _conversationId && token
         ? readThreadMessagesCache(_conversationId)
         : null;
-    const fromSeed = seedMessages?.length ? seedMessages : [];
+    const fromSeed = seedMessagesRef.current?.length ? seedMessagesRef.current : [];
     const base = fromSeed.length
       ? fromSeed
       : cached?.length
@@ -981,13 +990,13 @@ export function InboxProvider({
     };
 
     load();
-    // mapHopenityMessage is intentionally NOT a dependency — see
-    // mapHopenityMessageRef above. This effect should only run on a genuine
-    // conversation switch / reconnect, not every time the group crypto key
-    // resolves (that's handled by the retro-decrypt pass + fresh polls).
+    // mapHopenityMessage and seedMessages are intentionally NOT dependencies —
+    // see mapHopenityMessageRef / seedMessagesRef above. This effect should
+    // only run on a genuine conversation switch / reconnect, not every time
+    // the group crypto key resolves or the inbox list re-renders (those are
+    // handled by the retro-decrypt pass + fresh polls / loadEarlier).
   }, [
     _conversationId,
-    seedMessages,
     token,
     threadIntroPeer,
     mergeLocalCallLogsFromCache,

@@ -91,8 +91,8 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
             >
               {name || 'Chat'}
             </Text>
-            {isVerified ? <VerifiedBadge size={14} /> : null}
-            {isEncrypted ? (
+            {isVerified ? <VerifiedBadge size={14} variant="black" /> : null}
+            {isEncrypted && !isVerified ? (
               <Lock size={11} color="rgba(255,255,255,0.85)" style={styles.lockIcon} />
             ) : null}
           </View>

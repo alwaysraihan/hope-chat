@@ -951,6 +951,7 @@ const InboxScreenInner: React.FC<
             renderInputToolbar={renderInputToolbar}
             renderMessage={renderMessage}
             isTyping={peerIsTyping}
+            listProps={{ showsVerticalScrollIndicator: false }}
             loadEarlier={hasMore}
             infiniteScroll
             renderLoadEarlier={() => <></>}
