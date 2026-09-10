@@ -11,7 +11,6 @@ import {
   View,
 } from 'react-native';
 import { LucideArrowLeft, Moon, Sun } from 'lucide-react-native';
-import { colorss } from '../theme';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import {
   getChatAppearance,
@@ -132,9 +131,9 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
             saveAppearance({ themePresetId: isDark ? 1 : 2 });
             setSelectedTheme(isDark ? 1 : 2);
           }}
-          trackColor={{ false: colorss.border, true: colors.accent }}
-          thumbColor={colorss.white}
-          ios_backgroundColor={colorss.border}
+          trackColor={{ false: colors.border, true: colors.accent }}
+          thumbColor={colors.white}
+          ios_backgroundColor={colors.border}
         />
       </View> */}
 
@@ -154,7 +153,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
               <View
                 style={[
                   styles.imageWrapper,
-                  active && { borderColor: colorss.primary, borderWidth: 2 },
+                  active && { borderColor: colors.primary, borderWidth: 2 },
                 ]}
               >
                 <Image
@@ -179,7 +178,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
               onChangeText={setWallpaperUri}
               onBlur={() => saveAppearance({ wallpaperUri: wallpaperUri.trim() || null })}
               placeholder="https://…"
-              placeholderTextColor={colorss.placeholder}
+              placeholderTextColor={colors.placeholder}
               style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.inputBg }]}
               autoCapitalize="none"
               autoCorrect={false}
@@ -200,7 +199,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
                 })
               }
               placeholder="❤️ 👍 😂 …"
-              placeholderTextColor={colorss.placeholder}
+              placeholderTextColor={colors.placeholder}
               style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.inputBg }]}
             /> */}
           </View>

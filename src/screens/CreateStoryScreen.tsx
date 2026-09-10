@@ -935,7 +935,7 @@ export default CreateStoryScreen;
 
 const stylesFunc = (colorss: AppColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colorss.white },
+    safe: { flex: 1, backgroundColor: colorss.background },
 
     header: {
       flexDirection: 'row',

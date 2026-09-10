@@ -13,7 +13,7 @@ const BackHeader = ({ title, navigation }: { title: string; navigation: any }) =
       paddingVertical: 10,
       borderBottomWidth: 1,
       borderBottomColor: colorss.border,
-      backgroundColor: colorss.cardBg,
+      backgroundColor: colorss.background,
     },
     backBtn: {
       width: 36,

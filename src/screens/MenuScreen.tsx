@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -45,6 +44,7 @@ import { performLogout } from '../services/logout';
 import { fetchMyPages, type OwnedPage } from '../services/pageService';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import { useAppTheme } from '../context/ThemeContext';
+import ConfirmSheet from '../components/ConfirmSheet';
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Menu'>,
   NativeStackScreenProps<RootStackNavigatorParamList>
@@ -81,15 +81,15 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
     activePage?.name ?? profile?.displayName ?? 'HopeChat User';
   const currentImage = activePage?.image ?? profile?.avatarUrl ?? null;
 
+  const [logoutSheetVisible, setLogoutSheetVisible] = useState(false);
+
   const handleLogout = () => {
-    Alert.alert(t.logout_confirm_title, t.logout_confirm_message, [
-      { text: t.cancel, style: 'cancel' },
-      {
-        text: t.logout,
-        style: 'destructive',
-        onPress: () => performLogout(dispatch),
-      },
-    ]);
+    setLogoutSheetVisible(true);
+  };
+
+  const confirmLogout = () => {
+    setLogoutSheetVisible(false);
+    performLogout(dispatch);
   };
 
   const menuItems = [
@@ -455,6 +455,17 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <ConfirmSheet
+        visible={logoutSheetVisible}
+        title={t.logout_confirm_title}
+        message={t.logout_confirm_message}
+        confirmLabel={t.logout}
+        cancelLabel={t.cancel}
+        destructive
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutSheetVisible(false)}
+      />
     </SafeAreaView>
   );
 };

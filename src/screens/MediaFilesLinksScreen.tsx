@@ -99,7 +99,7 @@ export default MediaFilesLinksScreen;
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
   },
 
   list: {

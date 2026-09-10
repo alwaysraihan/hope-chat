@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Alert,
   Linking,
   ScrollView,
   StyleSheet,
@@ -28,7 +27,6 @@ import {
 import FastImage from '@d11/react-native-fast-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { colorss } from '../theme';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
@@ -43,6 +41,7 @@ import { useT } from '../hooks/useT';
 import { performLogout } from '../services/logout';
 import { useAppTheme } from '../context/ThemeContext';
 import { isE2eeEnabled, setE2eeEnabled } from '../services/chatPrefs';
+import ConfirmSheet from '../components/ConfirmSheet';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Settings'>;
 
@@ -100,27 +99,25 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
   const iconColor = colors.textPrimary;
 
+  const [logoutSheetVisible, setLogoutSheetVisible] = React.useState(false);
+
   const handleLogout = () => {
-    Alert.alert(t.logout_confirm_title, t.logout_confirm_message, [
-      { text: t.cancel, style: 'cancel' },
-      {
-        text: t.logout,
-        style: 'destructive',
-        onPress: () => {
-          if (navigation.canGoBack()) navigation.goBack();
-          setTimeout(() => performLogout(dispatch), 50);
-        },
-      },
-    ]);
+    setLogoutSheetVisible(true);
+  };
+
+  const confirmLogout = () => {
+    setLogoutSheetVisible(false);
+    if (navigation.canGoBack()) navigation.goBack();
+    setTimeout(() => performLogout(dispatch), 50);
   };
 
   const E2eeSwitch = (
     <Switch
       value={e2eeOn}
       onValueChange={v => { setE2eeOn(v); setE2eeEnabled(v); }}
-      trackColor={{ false: colorss.border, true: colors.accent }}
-      thumbColor={colorss.white}
-      ios_backgroundColor={colorss.border}
+      trackColor={{ false: colors.border, true: colors.accent }}
+      thumbColor={colors.white}
+      ios_backgroundColor={colors.border}
     />
   );
 
@@ -135,9 +132,9 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           if (!ok) setAllowCalls(previous ?? true);
         });
       }}
-      trackColor={{ false: colorss.border, true: colors.accent }}
-      thumbColor={colorss.white}
-      ios_backgroundColor={colorss.border}
+      trackColor={{ false: colors.border, true: colors.accent }}
+      thumbColor={colors.white}
+      ios_backgroundColor={colors.border}
     />
   );
 
@@ -152,9 +149,9 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           if (!ok) setPageCallsOn(previous ?? true);
         });
       }}
-      trackColor={{ false: colorss.border, true: colors.accent }}
-      thumbColor={colorss.white}
-      ios_backgroundColor={colorss.border}
+      trackColor={{ false: colors.border, true: colors.accent }}
+      thumbColor={colors.white}
+      ios_backgroundColor={colors.border}
     />
   );
 
@@ -302,7 +299,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       style={[styles.safe, { backgroundColor: colors.background }]}
       
     >
-      <View style={[styles.header, {paddingTop: insets.top, backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, {paddingTop: insets.top, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={24} color={colors.textPrimary} />
         </TouchableOpacity>
@@ -384,10 +381,10 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           <View style={[styles.sectionCard, { backgroundColor: colors.cardBg }]}>
             <TouchableOpacity style={styles.row} onPress={handleLogout} activeOpacity={0.7}>
               <View style={styles.rowIcon}>
-                <LogOut size={20} color={colorss.error} />
+                <LogOut size={20} color={colors.error} />
               </View>
               <View style={styles.rowContent}>
-                <Text style={[styles.rowLabel, { color: colorss.error }]}>{t.logout}</Text>
+                <Text style={[styles.rowLabel, { color: colors.error }]}>{t.logout}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -395,6 +392,17 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <ConfirmSheet
+        visible={logoutSheetVisible}
+        title={t.logout_confirm_title}
+        message={t.logout_confirm_message}
+        confirmLabel={t.logout}
+        cancelLabel={t.cancel}
+        destructive
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutSheetVisible(false)}
+      />
     </View>
   );
 };

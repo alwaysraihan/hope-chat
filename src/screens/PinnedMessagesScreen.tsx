@@ -31,7 +31,7 @@ export default PinnedMessagesScreen;
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
   },
   emptyState: {
     flex: 1,

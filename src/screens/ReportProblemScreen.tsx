@@ -179,7 +179,7 @@ export default ReportProblemScreen;
 
 const stylesFunc = (colorss: AppColors) =>
   StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: colorss.white },
+    safeArea: { flex: 1, backgroundColor: colorss.background },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

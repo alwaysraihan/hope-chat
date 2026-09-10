@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colorss } from '../theme';
+import { AppColors } from '../context/ThemeContext';
 import { useColors } from '../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 import {
@@ -57,6 +57,7 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'GroupInfo'>;
 
 const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
   const colorss = useColors();
+  const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const { groupId, conversationId } = route.params;
   const token = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);
@@ -462,10 +463,10 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
 
 export default GroupInfoScreen;
 
-const styles = StyleSheet.create({
+const stylesFunc = (colorss: AppColors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
   },
   scroll: {
     paddingBottom: 40,

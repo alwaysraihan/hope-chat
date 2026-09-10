@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colorss } from '../theme';
+import { AppColors } from '../context/ThemeContext';
 import { useColors } from '../hooks/useColors';
 import { Search } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
@@ -25,6 +25,7 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'NewGroup'>;
 
 export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
   const colorss = useColors();
+  const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const { conversations, listLoading } = useChats();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -161,10 +162,10 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const stylesFunc = (colorss: AppColors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
   },
   container: {
     flex: 1,

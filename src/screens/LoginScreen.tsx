@@ -17,7 +17,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import FastImage from '@d11/react-native-fast-image';
 
-import { colorss } from '../theme';
+import { AppColors } from '../context/ThemeContext';
 import hopenityLogo from '../assets/hopenity.png';
 import { useAppDispatch } from '../hooks/redux';
 import { setHopenitySession } from '../redux/features/auth/authSlice';
@@ -52,6 +52,7 @@ type Props = NativeStackScreenProps<Record<string, undefined>, 'Login'>;
 
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const colorss = useColors();
+  const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const t = useT();
   const dispatch = useAppDispatch();
 
@@ -293,10 +294,10 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
 
 export default LoginScreen;
 
-const styles = StyleSheet.create({
+const stylesFunc = (colorss: AppColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
   },
   content: {
     flexGrow: 1,
@@ -378,7 +379,7 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   primaryBtnText: {
-    color: colorss.white,
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
   },

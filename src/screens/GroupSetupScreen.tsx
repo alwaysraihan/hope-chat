@@ -37,7 +37,7 @@ const GroupSetupScreen: React.FC<Props> = ({ navigation, route }) => {
   const [busy, setBusy] = useState(false);
 
   const styles = useMemo(() => StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colorss.white },
+    safe: { flex: 1, backgroundColor: colorss.background },
     content: { flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 32 },
     photoPicker: { width: 96, height: 96, borderRadius: 48, marginBottom: 28 },
     photoImg: { width: 96, height: 96, borderRadius: 48, backgroundColor: colorss.backgroundDeep },

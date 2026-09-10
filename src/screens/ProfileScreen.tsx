@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colorss } from '../theme';
+import { AppColors } from '../context/ThemeContext';
 import { useColors } from '../hooks/useColors';
 import { ensureCallPermissions } from '../utils/permissions';
 import {
@@ -54,6 +54,7 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Profile'>;
 
 const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
   const colorss = useColors();
+  const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const chatId = route.params.userId;
   const token = useAppSelector(selectAuthToken);
   const myProfile = useAppSelector(selectHopenityProfile);
@@ -339,10 +340,10 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
 
 export default ProfileScreen;
 
-const styles = StyleSheet.create({
+const stylesFunc = (colorss: AppColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
     paddingHorizontal: 16,
   },
   sectionHeader: {
