@@ -167,8 +167,15 @@ function VideoCallGate({
   const leaveRef = useRef(leaveCall);
   leaveRef.current = leaveCall;
 
-  /** Android: foreground service + ongoing notification so the call survives minimize. */
-  useLiveKitAndroidForeground(room, displayName, 'video', room.name, peerAvatarUrl);
+  /**
+   * Android: foreground service + ongoing notification so the call survives minimize.
+   *
+   * `routeParams.liveKitRoom`, not `room.name` — the LiveKit SDK's Room object
+   * does not reliably populate `.name` at connect time, which left the
+   * notification's Hang up button and body-tap navigation with an empty room
+   * id for the whole call.
+   */
+  useLiveKitAndroidForeground(room, displayName, 'video', routeParams?.liveKitRoom, peerAvatarUrl);
 
   /** Prevent the screen from sleeping while in a video call. */
   useEffect(() => {
@@ -182,7 +189,13 @@ function VideoCallGate({
    * navigation.goBack() here would race with that reset.
    */
   useEffect(() => {
-    if (!room?.name) return;
+    // `room.name` (the LiveKit SDK's own field), not `routeParams.liveKitRoom` — it
+    // does not reliably populate at connect time, which silently skipped this whole
+    // effect and meant the call was NEVER added to the active-call registry. That is
+    // why the ongoing notification's "return to call" and "hang up" both came up
+    // empty-handed: there was nothing registered to find.
+    const liveKitRoom = routeParams?.liveKitRoom;
+    if (!room || !liveKitRoom) return;
     const silentDisconnect = async () => {
       try {
         // Signal the peer before disconnecting so they end their side without the 30s wait.
@@ -191,13 +204,11 @@ function VideoCallGate({
         // incoming call: the peer of the call being replaced may never see the
         // data-channel signal (their connection can already be gone), and they
         // must not be left in a call whose other side has vanished.
-        if (room?.name) {
-          void notifyCallEndedByRoom({
-            token: store.getState().auth.token,
-            liveKitRoom: room.name,
-            reason: room.state === ConnectionState.Connected ? 'hangup' : undefined,
-          });
-        }
+        void notifyCallEndedByRoom({
+          token: store.getState().auth.token,
+          liveKitRoom,
+          reason: room.state === ConnectionState.Connected ? 'hangup' : undefined,
+        });
         const lp = room?.localParticipant;
         if (lp) {
           await lp.setScreenShareEnabled(false).catch(() => undefined);
@@ -210,7 +221,7 @@ function VideoCallGate({
       }
     };
     const unregister = registerActiveCall({
-      liveKitRoom: room.name,
+      liveKitRoom,
       kind: 'video',
       leave: silentDisconnect,
       // Remote hang-up must also dismiss this screen, not just drop the room.

@@ -129,7 +129,16 @@ function endActiveCallIfMatchesRoom(liveKitRoom?: string): void {
  * straight on the call screen with no intermediate flash.
  */
 async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPayload>): Promise<void> {
-  if (!parsed || !navigationRef.isReady()) return;
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] acceptCallDirectly', {
+      parsed,
+      navReady: navigationRef.isReady(),
+    });
+  }
+  if (!parsed || !navigationRef.isReady()) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] acceptCallDirectly ABORTED — no parsed payload or nav not ready');
+    return;
+  }
   stopIncomingCallRingtone();
   void cancelAndroidIncomingCallNotification();
 
@@ -148,6 +157,7 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
 
   const active = getActiveCall();
   if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] acceptCallDirectly — replacing existing active call', active.liveKitRoom);
     await endActiveCallForReplacement(parsed.liveKitRoom);
     // Give native WebRTC teardown a moment to settle before joining the new room.
     await new Promise(resolve => setTimeout(resolve, 150));
@@ -155,7 +165,12 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
       CommonActions.reset({ index: 1, routes: [{ name: 'BottomTab' }, { name: targetRoute, params }] }),
     );
   } else {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] acceptCallDirectly — pushing', targetRoute, params);
     navigationRef.dispatch(StackActions.push(targetRoute, params));
+  }
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] acceptCallDirectly — nav dispatched, current route now',
+      navigationRef.getCurrentRoute()?.name);
   }
 }
 
@@ -165,8 +180,12 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
  * we find the call screen in the stack and pop back to it.
  */
 function navigateToActiveCallScreen(): void {
-  if (!navigationRef.isReady()) return;
+  if (!navigationRef.isReady()) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] navigateToActiveCallScreen — nav not ready');
+    return;
+  }
   const active = getActiveCall();
+  if (__DEV__) console.log('[HopeChat DEBUG][fg] navigateToActiveCallScreen', { active });
   if (!active) return;
   const targetRoute = active.kind === 'video' ? 'VideoCall' : 'AudioCall';
   try {
@@ -188,6 +207,13 @@ function navigateToActiveCallScreen(): void {
       // pushing it bare gave a screen with no room to join, which is why the
       // ongoing "connected" notification looked dead when tapped.
       const params = active.screenParams;
+      if (__DEV__) {
+        console.log('[HopeChat DEBUG][fg] navigateToActiveCallScreen — route not in stack, restoring', {
+          targetRoute,
+          params,
+          routes: routes.map(r => r.name),
+        });
+      }
       if (params) {
         navigationRef.dispatch({
           ...StackActions.push(targetRoute, params),
@@ -197,6 +223,11 @@ function navigateToActiveCallScreen(): void {
         console.warn('[HopeChat] active call has no screenParams — cannot restore screen');
       }
       return;
+    }
+    if (__DEV__) {
+      console.log('[HopeChat DEBUG][fg] navigateToActiveCallScreen — popping back to existing route', {
+        targetRoute, callIdx, popCount: routes.length - 1 - callIdx,
+      });
     }
     const popCount = routes.length - 1 - callIdx;
     if (popCount > 0) {
@@ -225,13 +256,20 @@ function openActiveCallScreenWhenReady(
   attempt = 0,
   notifData?: Record<string, string>,
 ): void {
+  if (__DEV__ && attempt === 0) {
+    console.log('[HopeChat DEBUG][fg] openActiveCallScreenWhenReady START', { notifData });
+  }
   if (!navigationRef.isReady()) {
-    if (attempt >= OPEN_CALL_MAX_ATTEMPTS) return;
+    if (attempt >= OPEN_CALL_MAX_ATTEMPTS) {
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] openActiveCallScreenWhenReady — gave up, nav never became ready');
+      return;
+    }
     setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
     return;
   }
 
   if (getActiveCall()) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] openActiveCallScreenWhenReady — registry has active call, using fast path');
     navigateToActiveCallScreen();
     return;
   }
@@ -262,19 +300,23 @@ function openActiveCallScreenWhenReady(
    * on-disk mirror of the live call still has the params to re-enter it.
    */
   const persisted = readPersistedActiveCall();
-  navigateToCallFromNotificationData(
-    notifData?.liveKitRoom
-      ? notifData
-      : persisted
-        ? {
-            liveKitRoom: persisted.liveKitRoom,
-            callKind: persisted.kind,
-            displayName: String(
-              (persisted.screenParams?.displayName as string) ?? '',
-            ),
-          }
-        : undefined,
-  );
+  const fallbackData = notifData?.liveKitRoom
+    ? notifData
+    : persisted
+      ? {
+          liveKitRoom: persisted.liveKitRoom,
+          callKind: persisted.kind,
+          displayName: String(
+            (persisted.screenParams?.displayName as string) ?? '',
+          ),
+        }
+      : undefined;
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] openActiveCallScreenWhenReady — retries exhausted, last-resort reconstruct', {
+      notifData, persisted, fallbackData,
+    });
+  }
+  navigateToCallFromNotificationData(fallbackData);
 }
 
 /**
@@ -285,7 +327,15 @@ function navigateToCallFromNotificationData(
   data?: Record<string, string>,
 ): void {
   const liveKitRoom = String(data?.liveKitRoom ?? '').trim();
-  if (!liveKitRoom || !navigationRef.isReady()) return;
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] navigateToCallFromNotificationData', {
+      data, liveKitRoom, navReady: navigationRef.isReady(),
+    });
+  }
+  if (!liveKitRoom || !navigationRef.isReady()) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] navigateToCallFromNotificationData ABORTED — no liveKitRoom or nav not ready');
+    return;
+  }
   const targetRoute =
     String(data?.callKind ?? '') === 'video' ? 'VideoCall' : 'AudioCall';
   try {
@@ -294,6 +344,7 @@ function navigateToCallFromNotificationData(
     // The press can be delivered to BOTH the foreground and background handler.
     // Without this, the two would push two call screens onto the stack.
     if (routes.some(r => r.name === targetRoute)) {
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] navigateToCallFromNotificationData — route already in stack, delegating');
       navigateToActiveCallScreen();
       return;
     }
@@ -302,6 +353,11 @@ function navigateToCallFromNotificationData(
     const persisted = readPersistedActiveCall();
     const savedParams =
       persisted?.liveKitRoom === liveKitRoom ? persisted.screenParams : undefined;
+    if (__DEV__) {
+      console.log('[HopeChat DEBUG][fg] navigateToCallFromNotificationData — pushing', {
+        targetRoute, savedParams, routes: routes.map(r => r.name),
+      });
+    }
     navigationRef.dispatch({
       ...StackActions.push(targetRoute, {
         ...(savedParams ?? {}),
@@ -331,20 +387,35 @@ function navigateToCallFromNotificationData(
  * the call indefinitely.
  */
 async function hangUpOngoingCall(liveKitRoom: string): Promise<void> {
+  if (__DEV__) console.log('[HopeChat DEBUG][fg] hangUpOngoingCall start', { liveKitRoom, hasActive: !!getActiveCall() });
   const active = getActiveCall();
   if (active && (!liveKitRoom || active.liveKitRoom === liveKitRoom)) {
     try {
       await endActiveCallForRemoteHangup(active.liveKitRoom);
-    } catch { /* the notification and server signal below still have to run */ }
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] endActiveCallForRemoteHangup OK');
+    } catch (e) {
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] endActiveCallForRemoteHangup FAILED', e);
+      /* the notification and server signal below still have to run */
+    }
+  } else if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] hangUpOngoingCall — no matching active registry entry', {
+      liveKitRoom,
+      activeRoom: active?.liveKitRoom,
+    });
   }
   try {
     await stopLiveKitCallForeground();
-  } catch { /* best-effort */ }
+  } catch (e) { if (__DEV__) console.log('[HopeChat DEBUG][fg] stopLiveKitCallForeground FAILED', e); }
   const token = store.getState().auth.token;
   if (liveKitRoom && token) {
     try {
       await notifyCallEndedByRoom({ token, liveKitRoom, reason: 'hangup' });
-    } catch { /* best-effort */ }
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] notifyCallEndedByRoom OK');
+    } catch (e) {
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] notifyCallEndedByRoom FAILED', e);
+    }
+  } else if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] hangUpOngoingCall skipped server notify — missing room or token', { liveKitRoom, hasToken: !!token });
   }
 }
 
@@ -353,8 +424,12 @@ async function hangUpOngoingCall(liveKitRoom: string): Promise<void> {
  * notified and sends a cancel FCM to the caller.
  */
 function processRejectPayload(raw: Record<string, string>): void {
+  if (__DEV__) console.log('[HopeChat DEBUG][fg] processRejectPayload', raw);
   const parsed = parseIncomingCallPayload(raw);
-  if (!parsed) return;
+  if (!parsed) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] processRejectPayload — parseIncomingCallPayload returned null, aborting');
+    return;
+  }
 
   // NOTE: this used to bail out entirely when conversationId or callerId was
   // missing — `if (!parsed?.conversationId || !parsed?.callerId) return;` — so a
@@ -365,7 +440,15 @@ function processRejectPayload(raw: Record<string, string>): void {
   if (token && parsed.liveKitRoom && !parsed.isGroupCall) {
     // Room-keyed: the server resolves the peer from the room it recorded at
     // invite time, so no conversationId is required.
-    void notifyCallEndedByRoom({ token, liveKitRoom: parsed.liveKitRoom });
+    void notifyCallEndedByRoom({ token, liveKitRoom: parsed.liveKitRoom })
+      .then(() => { if (__DEV__) console.log('[HopeChat DEBUG][fg] processRejectPayload notifyCallEndedByRoom OK'); })
+      .catch(e => { if (__DEV__) console.log('[HopeChat DEBUG][fg] processRejectPayload notifyCallEndedByRoom FAILED', e); });
+  } else if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] processRejectPayload — server notify skipped', {
+      hasToken: !!token,
+      liveKitRoom: parsed.liveKitRoom,
+      isGroupCall: parsed.isGroupCall,
+    });
   }
 
   // The missed-call row is best-effort and genuinely does need these ids.
@@ -433,11 +516,13 @@ function openFromNotificationData(
   raw: Record<string, string>,
   autoAccept = false,
 ): void {
+  if (__DEV__) console.log('[HopeChat DEBUG][fg] openFromNotificationData', { raw, autoAccept });
   let parsed = parseIncomingCallPayload(raw);
   if (!parsed && raw.liveKitRoom) {
     parsed = parseIncomingCallPayload({ ...raw, type: INCOMING_CALL_MESSAGE_TYPE });
   }
   if (!parsed) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] openFromNotificationData — not a call payload, falling back to chat open');
     openChatFromNotification(raw);
     return;
   }
@@ -591,6 +676,7 @@ const IncomingCallListener = () => {
     const consumePending = () => {
       consumePendingIncomingCall();
       void consumePendingAutoAcceptData().then(json => {
+        if (__DEV__) console.log('[HopeChat DEBUG][fg] consumePendingAutoAcceptData ->', json);
         if (!json) return;
         try {
           const parsed = parseIncomingCallPayload(
@@ -598,9 +684,12 @@ const IncomingCallListener = () => {
           );
           // Guard: if a call_cancelled FCM already arrived in-process, don't
           // join a dead LiveKit room.
-          if (!parsed || isCallCancelled(parsed.liveKitRoom)) return;
+          if (!parsed || isCallCancelled(parsed.liveKitRoom)) {
+            if (__DEV__) console.log('[HopeChat DEBUG][fg] pending auto-accept dropped', { parsed, cancelled: parsed && isCallCancelled(parsed.liveKitRoom) });
+            return;
+          }
           void acceptCallDirectly(parsed);
-        } catch { /* */ }
+        } catch (e) { if (__DEV__) console.log('[HopeChat DEBUG][fg] pending auto-accept parse FAILED', e); }
       });
       void consumePendingRejectData().then(json => {
         if (!json) return;
@@ -779,7 +868,19 @@ const IncomingCallListener = () => {
       }
 
       unsubNotifee = notifee.onForegroundEvent(({ type, detail }) => {
-        if (type !== EventType.PRESS) return;
+        if (__DEV__) {
+          console.log('[HopeChat DEBUG][fg] notifee.onForegroundEvent', {
+            type,
+            actionId: detail.pressAction?.id,
+            notifId: detail.notification?.id,
+          });
+        }
+        // Action buttons (Hang up / Accept / Reject) can fire as ACTION_PRESS
+        // instead of being folded into PRESS. Only handling PRESS silently
+        // dropped every button tap — the plain body tap (PRESS) kept working,
+        // which is why the buttons looked dead while tapping the notification
+        // body did nothing either (it hits the ONGOING/default branch below).
+        if (type !== EventType.PRESS && type !== EventType.ACTION_PRESS) return;
 
         // "Hang up" on the in-progress call notification.
         if (detail.pressAction?.id === HANGUP_ACTION_ID) {

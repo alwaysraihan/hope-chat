@@ -85,7 +85,15 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     return;
   }
 
-  if (type === EventType.PRESS) {
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][bg] event', { type, actionId, notifId });
+  }
+
+  // Action buttons (Hang up / Accept / Reject) fire as ACTION_PRESS on some
+  // devices/notifee versions rather than being folded into PRESS. Handling
+  // only PRESS silently dropped every button tap while a plain body tap (which
+  // does arrive as PRESS) kept working — this is why the buttons looked dead.
+  if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
     // Ongoing-call notification tapped while the app is backgrounded. This
     // context has no navigation, so record the intent; the main context acts on
     // it the moment the app foregrounds.
@@ -97,14 +105,22 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
         (detail.notification?.data as Record<string, string> | undefined)?.liveKitRoom ?? '',
       ).trim();
       const token = store.getState().auth.token;
+      if (__DEV__) {
+        console.log('[HopeChat DEBUG][bg] HANGUP pressed', { room, hasToken: !!token });
+      }
       try {
         await notifee.stopForegroundService();
-      } catch { /* best-effort */ }
+      } catch (e) { if (__DEV__) console.log('[HopeChat DEBUG][bg] stopForegroundService failed', e); }
       if (notifId) await notifee.cancelNotification(notifId);
       if (room && token) {
         try {
           await notifyCallEndedByRoom({ token, liveKitRoom: room, reason: 'hangup' });
-        } catch { /* best-effort */ }
+          if (__DEV__) console.log('[HopeChat DEBUG][bg] notifyCallEndedByRoom OK');
+        } catch (e) {
+          if (__DEV__) console.log('[HopeChat DEBUG][bg] notifyCallEndedByRoom FAILED', e);
+        }
+      } else if (__DEV__) {
+        console.log('[HopeChat DEBUG][bg] HANGUP skipped notifyCallEndedByRoom — missing room or token', { room, hasToken: !!token });
       }
       return;
     }
@@ -129,6 +145,7 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     }
 
     if (actionId === 'reject') {
+      if (__DEV__) console.log('[HopeChat DEBUG][bg] REJECT pressed');
       stopIncomingCallRingtone();
       if (notifId) await notifee.cancelNotification(notifId);
       const notifData = detail.notification?.data as Record<string, string> | undefined;
@@ -146,15 +163,22 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
         if (room && token) {
           try {
             await notifyCallEndedByRoom({ token, liveKitRoom: room });
-          } catch {
+            if (__DEV__) console.log('[HopeChat DEBUG][bg] REJECT notifyCallEndedByRoom OK');
+          } catch (e) {
+            if (__DEV__) console.log('[HopeChat DEBUG][bg] REJECT notifyCallEndedByRoom FAILED', e);
             /* best-effort — the pending record above is the fallback */
           }
+        } else if (__DEV__) {
+          console.log('[HopeChat DEBUG][bg] REJECT skipped notifyCallEndedByRoom — missing room or token', { room, hasToken: !!token });
         }
+      } else if (__DEV__) {
+        console.log('[HopeChat DEBUG][bg] REJECT — notification had no data payload');
       }
       return;
     }
 
     if (actionId === 'accept') {
+      if (__DEV__) console.log('[HopeChat DEBUG][bg] ACCEPT pressed');
       stopIncomingCallRingtone();
       if (notifId) await notifee.cancelNotification(notifId);
       // Store the call data in the native module (shared across JS contexts in the same
@@ -163,9 +187,12 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
       if (notifData) {
         try {
           setPendingAutoAcceptData(JSON.stringify(notifData));
-        } catch {
-          /* noop */
+          if (__DEV__) console.log('[HopeChat DEBUG][bg] ACCEPT setPendingAutoAcceptData OK', notifData);
+        } catch (e) {
+          if (__DEV__) console.log('[HopeChat DEBUG][bg] ACCEPT setPendingAutoAcceptData FAILED', e);
         }
+      } else if (__DEV__) {
+        console.log('[HopeChat DEBUG][bg] ACCEPT — notification had no data payload');
       }
       return;
     }
