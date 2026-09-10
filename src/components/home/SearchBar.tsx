@@ -14,7 +14,7 @@ const SearchBar = ({ onSearchPress }) => {
           alignItems: 'center',
           backgroundColor: colors.background,
           marginHorizontal: spacing.xl,
-          marginBottom: 14,
+          marginBottom: 8,
           borderRadius: 9999,
           paddingHorizontal: 16,
           paddingVertical: 9,

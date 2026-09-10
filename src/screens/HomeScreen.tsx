@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DeviceEventEmitter,
   View,
@@ -27,18 +27,19 @@ import {
 } from '../types/navigators';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { PlayCircle } from 'lucide-react-native';
 import { useChats, RELOAD_CHAT_LIST_EVENT } from '../context/ChatsContext';
 import type { ConversationSummary } from '../context/ChatsContext';
 import { useFocusEffect } from '@react-navigation/native';
 import FastImage from '@d11/react-native-fast-image';
-import { setStoryFeedRings } from '../data/storyFeedCache';
+import { setStoryFeedRings, type StoryRing } from '../data/storyFeedCache';
 import { fetchMyFriends, type HopenityFriend } from '../services/friendsService';
 import { storyRingsFromConversations } from '../services/story/buildStoryRings';
+import { fetchStoryFeed } from '../services/story/storyApi';
 import {
-  conversationHasStoryRing,
-  isDmEligibleForStoryStrips,
-} from '../services/story/storyStripEligibility';
+  readStoryFeedCache,
+  writeStoryFeedCache,
+} from '../services/offlineCache';
+import { isDmEligibleForStoryStrips } from '../services/story/storyStripEligibility';
 
 import { useAppSelector, useAppDispatch } from '../hooks/redux';
 import {
@@ -155,21 +156,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     return [...byId.values()];
   }, [conversations]);
 
-  const onlineFirst = useCallback(
-    (a: ConversationSummary, b: ConversationSummary) => {
-      const ao = a.isOnline === true ? 1 : 0;
-      const bo = b.isOnline === true ? 1 : 0;
-      if (ao !== bo) {
-        return bo - ao;
-      }
-      return a.name.localeCompare(b.name, undefined, {
-        sensitivity: 'base',
-      });
-    },
-    [],
-  );
-
-  const activePeers = useMemo(
+  const onlinePeers = useMemo(
     () =>
       directChats
         .filter(c => isDmEligibleForStoryStrips(c) && c.isOnline === true)
@@ -179,28 +166,77 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     [directChats],
   );
 
-  const friendsStrip = useMemo(
+  /** Nobody's online right now — surface a few friends instead of hiding the row entirely. */
+  const suggestedPeers = useMemo(
     () =>
       directChats
-        .filter(
-          c => isDmEligibleForStoryStrips(c) && conversationHasStoryRing(c),
-        )
-        .sort(onlineFirst),
-    [directChats, onlineFirst],
+        .filter(isDmEligibleForStoryStrips)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        .slice(0, 8),
+    [directChats],
   );
 
-  const toStoryShape = useCallback((c: ConversationSummary) => {
-    const firstName = c.name.trim().split(/\s+/)[0];
-    return {
-      id: `story_${c.id}`,
-      name: firstName || c.name,
-      emoji: c.emoji,
-      avatarUrl: c.avatarUrl ?? null,
-      bgFrom: c.bgFrom ?? '#2d1060',
-      bgTo: c.bgTo ?? '#5b21b6',
-      active: c.isOnline === true,
-    };
-  }, []);
+  const showingSuggestedPeers = onlinePeers.length === 0;
+  const activePeers = showingSuggestedPeers ? suggestedPeers : onlinePeers;
+
+
+  // ── Real story feed (same backend as the Stories tab) ─────────────────────
+  // The tray used to fabricate rings from the conversation list (picsum.photos
+  // placeholder images) — this pulls the actual GET /api/v1/stories feed so
+  // the strip shows real stories, matching StoryScreen.tsx exactly.
+  const userId = profile?.userId ?? 'me';
+  const [apiRings, setApiRings] = useState<StoryRing[]>([]);
+  const storyCacheLoaded = useRef(false);
+  useEffect(() => {
+    if (storyCacheLoaded.current || userId === 'me') return;
+    storyCacheLoaded.current = true;
+    const cached = readStoryFeedCache(userId);
+    if (cached && cached.length > 0) setApiRings(cached);
+  }, [userId]);
+
+  const loadStoryFeed = useCallback(async () => {
+    try {
+      const fetched = await fetchStoryFeed(token);
+      if (fetched.length > 0) {
+        setApiRings(fetched);
+        writeStoryFeedCache(userId, fetched);
+      }
+    } catch {
+      /* keep whatever is already on screen */
+    }
+  }, [token, userId]);
+
+  useEffect(() => {
+    loadStoryFeed();
+  }, [loadStoryFeed]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadStoryFeed().catch(() => {});
+    }, [loadStoryFeed]),
+  );
+
+  const isMyRing = useCallback(
+    (r: StoryRing) => {
+      if (activePage) {
+        return !!r.isPage && (r.authorId === activePage.id || r.authorPublicId === activePage.id);
+      }
+      return !r.isPage && (r.authorId === profile?.userId || r.authorPublicId === profile?.userId);
+    },
+    [activePage, profile?.userId],
+  );
+
+  /** Real API rings; fall back to conversation-derived placeholders only if the feed is empty. */
+  const storyRings = useMemo(() => {
+    if (apiRings.length > 0) return apiRings;
+    return storyRingsFromConversations(conversations);
+  }, [apiRings, conversations]);
+
+  /** Everyone else's rings — "Your story" is its own fixed first tile, not part of this list. */
+  const friendsRings = useMemo(
+    () => storyRings.filter(r => !isMyRing(r)),
+    [storyRings, isMyRing],
+  );
 
   const navigateInbox = useCallback(
     (item: ConversationSummary) => {
@@ -324,35 +360,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     navigateInboxForPeer(payload);
   }, [listLoading, navigateInboxForPeer]);
 
-  const openStoryViewer = useCallback(() => {
-    const rings = storyRingsFromConversations(conversations);
-    if (rings.length === 0) {
-      Alert.alert(t.stories_title, t.no_stories_chats);
-      return;
-    }
-    setStoryFeedRings(rings);
-
-    const parentNav = navigation.getParent();
-    if (parentNav) {
-      (
-        parentNav as { navigate: (n: string, p: object) => void }
-      ).navigate('StoryViewer', { ringIndex: 0 });
-    }
-  }, [conversations, navigation]);
-
-  /** Open the viewer positioned on one specific friend's ring. */
+  /** Open the viewer positioned on one specific ring (by ring id). */
   const openStoryViewerFor = useCallback(
-    (conversationId: string) => {
-      const rings = storyRingsFromConversations(conversations);
-      if (rings.length === 0) {
+    (ringId: string) => {
+      if (storyRings.length === 0) {
         Alert.alert(t.stories_title, t.no_stories_chats);
         return;
       }
-      setStoryFeedRings(rings);
+      setStoryFeedRings(storyRings);
 
-      // friendsStrip is sorted online-first while rings keep conversation
-      // order, so resolve by id rather than trusting the tapped index.
-      const idx = rings.findIndex(r => String(r.id) === String(conversationId));
+      // friendsRings can be reordered/filtered relative to storyRings, so
+      // resolve by id rather than trusting the tapped index.
+      const idx = storyRings.findIndex(r => String(r.id) === String(ringId));
 
       const parentNav = navigation.getParent();
       if (parentNav) {
@@ -361,7 +380,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         ).navigate('StoryViewer', { ringIndex: idx >= 0 ? idx : 0 });
       }
     },
-    [conversations, navigation, t.no_stories_chats, t.stories_title],
+    [storyRings, navigation, t.no_stories_chats, t.stories_title],
   );
 
   /** "Your story" tile — own avatar with a + badge, opens the composer. */
@@ -369,7 +388,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     () => ({
       isAdd: true as const,
       id: 'my_story',
-      name: 'Your story',
+      name: 'My Story',
       avatarUrl: profile?.avatarUrl ?? null,
     }),
     [profile?.avatarUrl],
@@ -383,20 +402,44 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     target.navigate('CreateStory');
   }, [navigation]);
 
-  const renderStoryViewerTile = useCallback(
-    () => (
-      <TouchableOpacity
-        style={styles.storyViewerTile}
-        onPress={openStoryViewer}
-        accessibilityRole="button"
-        accessibilityLabel="Open stories viewer"
-      >
-        <PlayCircle size={28} color={colorss.primary} />
-        <Text style={styles.storyViewerLabel}>{t.stories}</Text>
-      </TouchableOpacity>
-    ),
-    [openStoryViewer],
-  );
+  /** Unified strip: "Your story" first, then active/suggested friends, then everyone's story rings. */
+  const combinedStripItems = useMemo(() => {
+    const items: Array<{
+      id: string;
+      name: string;
+      avatarUrl?: string | null;
+      isAdd?: boolean;
+      active?: boolean;
+      onPress: () => void;
+    }> = [
+      {
+        id: 'my_story',
+        name: myStoryTile.name,
+        avatarUrl: myStoryTile.avatarUrl,
+        isAdd: true,
+        onPress: openCreateStory,
+      },
+    ];
+    for (const c of activePeers) {
+      const firstName = c.name.trim().split(/\s+/)[0];
+      items.push({
+        id: `active_${c.id}`,
+        name: firstName || c.name,
+        avatarUrl: c.avatarUrl ?? null,
+        active: c.isOnline === true,
+        onPress: () => navigateInbox(c),
+      });
+    }
+    for (const r of friendsRings) {
+      items.push({
+        id: `ring_${r.id}`,
+        name: r.name,
+        avatarUrl: r.avatarUri ?? null,
+        onPress: () => openStoryViewerFor(r.id),
+      });
+    }
+    return items;
+  }, [myStoryTile, openCreateStory, activePeers, navigateInbox, friendsRings, openStoryViewerFor]);
 
   const renderConversation = useCallback(
     ({ item }: { item: ConversationSummary }) => (
@@ -502,182 +545,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   // The Stories row always renders — it holds the user's own "Your story" tile.
   const showStoryStrips = true;
-
-  const ListHeader = useCallback(
-    () => (
-      <>
-        {/* {showStoryStrips ? (
-          <>
-            {activePeers.length > 0 ? (
-              <View style={styles.storySection}>
-                <Text style={styles.stripSectionLabel}>{t.active}</Text>
-                <View style={styles.storyStripRow}>
-                  <FlatList
-                    data={activePeers}
-                    renderItem={({ item }) => (
-                      <StoryItem
-                        item={toStoryShape(item)}
-                        onPress={() => navigateInbox(item)}
-                      />
-                    )}
-                    keyExtractor={item => `active_${item.id}`}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.storyStripFlex}
-                    contentContainerStyle={styles.storiesListInner}
-                  />
-                  {renderStoryViewerTile()}
-                </View>
-              </View>
-            ) : null} */}
-
-            {/* <View style={styles.storySection}>
-              <Text style={styles.stripSectionLabel}>{t.stories}</Text>
-              <View style={styles.storyStripRow}>
-                <StoryItem item={myStoryTile} onPress={openCreateStory} />
-                <FlatList
-                  data={friendsStrip}
-                  renderItem={({ item }) => (
-                    <StoryItem
-                      item={toStoryShape(item)}
-                      onPress={() => openStoryViewerFor(item.id)}
-                    />
-                  )}
-                  keyExtractor={item => `friend_${item.id}`}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.storyStripFlex}
-                  contentContainerStyle={styles.storiesListInner}
-                />
-              </View>
-            </View>
-          </>
-        ) : null} */}
-
-        {/* ── Filter tabs ── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          {TABS.filter(
-            tab =>
-              // A page has no friends of its own — the list would be the
-              // operator's personal friends, which is not what page mode means.
-              !(activePage && tab.key === 'friends') &&
-              // Pages have no message-request queue: anything sent to or from a
-              // page goes straight to the inbox, so this tab is always empty in
-              // page mode and only invites people to look for messages that are
-              // not there.
-              !(activePage && tab.key === 'requests'),
-          ).map(tab => {
-            const selected = tab.kind === 'filter' && activeFilter === tab.key;
-            const badge =
-              tab.key === 'requests'
-                ? pendingRequestCount
-                : tab.key === 'unread'
-                  ? unreadChatCount
-                  : 0;
-            return (
-              <TouchableOpacity
-                key={tab.key}
-                onPress={() => {
-                  if (tab.kind === 'route') {
-                    navigation.navigate(
-                      tab.key === 'booking' ? 'MyBookings' : 'MessageRequests',
-                    );
-                    return;
-                  }
-                  setActiveFilter(tab.key);
-                }}
-                style={[styles.filterChip, selected && styles.filterChipOn]}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-              >
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    selected && styles.filterChipTextOn,
-                  ]}
-                >
-                  {tab.label}
-                </Text>
-                {badge > 0 ? (
-                  <View
-                    style={[
-                      styles.chipBadge,
-                      selected && styles.chipBadgeOnSelected,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.chipBadgeText,
-                        selected && styles.chipBadgeTextOnSelected,
-                      ]}
-                    >
-                      {badge > 99 ? '99+' : badge}
-                    </Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {/* ── Active booking banner ── */}
-        {activeBookingCount > 0 ? (
-          <TouchableOpacity
-            style={styles.bookingBanner}
-            onPress={() => navigation.navigate('MyBookings')}
-            activeOpacity={0.85}
-          >
-            <Image
-              source={IC_PROFILE}
-              style={styles.bookingAvatar}
-              resizeMode="cover"
-            />
-            <View style={styles.bookingBannerText}>
-              <Text style={styles.bookingTitle} numberOfLines={1}>
-                Hopechat Booking
-              </Text>
-              <Text style={styles.bookingSub} numberOfLines={1}>
-                {'You have '}
-                {/* The count carries the brand colour so the row reads as
-                    something needing attention, like an unread badge. */}
-                <Text style={styles.bookingCount}>{activeBookingCount}</Text>
-                {activeBookingCount === 1
-                  ? ' active booking'
-                  : ' active bookings'}
-              </Text>
-            </View>
-
-            <View style={styles.bookingViewBtn}>
-              <Text style={styles.bookingViewBtnText}>View</Text>
-            </View>
-          </TouchableOpacity>
-        ) : null}
-
-      </>
-    ),
-    [
-      activeBookingCount,
-      activePage,
-      activePeers,
-      friendsStrip,
-      activeFilter,
-      myStoryTile,
-      navigateInbox,
-      navigation,
-      openCreateStory,
-      openStoryViewerFor,
-      pendingRequestCount,
-      unreadChatCount,
-      renderStoryViewerTile,
-      showStoryStrips,
-      toStoryShape,
-    ],
-  );
 
   const styles = useMemo(() => StyleSheet.create({
     filterRow: {
@@ -810,14 +677,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     },
     storySection: {
       paddingBottom: 4,
-    },
-    stripSectionLabel: {
-      fontSize: 13,
-      fontWeight: fonts.semibold,
-      color: colorss.textSecondary,
-      paddingHorizontal: spacing.xl,
-      paddingTop: 6,
-      paddingBottom: 6,
+      paddingTop: 2,
     },
     storyStripRow: {
       flexDirection: 'row',
@@ -832,23 +692,9 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       minWidth: 0,
     },
     storiesListInner: {
-      paddingVertical: 10,
+      paddingVertical: 4,
       paddingRight: 8,
       gap: 12,
-    },
-    storyViewerTile: {
-      width: 64,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingTop: 10,
-      paddingBottom: 4,
-      gap: 4,
-    },
-    storyViewerLabel: {
-      fontSize: 10,
-      fontWeight: fonts.semibold,
-      color: colorss.primary,
-      textAlign: 'center',
     },
     messagesHeaderRow: {
       flexDirection: 'row',
@@ -902,6 +748,147 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       fontWeight: '700' as const,
     },
   }), [colorss]);
+
+  const ListHeader = useCallback(
+    () => (
+      <>
+        {showStoryStrips ? (
+          <View style={styles.storySection}>
+            <View style={styles.storyStripRow}>
+              <FlatList
+                data={combinedStripItems}
+                renderItem={({ item }) => (
+                  <StoryItem item={item} onPress={item.onPress} />
+                )}
+                keyExtractor={item => item.id}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.storyStripFlex}
+                contentContainerStyle={styles.storiesListInner}
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {/* ── Filter tabs ── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {TABS.filter(
+            tab =>
+              // A page has no friends of its own — the list would be the
+              // operator's personal friends, which is not what page mode means.
+              !(activePage && tab.key === 'friends') &&
+              // Pages have no message-request queue: anything sent to or from a
+              // page goes straight to the inbox, so this tab is always empty in
+              // page mode and only invites people to look for messages that are
+              // not there.
+              !(activePage && tab.key === 'requests'),
+          ).map(tab => {
+            const selected = tab.kind === 'filter' && activeFilter === tab.key;
+            const badge =
+              tab.key === 'requests'
+                ? pendingRequestCount
+                : tab.key === 'unread'
+                  ? unreadChatCount
+                  : 0;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                onPress={() => {
+                  if (tab.kind === 'route') {
+                    navigation.navigate(
+                      tab.key === 'booking' ? 'MyBookings' : 'MessageRequests',
+                    );
+                    return;
+                  }
+                  setActiveFilter(tab.key);
+                }}
+                style={[styles.filterChip, selected && styles.filterChipOn]}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    selected && styles.filterChipTextOn,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+                {badge > 0 ? (
+                  <View
+                    style={[
+                      styles.chipBadge,
+                      selected && styles.chipBadgeOnSelected,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipBadgeText,
+                        selected && styles.chipBadgeTextOnSelected,
+                      ]}
+                    >
+                      {badge > 99 ? '99+' : badge}
+                    </Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* ── Active booking banner ── */}
+        {activeBookingCount > 0 ? (
+          <TouchableOpacity
+            style={styles.bookingBanner}
+            onPress={() => navigation.navigate('MyBookings')}
+            activeOpacity={0.85}
+          >
+            <Image
+              source={IC_PROFILE}
+              style={styles.bookingAvatar}
+              resizeMode="cover"
+            />
+            <View style={styles.bookingBannerText}>
+              <Text style={styles.bookingTitle} numberOfLines={1}>
+                Hopechat Booking
+              </Text>
+              <Text style={styles.bookingSub} numberOfLines={1}>
+                {'You have '}
+                {/* The count carries the brand colour so the row reads as
+                    something needing attention, like an unread badge. */}
+                <Text style={styles.bookingCount}>{activeBookingCount}</Text>
+                {activeBookingCount === 1
+                  ? ' active booking'
+                  : ' active bookings'}
+              </Text>
+            </View>
+
+            <View style={styles.bookingViewBtn}>
+              <Text style={styles.bookingViewBtnText}>View</Text>
+            </View>
+          </TouchableOpacity>
+        ) : null}
+
+      </>
+    ),
+    [
+      activeBookingCount,
+      activePage,
+      combinedStripItems,
+      activeFilter,
+      navigation,
+      pendingRequestCount,
+      unreadChatCount,
+      showStoryStrips,
+      styles,
+    ],
+  );
+
 
   const renderFriend = useCallback(
     ({ item }: { item: HopenityFriend }) => (

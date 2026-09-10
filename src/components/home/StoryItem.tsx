@@ -1,23 +1,11 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, fonts, colorss } from '../../theme';
-import LinearGradient from 'react-native-linear-gradient';
 import FastImage from '@d11/react-native-fast-image';
 
-/**
- * Portrait rounded tiles rather than circles. Ring / inner / image widths step
- * down by the ring thickness so the gradient reads as an even border, and each
- * radius drops with it so the corners stay concentric instead of bowing.
- */
-const RING_W = 58;
-const RING_H = 68;
-const RING_R = 19;
-const INNER_W = 54;
-const INNER_H = 64;
-const INNER_R = 17;
-const IMG_W = 50;
-const IMG_H = 60;
-const IMG_R = 15;
+const IMG_W = 64;
+const IMG_H = 76;
+const IMG_R = 12;
 
 type StoryLike = {
   isAdd?: boolean;
@@ -25,8 +13,6 @@ type StoryLike = {
   name?: string;
   emoji?: string;
   avatarUrl?: string | null;
-  bgFrom?: string;
-  bgTo?: string;
   active?: boolean;
 };
 
@@ -37,6 +23,8 @@ const StoryItem = ({
   item: StoryLike;
   onPress?: () => void;
 }) => {
+  const initial = (item.name ?? '?').trim().charAt(0).toUpperCase() || '?';
+
   // "Your story" — own avatar with a + badge, opens the story composer.
   if (item.isAdd) {
     return (
@@ -46,20 +34,16 @@ const StoryItem = ({
         activeOpacity={0.7}
       >
         <View style={styles.avatarWrap}>
-          <View style={styles.addTile}>
-            {item.avatarUrl ? (
-              <FastImage
-                source={{ uri: item.avatarUrl }}
-                style={styles.miniAvatar}
-              />
-            ) : (
-              <View style={styles.initialCircle}>
-                <Text style={styles.initialText}>
-                  {(item.name ?? '?').trim().charAt(0).toUpperCase() || '?'}
-                </Text>
-              </View>
-            )}
-          </View>
+          {item.avatarUrl ? (
+            <FastImage
+              source={{ uri: item.avatarUrl }}
+              style={styles.miniAvatar}
+            />
+          ) : (
+            <View style={styles.initialCircle}>
+              <Text style={styles.initialText}>{initial}</Text>
+            </View>
+          )}
           <View style={styles.addBadge}>
             <Text style={styles.addIcon}>+</Text>
           </View>
@@ -74,27 +58,20 @@ const StoryItem = ({
   return (
     <TouchableOpacity style={styles.recentItem} onPress={onPress}>
       <View style={styles.avatarWrap}>
-        <LinearGradient
-          colors={[item.bgFrom ?? '#444', item.bgTo ?? '#888']}
-          style={styles.gradientRing}
-        >
-          <View style={styles.innerCircle}>
-            {item.avatarUrl ? (
-              <FastImage
-                source={{ uri: item.avatarUrl }}
-                style={styles.miniAvatar}
-              />
-            ) : item.emoji ? (
-              <Text style={styles.emoji}>{item.emoji}</Text>
-            ) : (
-              <View style={styles.initialCircle}>
-                <Text style={styles.initialText}>
-                  {(item.name ?? '?').trim().charAt(0).toUpperCase() || '?'}
-                </Text>
-              </View>
-            )}
+        {item.avatarUrl ? (
+          <FastImage
+            source={{ uri: item.avatarUrl }}
+            style={styles.miniAvatar}
+          />
+        ) : item.emoji ? (
+          <View style={[styles.miniAvatar, styles.emojiWrap]}>
+            <Text style={styles.emoji}>{item.emoji}</Text>
           </View>
-        </LinearGradient>
+        ) : (
+          <View style={styles.initialCircle}>
+            <Text style={styles.initialText}>{initial}</Text>
+          </View>
+        )}
         {item.active && <View style={styles.onlineDot} />}
       </View>
       <Text style={styles.recentName} numberOfLines={1}>
@@ -105,47 +82,30 @@ const StoryItem = ({
 };
 
 const styles = StyleSheet.create({
-  container: {
-    alignItems: 'center',
-    width: 66,
-    marginRight: 4,
-  },
   recentItem: {
     alignItems: 'center',
-    marginRight: 4,
-    width: 66,
+    width: IMG_W,
   },
   recentName: {
     fontSize: 11,
     color: colorss.textPrimary,
     marginTop: 4,
     textAlign: 'center',
-    maxWidth: 60,
+    maxWidth: IMG_W,
     fontWeight: fonts.medium,
   },
   avatarWrap: {
     position: 'relative',
   },
-  gradientRing: {
-    width: RING_W,
-    height: RING_H,
-    borderRadius: RING_R,
-    padding: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  innerCircle: {
-    width: INNER_W,
-    height: INNER_H,
-    borderRadius: INNER_R,
-    backgroundColor: colorss.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   miniAvatar: {
     width: IMG_W,
     height: IMG_H,
     borderRadius: IMG_R,
+  },
+  emojiWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colorss.surface,
   },
   initialCircle: {
     width: IMG_W,
@@ -165,30 +125,22 @@ const styles = StyleSheet.create({
   },
   onlineDot: {
     position: 'absolute',
-    bottom: -1,
-    right: -1,
-    width: 14,
-    height: 14,
+    bottom: 2,
+    right: 2,
+    width: 13,
+    height: 13,
     borderRadius: 7,
     backgroundColor: colors.online,
     borderWidth: 2,
     borderColor: colorss.white,
   },
-  addTile: {
-    width: RING_W,
-    height: RING_H,
-    borderRadius: RING_R,
-    backgroundColor: colorss.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   addBadge: {
     position: 'absolute',
     bottom: -2,
     right: -2,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: colorss.primary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -196,10 +148,10 @@ const styles = StyleSheet.create({
     borderColor: colorss.white,
   },
   addIcon: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#ffffff',
     fontWeight: fonts.bold,
-    lineHeight: 17,
+    lineHeight: 16,
   },
 });
 

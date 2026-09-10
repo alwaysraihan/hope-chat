@@ -650,7 +650,7 @@ const InboxScreenInner: React.FC<
 
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: colorss.primary }}
+      style={{ flex: 1, backgroundColor: colorss.surface }}
       edges={['top', 'left', 'right']}
     >
       <MessageHeader
