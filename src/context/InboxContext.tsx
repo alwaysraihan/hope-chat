@@ -1054,12 +1054,26 @@ export function InboxProvider({
         const oldestIdRaw = page > 1 ? allMessages[0]?._id : undefined;
         const before =
           oldestIdRaw !== undefined ? String(oldestIdRaw) : undefined;
+        if (__DEV__) {
+          console.log('[HopeChat DEBUG][inbox] fetchMessages request', {
+            page, before, allMessagesLen: allMessages.length, isGroup: useV2Messages,
+          });
+        }
         const res = await fetchHopenityChatMessages(_conversationId, token, {
           limit: PAGE_SIZE,
           before,
           isGroup: useV2Messages,
         });
         const chunk = res.messages ?? [];
+        if (__DEV__) {
+          console.log('[HopeChat DEBUG][inbox] fetchMessages response', {
+            page,
+            chunkLen: chunk.length,
+            pagination: res.pagination,
+            firstId: chunk[0] ? (chunk[0] as Record<string, unknown>).id : undefined,
+            lastId: chunk[chunk.length - 1] ? (chunk[chunk.length - 1] as Record<string, unknown>).id : undefined,
+          });
+        }
         const mapped = chunk.map(mapHopenityMessage);
         // Normalise to ascending (oldest first) regardless of API version order.
         mapped.sort((a, b) => {
@@ -1101,7 +1115,13 @@ export function InboxProvider({
   // ─── Pagination ────────────────────────────────────────────────────────────
 
   const loadEarlier = useCallback(() => {
-    if (loadingMore || !hasMore) return;
+    if (__DEV__) {
+      console.log('[HopeChat DEBUG][inbox] loadEarlier called', { loadingMore, hasMore, nextPage: pageRef.current + 1 });
+    }
+    if (loadingMore || !hasMore) {
+      if (__DEV__) console.log('[HopeChat DEBUG][inbox] loadEarlier BLOCKED', { loadingMore, hasMore });
+      return;
+    }
     const next = pageRef.current + 1;
     pageRef.current = next;
     fetchMessages(next);
