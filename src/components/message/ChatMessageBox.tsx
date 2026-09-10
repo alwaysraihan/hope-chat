@@ -621,7 +621,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             />
             {media.uploading && (
               <View style={styles.overlay}>
-                <Text style={styles.overlayText}>Uploading…</Text>
+                <Text style={styles.overlayText}>Sending…</Text>
               </View>
             )}
             {media.error && (
@@ -690,7 +690,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             </View>
             {media.uploading && (
               <View style={styles.overlay}>
-                <Text style={styles.overlayText}>Uploading…</Text>
+                <Text style={styles.overlayText}>Sending…</Text>
               </View>
             )}
           </TouchableOpacity>

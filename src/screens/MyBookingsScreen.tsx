@@ -292,7 +292,7 @@ function BookingCard({
           {isUploading ? (
             <>
               <ActivityIndicator size="small" color={colorss.white} />
-              <Text style={c.sendVideoText}>Uploading…</Text>
+              <Text style={c.sendVideoText}>Sending…</Text>
             </>
           ) : (
             <>

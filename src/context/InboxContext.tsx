@@ -350,6 +350,7 @@ export function InboxProvider({
   const { width } = useWindowDimensions();
   const wrapRef = useRef<View>(null);
   const swipeRef = useRef<any>(null);
+  const token = useAppSelector(selectAuthToken);
 
   // ── Auth / user
   const gifted = useAppSelector(state => state.auth.giftedChatUser);
@@ -517,7 +518,6 @@ export function InboxProvider({
   const bumpRefresh = useCallback(() => setRefreshTrigger(n => n + 1), []);
 
   const { setConversations } = useChats();
-  const token = useAppSelector(selectAuthToken);
 
   const reactionEmojiRow =
     remoteReactionPalette && remoteReactionPalette.length > 0
@@ -838,7 +838,6 @@ export function InboxProvider({
       return now - t <= ttlMs;
     });
   }, [messages, disappearingTtlSec, disappearPulse]);
-
   const updateConversationPreview = useCallback(
     (content: string, timestamp: string | Date | number) => {
       if (!_conversationId) return;
@@ -995,12 +994,7 @@ export function InboxProvider({
     // only run on a genuine conversation switch / reconnect, not every time
     // the group crypto key resolves or the inbox list re-renders (those are
     // handled by the retro-decrypt pass + fresh polls / loadEarlier).
-  }, [
-    _conversationId,
-    token,
-    threadIntroPeer,
-    mergeLocalCallLogsFromCache,
-  ]);
+  }, [_conversationId, token, threadIntroPeer, useV2Messages, isGroup]);
 
   // ─── Live poll: fetch new messages, on-demand (socket push) and every 15 s
   // as a fallback while this chat is open ────────────────────────────────────
@@ -1109,7 +1103,7 @@ export function InboxProvider({
         setLoadingMore(false);
       }
     },
-    [_conversationId, token, allMessages, mapHopenityMessage, threadIntroPeer],
+    [_conversationId, token, allMessages, useV2Messages, mapHopenityMessage, threadIntroPeer],
   );
 
   // ─── Pagination ────────────────────────────────────────────────────────────

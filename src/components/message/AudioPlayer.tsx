@@ -245,7 +245,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
       <View style={[styles.container, { backgroundColor: colors.bg }]}>
         <ActivityIndicator size="small" color={colors.barPlayed} />
         <Text style={[styles.statusText, { color: colors.time }]}>
-          Uploading…
+          Sending…
         </Text>
       </View>
     );

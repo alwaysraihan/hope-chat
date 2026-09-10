@@ -952,11 +952,18 @@ const InboxScreenInner: React.FC<
             renderMessage={renderMessage}
             isTyping={peerIsTyping}
             listProps={{ showsVerticalScrollIndicator: false }}
-            loadEarlier={hasMore}
-            infiniteScroll
+            // gifted-chat v3 replaced the old loadEarlier/infiniteScroll/
+            // onLoadEarlier/isLoadingEarlier props with this single object —
+            // the old names are silently ignored (same pattern as the
+            // messagesContainerRef rename noted above), which meant scrolling
+            // up to load older history never actually triggered a fetch.
             renderLoadEarlier={() => <></>}
-            onLoadEarlier={loadEarlier}
-            isLoadingEarlier={loadingMore}
+            loadEarlierMessagesProps={{
+              isAvailable: hasMore,
+              isLoading: loadingMore,
+              isInfiniteScrollEnabled: true,
+              onPress: loadEarlier,
+            }}
             keyboardShouldPersistTaps="handled"
             timeFormat="LT"
             bottomOffset={insets.bottom}

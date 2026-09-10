@@ -329,7 +329,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   mono: {
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    // fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 12,
   },
   card: {
