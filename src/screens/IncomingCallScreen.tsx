@@ -30,7 +30,10 @@ import {
   getActiveCall,
 } from '../services/livekit/activeCallRegistry';
 import { beginCallTransition } from '../services/callTransitionGuard';
-import { notifyCallEndedByRoom } from '../services/invitePeerToHopeChatCall';
+import {
+  notifyCallEndedByRoom,
+  notifyPeerCallRejected,
+} from '../services/invitePeerToHopeChatCall';
 import {
   isCallCancelled,
   markCallCancelled,
@@ -93,6 +96,17 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     // 60s no-answer timeout with no idea they had been declined.
     if (token && liveKitRoom && !isGroupRing) {
       void notifyCallEndedByRoom({ token, liveKitRoom });
+      // notifyCallEndedByRoom alone doesn't reliably trigger the caller's
+      // call_cancelled signal — notifyPeerCallRejected is the endpoint built
+      // specifically for that, so the caller's ring stops immediately instead
+      // of running the full 60s no-answer timeout.
+      if (conversationId?.trim()) {
+        void notifyPeerCallRejected({
+          token,
+          conversationId: conversationId.trim(),
+          liveKitRoom,
+        });
+      }
     }
     navigation.goBack();
   }, [

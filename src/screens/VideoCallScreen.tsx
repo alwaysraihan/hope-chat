@@ -360,7 +360,15 @@ function VideoCallGate({
     const wasConnected = prevRemoteCountRef.current > 0;
     const nowGone = remotes.length === 0;
     prevRemoteCountRef.current = remotes.length;
-    if (!wasConnected || !nowGone || cs !== ConnectionState.Connected) return;
+    // Also arm while Reconnecting: ICE often flickers to this state for a
+    // moment right as the peer drops, which previously skipped this effect
+    // entirely and left the local user stuck "in call" forever.
+    if (
+      !wasConnected ||
+      !nowGone ||
+      (cs !== ConnectionState.Connected && cs !== ConnectionState.Reconnecting)
+    )
+      return;
     // 1:1 calls: 3 s grace — if the peer explicitly hung up they sent a data-channel
     // hangup signal already; this only fires for unexpected disconnects.
     // Group calls: 30 s so a participant can rejoin without disrupting others.
@@ -1302,7 +1310,13 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
   const rawSafePop = useSafeSingleNavigationPop(navigation as never);
   // Suppress safePop when we're intentionally swapping call screens (mode switch / call handover).
   const safePop = useCallback(() => {
-    if (isCallTransitioning()) return;
+    // Never drop the pop outright: if it lands inside the transition-guard
+    // window, retry once after it clears instead of leaving the "Call ended"
+    // screen stuck forever with no automatic way off it.
+    if (isCallTransitioning()) {
+      setTimeout(() => rawSafePop(), 650);
+      return;
+    }
     rawSafePop();
   }, [rawSafePop]);
 
