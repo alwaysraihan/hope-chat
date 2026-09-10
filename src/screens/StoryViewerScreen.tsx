@@ -10,6 +10,8 @@ import {
   Platform,
   TextInput,
   KeyboardAvoidingView,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -17,11 +19,12 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import FastImage from '@d11/react-native-fast-image';
 import Video from 'react-native-video';
 import LinearGradient from 'react-native-linear-gradient';
-import { Send } from 'lucide-react-native';
+import { Send, Eye, X, User, Trash2 } from 'lucide-react-native';
 
 import { colorss } from '../theme';
+import VerifiedBadge from '../components/VerifiedBadge';
 import type { RootStackNavigatorParamList } from '../types/navigators';
-import { getStoryFeedRings, type StoryRing } from '../data/storyFeedCache';
+import { getStoryFeedRings, setStoryFeedRings, type StoryRing } from '../data/storyFeedCache';
 import { useAppSelector } from '../hooks/redux';
 import {
   selectAuthToken,
@@ -29,7 +32,14 @@ import {
   selectActivePage,
 } from '../redux/features/auth/authSlice';
 import { fetchMyFriends } from '../services/friendsService';
-import { markStoryViewed, reactToStory } from '../services/story/storyInteractions';
+import {
+  markStoryViewed,
+  reactToStory,
+  deleteStory,
+  fetchStoryViewers,
+  type StoryViewerRow,
+} from '../services/story/storyInteractions';
+import { emitStoryDeleted } from '../services/story/storyEvents';
 import {
   getOrCreatePeerChatWithVersion,
   sendHopenityChatMessage,
@@ -251,12 +261,70 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
   const isFriend = !ring?.isPage && !!friendIds && friendIds.has(authorId);
   const showReplyBar = !!ring && !isOwnStory && isFriend && !isExpired;
 
-  const openAuthorProfile = useCallback(() => {
-    if (!ring || ring.isPage) return; // Pages don't have a personal Profile screen.
+  // ── Own story: who viewed / reacted (mirrors feusar's "Story details" sheet) ──
+  const [viewers, setViewers] = useState<StoryViewerRow[]>([]);
+  const [viewersOpen, setViewersOpen] = useState(false);
+  useEffect(() => {
+    setViewers([]);
+    if (!isOwnStory || !slide || isExpired) return;
+    let cancelled = false;
+    fetchStoryViewers(slide.id, token).then(rows => {
+      if (!cancelled) setViewers(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOwnStory, slide?.id, isExpired, token]);
+
+  // ── Delete: owner-only, scoped to whichever identity is active — isOwnStory
+  // already only matches the ring against the current Page when one is
+  // selected, otherwise against the personal profile, so this button and
+  // action naturally target the right story in either mode. ──────────────
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const confirmDelete = useCallback(async () => {
+    if (!slide || deleting) return;
+    setDeleting(true);
+    const ok = await deleteStory(slide.id, token);
+    setDeleting(false);
+    setDeleteConfirmOpen(false);
+    if (!ok) return;
+    emitStoryDeleted(slide.id);
+    const currentRings = getStoryFeedRings();
+    const withoutSlide = currentRings
+      .map(r =>
+        r.id === ring?.id
+          ? { ...r, slides: r.slides.filter(s => s.id !== slide.id) }
+          : r,
+      )
+      .filter(r => r.slides.length > 0);
+    setStoryFeedRings(withoutSlide);
+    if (withoutSlide.length === 0) {
+      navigation.goBack();
+      return;
+    }
+    const nextRingIdx = Math.min(userIdx, withoutSlide.length - 1);
+    setUserIdx(nextRingIdx);
+    setSlideIdx(0);
+  }, [slide, deleting, token, ring?.id, userIdx, navigation]);
+
+  const openAuthorChat = useCallback(async () => {
+    if (!ring || ring.isPage || isOwnStory) return; // no chat with a Page or yourself
     const targetId = authorIdOf(ring);
-    if (!targetId) return;
-    navigation.navigate('Profile', { userId: targetId, peerUserId: targetId });
-  }, [navigation, ring]);
+    if (!targetId || !token) return;
+    const chat = await getOrCreatePeerChatWithVersion(targetId, token);
+    if (!chat) return;
+    // replace, not navigate/push — pushing left the story mounted underneath
+    // the chat screen, so it kept playing/advancing invisibly behind it
+    // instead of actually closing. Both routes live on the same RootStack,
+    // so replace swaps the story out for the chat in one transition.
+    navigation.replace('Inbox', {
+      conversationId: chat.chatId,
+      displayName: ring.name,
+      avatarUrl: ring.avatarUri ?? null,
+    });
+  }, [navigation, ring, isOwnStory, token]);
 
   const [message, setMessage] = useState('');
   const [showReactions, setShowReactions] = useState(false);
@@ -374,13 +442,24 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
   });
 
   const isVideo = slide.type === 'video';
+  const isText = slide.type === 'text';
 
   return (
     <View style={styles.shell}>
       <StatusBar translucent backgroundColor="transparent" />
 
-      {/* -- Media layer: Video or Image ------------------------- */}
-      {isVideo ? (
+      {/* -- Media layer: Video, Image, or Text ------------------- */}
+      {isText ? (
+        <View
+          style={[
+            styles.fullImage,
+            styles.textSlide,
+            { backgroundColor: slide.backgroundColor ?? '#0084FF' },
+          ]}
+        >
+          <Text style={styles.textSlideTxt}>{slide.text}</Text>
+        </View>
+      ) : isVideo ? (
         <Video
           source={{ uri: slide.uri }}
           style={styles.fullImage}
@@ -411,17 +490,26 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
           ignoreSilentSwitch="ignore"
         />
       ) : (
-        <FastImage source={{ uri: slide.uri }} style={styles.fullImage} resizeMode={FastImage.resizeMode.cover} />
+        <FastImage source={{ uri: slide.uri }} style={styles.fullImage} resizeMode={FastImage.resizeMode.contain} />
       )}
 
       {/* -- Overlay (progress, name, tap zones) ---------------- */}
       <View style={[styles.fullImage, styles.scrim]}>
+          {/* Rendered BEFORE overlayTop: a later sibling sits on top for touch
+              hit-testing, so having this first lets the name/avatar Pressable
+              below win taps in its own area instead of these full-screen
+              prev/next zones swallowing them first. */}
+          <View style={styles.touchRow} pointerEvents="box-none">
+            <Pressable style={styles.hitSide} onPress={goPrev} />
+            <Pressable style={styles.hitSide} onPress={goNext} />
+          </View>
+
           <View style={[styles.overlayTop, { paddingTop: insets.top + 6 }]}>
             <View style={styles.progressRow}>{segments}</View>
             <Pressable
               style={styles.userRow}
-              onPress={openAuthorProfile}
-              disabled={ring.isPage}
+              onPress={openAuthorChat}
+              disabled={ring.isPage || isOwnStory}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               {ring.avatarUri ? (
@@ -437,16 +525,28 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
                   </Text>
                 </View>
               )}
-              <Text style={styles.name}>{ring.name}</Text>
+              <Text style={styles.name} numberOfLines={1}>
+                {ring.name}
+              </Text>
+              {ring.isVerified ? <VerifiedBadge size={14} /> : null}
             </Pressable>
           </View>
-
-          <View style={styles.touchRow} pointerEvents="box-none">
-            <Pressable style={styles.hitSide} onPress={goPrev} />
-            <Pressable style={styles.hitSide} onPress={goNext} />
-          </View>
-
       </View>
+
+      {isOwnStory && !isExpired ? (
+        <Pressable
+          style={styles.chromeDelete}
+          hitSlop={12}
+          onPress={() => {
+            setInteracting(true);
+            setDeleteConfirmOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Delete story"
+        >
+          <Trash2 size={18} color="#fff" />
+        </Pressable>
+      ) : null}
 
       <Pressable
         style={styles.chromeClose}
@@ -457,6 +557,54 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
       >
         <Text style={styles.chromeCloseTxt}>×</Text>
       </Pressable>
+
+      {/* -- Delete confirmation — in-app dialog, not the native Alert ---- */}
+      <Modal
+        visible={deleteConfirmOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          setDeleteConfirmOpen(false);
+          setInteracting(false);
+        }}
+      >
+        <View style={styles.confirmBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => {
+              setDeleteConfirmOpen(false);
+              setInteracting(false);
+            }}
+          />
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Delete story?</Text>
+            <Text style={styles.confirmBody}>
+              This story will be removed for everyone. This can't be undone.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                style={[styles.confirmBtn, styles.confirmBtnCancel]}
+                onPress={() => {
+                  setDeleteConfirmOpen(false);
+                  setInteracting(false);
+                }}
+                disabled={deleting}
+              >
+                <Text style={styles.confirmBtnCancelTxt}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.confirmBtn, styles.confirmBtnDelete]}
+                onPress={confirmDelete}
+                disabled={deleting}
+              >
+                <Text style={styles.confirmBtnDeleteTxt}>
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* -- Floating reaction: flies up over the story content itself ---- */}
       <View style={styles.floaterLayer} pointerEvents="none">
@@ -594,6 +742,93 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
           </View>
         </KeyboardAvoidingView>
       ) : null}
+
+      {/* -- Own story: viewer count → tap for the full list with reactions -- */}
+      {isOwnStory && !isExpired ? (
+        <Pressable
+          style={[styles.viewerRow, { paddingBottom: Math.max(insets.bottom, 24) + 12 }]}
+          onPress={() => {
+            setViewersOpen(true);
+            setInteracting(true);
+          }}
+        >
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.88)']}
+            locations={[0, 0.35, 1]}
+            style={StyleSheet.absoluteFillObject}
+            pointerEvents="none"
+          />
+          <Eye size={18} color="#fff" />
+          <Text style={styles.viewerRowTxt}>
+            {viewers.length} {viewers.length === 1 ? 'viewer' : 'viewers'}
+          </Text>
+        </Pressable>
+      ) : null}
+
+      <Modal
+        visible={viewersOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setViewersOpen(false);
+          setInteracting(false);
+        }}
+      >
+        <View style={styles.sheetBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => {
+              setViewersOpen(false);
+              setInteracting(false);
+            }}
+          />
+          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Story details</Text>
+              <Pressable
+                onPress={() => {
+                  setViewersOpen(false);
+                  setInteracting(false);
+                }}
+                hitSlop={8}
+              >
+                <X size={20} color={colorss.textPrimary} />
+              </Pressable>
+            </View>
+            <View style={styles.sheetCountRow}>
+              <Eye size={16} color={colorss.textSecondary} />
+              <Text style={styles.sheetCountTxt}>
+                {viewers.length} {viewers.length === 1 ? 'viewer' : 'viewers'}
+              </Text>
+            </View>
+            <FlatList
+              data={viewers}
+              keyExtractor={v => v.id}
+              renderItem={({ item }) => (
+                <View style={styles.viewerItem}>
+                  {item.avatarUrl ? (
+                    <FastImage source={{ uri: item.avatarUrl }} style={styles.viewerAvatar} />
+                  ) : (
+                    <View style={[styles.viewerAvatar, styles.viewerAvatarFallback]}>
+                      <User size={18} color="#9CA3AF" />
+                    </View>
+                  )}
+                  <Text style={styles.viewerName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {item.reaction ? (
+                    <Text style={styles.viewerReaction}>{item.reaction}</Text>
+                  ) : null}
+                </View>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.sheetEmpty}>No one has seen this yet.</Text>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -613,6 +848,17 @@ const styles = StyleSheet.create({
     width,
     height,
     position: 'absolute',
+  },
+  textSlide: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  textSlideTxt: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   scrim: {
     flex: 1,
@@ -680,6 +926,7 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.45)',
     textShadowRadius: 4,
     textShadowOffset: { width: 0, height: 1 },
+    flexShrink: 1,
   },
   touchRow: {
     ...StyleSheet.absoluteFillObject,
@@ -708,6 +955,69 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.38)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  chromeDelete: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 52 : 40,
+    right: 64,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  confirmCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: colorss.background,
+    borderRadius: 18,
+    padding: 20,
+  },
+  confirmTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: colorss.textPrimary,
+    marginBottom: 8,
+  },
+  confirmBody: {
+    fontSize: 14,
+    color: colorss.textSecondary,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  confirmBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  confirmBtnCancel: {
+    backgroundColor: colorss.border,
+  },
+  confirmBtnCancelTxt: {
+    color: colorss.textPrimary,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  confirmBtnDelete: {
+    backgroundColor: '#EF4444',
+  },
+  confirmBtnDeleteTxt: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
   },
   chromeCloseTxt: {
     color: '#fff',
@@ -812,5 +1122,97 @@ const styles = StyleSheet.create({
   },
   reactToggleTxt: {
     fontSize: 18,
+  },
+  viewerRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  viewerRowTxt: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: colorss.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '70%',
+    paddingHorizontal: 16,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colorss.border,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colorss.textPrimary,
+  },
+  sheetCountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colorss.border,
+    marginBottom: 4,
+  },
+  sheetCountTxt: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colorss.textSecondary,
+  },
+  viewerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  viewerAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  viewerAvatarFallback: {
+    backgroundColor: colorss.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerName: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colorss.textPrimary,
+  },
+  viewerReaction: {
+    fontSize: 20,
+  },
+  sheetEmpty: {
+    textAlign: 'center',
+    color: colorss.textSecondary,
+    paddingVertical: 24,
   },
 });

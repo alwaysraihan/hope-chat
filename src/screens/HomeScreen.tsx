@@ -35,6 +35,7 @@ import { setStoryFeedRings, type StoryRing } from '../data/storyFeedCache';
 import { fetchMyFriends, type HopenityFriend } from '../services/friendsService';
 import { storyRingsFromConversations } from '../services/story/buildStoryRings';
 import { fetchStoryFeed } from '../services/story/storyApi';
+import { STORY_DELETED_EVENT } from '../services/story/storyEvents';
 import {
   readStoryFeedCache,
   writeStoryFeedCache,
@@ -109,14 +110,6 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   // drive the same RefreshControl, so simply switching tabs threw a spinner in
   // and pushed the whole list down — a visible jolt on every navigation.
   const [manualRefreshing, setManualRefreshing] = useState(false);
-  const handleManualRefresh = useCallback(async () => {
-    setManualRefreshing(true);
-    try {
-      await reloadConversations();
-    } finally {
-      setManualRefreshing(false);
-    }
-  }, [reloadConversations]);
 
   // ── Active booking banner ─────────────────────────────────────────────────
   const [activeBookingCount, setActiveBookingCount] = useState(0);
@@ -210,6 +203,40 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     loadStoryFeed();
   }, [loadStoryFeed]);
 
+  // A story deleted from the viewer only updated the viewer's own local
+  // cache — this screen keeps an independent copy of the feed, so without
+  // this it kept showing the deleted story until the next mount/focus
+  // refetch (which itself silently no-ops on an empty result).
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      STORY_DELETED_EVENT,
+      ({ storyId }: { storyId: string }) => {
+        setApiRings(prev => {
+          const next = prev
+            .map(r => ({ ...r, slides: r.slides.filter(s => s.id !== storyId) }))
+            .filter(r => r.slides.length > 0);
+          if (userId !== 'me') writeStoryFeedCache(userId, next);
+          return next;
+        });
+      },
+    );
+    return () => sub.remove();
+  }, [userId]);
+
+  // Pull-to-refresh previously only reloaded conversations, never the story
+  // feed — if that one fetchStoryFeed() call on mount/focus silently failed
+  // (fetchStoryFeed swallows its own errors and returns []), a newly-posted
+  // story could be stuck missing from the strip indefinitely with no way to
+  // retry short of leaving and re-entering the screen.
+  const handleManualRefresh = useCallback(async () => {
+    setManualRefreshing(true);
+    try {
+      await Promise.all([reloadConversations(), loadStoryFeed()]);
+    } finally {
+      setManualRefreshing(false);
+    }
+  }, [reloadConversations, loadStoryFeed]);
+
   useFocusEffect(
     useCallback(() => {
       loadStoryFeed().catch(() => {});
@@ -219,11 +246,23 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const isMyRing = useCallback(
     (r: StoryRing) => {
       if (activePage) {
-        return !!r.isPage && (r.authorId === activePage.id || r.authorPublicId === activePage.id);
+        const pageId = String(activePage.id);
+        return !!r.isPage && (r.authorId === pageId || r.authorPublicId === pageId);
       }
-      return !r.isPage && (r.authorId === profile?.userId || r.authorPublicId === profile?.userId);
+      if (r.isPage) return false;
+      // Two independent id spaces exist for "me" (numeric DB id vs public
+      // user_id) and which one `profile.userId` resolves to isn't guaranteed
+      // — localUserId already carries the same giftedChatUser._id-first
+      // fallback used for every other "is this me" check in this file
+      // (navigateInboxForPeer, etc.), so check both instead of trusting
+      // profile.userId alone to have landed in the id space the story API
+      // happens to compare against.
+      const mine = new Set(
+        [localUserId, profile?.userId].filter(Boolean).map(String),
+      );
+      return mine.has(String(r.authorId ?? '')) || mine.has(String(r.authorPublicId ?? ''));
     },
-    [activePage, profile?.userId],
+    [activePage, profile?.userId, localUserId],
   );
 
   /** Real API rings; fall back to conversation-derived placeholders only if the feed is empty. */
@@ -237,6 +276,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     () => storyRings.filter(r => !isMyRing(r)),
     [storyRings, isMyRing],
   );
+
+  /** Your own active story, if you have one — drives whether the "Your story"
+   * tile opens the viewer (Hopenity's pattern: tap avatar = view, tap the +
+   * badge = add) or falls through to creating a new one. */
+  const myRing = useMemo(() => storyRings.find(isMyRing), [storyRings, isMyRing]);
 
   const navigateInbox = useCallback(
     (item: ConversationSummary) => {
@@ -384,14 +428,19 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   /** "Your story" tile — own avatar with a + badge, opens the composer. */
+  // In Page mode, "My Story" must reflect the Page's identity — isMyRing
+  // already branches on activePage to match/create page-owned rings, but
+  // this tile's own avatar/name were always the personal profile regardless,
+  // so posting/viewing looked like it was happening as you even while a
+  // page was active.
   const myStoryTile = useMemo(
     () => ({
       isAdd: true as const,
       id: 'my_story',
-      name: 'My Story',
-      avatarUrl: profile?.avatarUrl ?? null,
+      name: activePage ? activePage.name : 'My Story',
+      avatarUrl: activePage?.image ?? profile?.avatarUrl ?? null,
     }),
-    [profile?.avatarUrl],
+    [activePage, profile?.avatarUrl],
   );
 
   const openCreateStory = useCallback(() => {
@@ -411,17 +460,37 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       isAdd?: boolean;
       active?: boolean;
       onPress: () => void;
+      onBadgePress?: () => void;
     }> = [
       {
         id: 'my_story',
         name: myStoryTile.name,
         avatarUrl: myStoryTile.avatarUrl,
         isAdd: true,
-        onPress: openCreateStory,
+        // Whole card opens your existing story when you have one; the +
+        // badge always opens the composer regardless. No separate second
+        // card for "my story" — one tile does both jobs.
+        onPress: myRing ? () => openStoryViewerFor(myRing.id) : openCreateStory,
+        onBadgePress: openCreateStory,
       },
     ];
+    // A friend who is both active/suggested AND has a live story must not
+    // appear twice — one tile that opens their story (story takes priority
+    // as the click target) but still shows the active dot if they're online.
+    const ringByAuthorId = new Map<string, StoryRing>();
+    for (const r of friendsRings) {
+      if (r.authorPublicId) ringByAuthorId.set(String(r.authorPublicId), r);
+      if (r.authorId) ringByAuthorId.set(String(r.authorId), r);
+    }
+    const onlineByAuthorId = new Map<string, boolean>();
     for (const c of activePeers) {
-      const firstName = c.name.trim().split(/\s+/)[0];
+      if (c.peerUserId) onlineByAuthorId.set(String(c.peerUserId), c.isOnline === true);
+    }
+
+    for (const c of activePeers) {
+      const pid = c.peerUserId ? String(c.peerUserId) : '';
+      if (pid && ringByAuthorId.has(pid)) continue; // merged into the story tile below
+      const firstName = c.name
       items.push({
         id: `active_${c.id}`,
         name: firstName || c.name,
@@ -431,15 +500,17 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       });
     }
     for (const r of friendsRings) {
+      const authorId = String(r.authorPublicId ?? r.authorId ?? '');
       items.push({
         id: `ring_${r.id}`,
         name: r.name,
         avatarUrl: r.avatarUri ?? null,
+        active: authorId ? onlineByAuthorId.get(authorId) === true : false,
         onPress: () => openStoryViewerFor(r.id),
       });
     }
     return items;
-  }, [myStoryTile, openCreateStory, activePeers, navigateInbox, friendsRings, openStoryViewerFor]);
+  }, [myStoryTile, openCreateStory, myRing, activePeers, navigateInbox, friendsRings, openStoryViewerFor]);
 
   const renderConversation = useCallback(
     ({ item }: { item: ConversationSummary }) => (
@@ -758,7 +829,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               <FlatList
                 data={combinedStripItems}
                 renderItem={({ item }) => (
-                  <StoryItem item={item} onPress={item.onPress} />
+                  <StoryItem
+                    item={item}
+                    onPress={item.onPress}
+                    onBadgePress={item.onBadgePress}
+                  />
                 )}
                 keyExtractor={item => item.id}
                 horizontal

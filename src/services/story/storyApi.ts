@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '../../config/env';
 import type { StoryRing } from '../../data/storyFeedCache';
+import { isStoryDeletedLocally } from './storyEvents';
 
 /**
  * Mirrors the Hopenity StoryGroup/StoryItem shapes from StoryApi.ts.
@@ -14,6 +15,7 @@ type ApiStoryUser = {
   image?: string | null;
   profile_image?: string | null;
   isPage?: boolean;
+  is_verified?: boolean;
 };
 
 type ApiStoryItem = {
@@ -84,14 +86,31 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
 
       const storyItems = Array.isArray(group.stories) ? group.stories : [];
 
-      // Build slides — only include items that have a visible media URL.
+      // Build slides — a TEXT story has no media_url/thumbnail_url at all (just
+      // content + background_color), so it must not be filtered out purely for
+      // lacking a `uri` the way an actually-broken photo/video upload would be.
       const slides = storyItems
         .map(s => {
           const storyType = String(s.type ?? '').toUpperCase();
           const isVideo = storyType === 'VIDEO';
+          const isText = storyType === 'TEXT';
+
+          if (isText) {
+            return {
+              id: pickStr(s.id) || `${uid}_${Date.now()}`,
+              uri: '',
+              type: 'text' as const,
+              text: s.content ?? '',
+              backgroundColor: pickStr(s.background_color) || '#0084FF',
+              durationMs: typeof s.duration === 'number' && s.duration > 0
+                ? s.duration
+                : 5000,
+              expiresAt: pickStr(s.expires_at) || null,
+            };
+          }
 
           // For video: prefer the direct video URL, fall back to thumbnail for display.
-          // For images / text: use media_url then thumbnail_url.
+          // For images: use media_url then thumbnail_url.
           const uri = pickStr(s.media_url, s.thumbnail_url);
           // Videos need a poster: the grid renders an <Image>, which cannot
           // draw an mp4 URL.
@@ -99,7 +118,7 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
             ? pickStr(s.thumbnail_url) || null
             : pickStr(s.thumbnail_url, s.media_url) || null;
 
-          if (!uri) return null; // skip text-only stories with no cover image
+          if (!uri) return null; // genuinely broken upload — no media and no cover
           return {
             id: pickStr(s.id) || `${uid}_${Date.now()}`,
             uri,
@@ -111,18 +130,24 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
             expiresAt: pickStr(s.expires_at) || null,
           };
         })
-        .filter((s): s is NonNullable<typeof s> => s !== null);
+        .filter((s): s is NonNullable<typeof s> => s !== null)
+        // The feed listing endpoint can keep serving a story for a while
+        // after it's deleted (confirmed live: /stories/:id/details 404s
+        // immediately, but /stories itself lags) — locally-known deletions
+        // are filtered out here so that backend lag never leaks into the UI.
+        .filter(s => !isStoryDeletedLocally(s.id));
 
       if (slides.length === 0) continue;
 
       rings.push({
         id: uid,
-        name: isPage ? name : name.split(/\s+/)[0] || name,
+        name,
         avatarUri: avatar ?? undefined,
         slides,
         isPage,
         authorId: authorId || undefined,
         authorPublicId: authorPublicId || undefined,
+        isVerified: !!user.is_verified,
       });
     }
 

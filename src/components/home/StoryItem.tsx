@@ -19,9 +19,13 @@ type StoryLike = {
 const StoryItem = ({
   item,
   onPress,
+  onBadgePress,
 }: {
   item: StoryLike;
   onPress?: () => void;
+  /** "+" badge tap, when it should do something different from the main
+   * tap (e.g. main tap views an existing story, badge always adds a new one). */
+  onBadgePress?: () => void;
 }) => {
   const initial = (item.name ?? '?').trim().charAt(0).toUpperCase() || '?';
 
@@ -44,9 +48,13 @@ const StoryItem = ({
               <Text style={styles.initialText}>{initial}</Text>
             </View>
           )}
-          <View style={styles.addBadge}>
+          <TouchableOpacity
+            style={styles.addBadge}
+            onPress={onBadgePress ?? onPress}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
             <Text style={styles.addIcon}>+</Text>
-          </View>
+          </TouchableOpacity>
         </View>
         <Text style={styles.recentName} numberOfLines={1}>
           {item.name ?? 'You'}

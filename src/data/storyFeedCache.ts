@@ -1,14 +1,18 @@
 /** In-memory payload for StoryViewer navigation (avoid huge route params). */
 export type StorySlide = {
   id: string;
+  /** Empty for a 'text' slide — it has no media, just `text` + `backgroundColor`. */
   uri: string;
   durationMs: number;
-  /** 'video' when the URI points to a video file; defaults to 'image'. */
-  type?: 'image' | 'video';
+  /** 'video'/'image' point to `uri`; 'text' renders `text` on `backgroundColor` instead. */
+  type?: 'image' | 'video' | 'text';
   /** Poster image for video slides — used for grid covers, where `uri` is unrenderable. */
   thumbUri?: string | null;
   /** ISO timestamp from the backend — a story past this is no longer viewable. */
   expiresAt?: string | null;
+  /** Content for a 'text' slide. */
+  text?: string | null;
+  backgroundColor?: string | null;
 };
 
 export type StoryRing = {
@@ -22,6 +26,7 @@ export type StoryRing = {
   authorId?: string;
   /** Public id of the author (page_id for pages, user_id otherwise). */
   authorPublicId?: string;
+  isVerified?: boolean;
 };
 
 let cachedRings: StoryRing[] = [];

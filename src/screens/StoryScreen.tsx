@@ -14,6 +14,7 @@ import {
   Dimensions,
   ListRenderItem,
   RefreshControl,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -26,6 +27,7 @@ import { useChats } from '../context/ChatsContext';
 import { setStoryFeedRings, type StoryRing } from '../data/storyFeedCache';
 import { storyRingsFromConversations } from '../services/story/buildStoryRings';
 import { fetchStoryFeed } from '../services/story/storyApi';
+import { STORY_DELETED_EVENT } from '../services/story/storyEvents';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import {
@@ -49,10 +51,13 @@ const TILE_H = TILE * 1.45;
 
 /**
  * Grid cover for a ring: the first slide that can actually be drawn as an
- * image. Video slides expose the poster via `thumbUri`.
+ * image. Video slides expose the poster via `thumbUri`. A leading 'text'
+ * slide has no image at all — callers must check `firstTextSlide` instead
+ * of treating an empty cover here as "nothing to show".
  */
 function coverUriFor(ring: StoryRing): string {
   for (const slide of ring.slides) {
+    if (slide.type === 'text') return '';
     if (slide.type === 'video') {
       if (slide.thumbUri) return slide.thumbUri;
       continue;
@@ -64,11 +69,20 @@ function coverUriFor(ring: StoryRing): string {
   return ring.slides[0]?.thumbUri ?? '';
 }
 
+/** The ring's first slide, when it's a text story — drives the colored-card cover. */
+function firstTextSlide(ring: StoryRing): { text: string; backgroundColor: string } | null {
+  const s = ring.slides[0];
+  if (!s || s.type !== 'text') return null;
+  return { text: s.text ?? '', backgroundColor: s.backgroundColor ?? '#0084FF' };
+}
+
 type Tile = {
   id: string;
   name: string;
   avatar?: string | null;
   cover: string;
+  textContent?: string;
+  textBg?: string;
   isAdd?: boolean;
   isMine?: boolean;
   ringIndex: number;
@@ -84,7 +98,8 @@ const StoriesScreen = () => {
   const profile = useAppSelector(selectHopenityProfile);
   const activePage = useAppSelector(selectActivePage);
   const myAvatar = activePage?.image ?? profile?.avatarUrl ?? null;
-  const userId = useAppSelector(selectHopenityProfile)?.userId ?? 'me';
+  const giftedChatUser = useAppSelector(s => s.auth.giftedChatUser);
+  const userId = profile?.userId ?? 'me';
   const stackNav = navigation.getParent() as
     | NativeStackNavigationProp<RootStackNavigatorParamList>
     | undefined;
@@ -116,6 +131,26 @@ const StoriesScreen = () => {
     }
   }, [token, userId]);
 
+  // A story deleted from the viewer only updated the viewer's own local
+  // cache — this screen keeps an independent copy of the feed, so without
+  // this the grid kept showing the deleted story until the next focus
+  // refetch (which itself silently no-ops on an empty result).
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      STORY_DELETED_EVENT,
+      ({ storyId }: { storyId: string }) => {
+        setApiRings(prev => {
+          const next = prev
+            .map(r => ({ ...r, slides: r.slides.filter(s => s.id !== storyId) }))
+            .filter(r => r.slides.length > 0);
+          if (userId !== 'me') writeStoryFeedCache(userId, next);
+          return next;
+        });
+      },
+    );
+    return () => sub.remove();
+  }, [userId]);
+
   useEffect(() => {
     loadStories();
   }, [loadStories]);
@@ -134,12 +169,20 @@ const StoriesScreen = () => {
     (r: StoryRing) => {
       if (activePage) {
         if (!r.isPage) return false;
-        return r.authorId === activePage.id || r.authorPublicId === activePage.id;
+        const pageId = String(activePage.id);
+        return r.authorId === pageId || r.authorPublicId === pageId;
       }
       if (r.isPage) return false;
-      return r.authorId === userId || r.authorPublicId === userId;
+      // profile.userId isn't guaranteed to land in the same id space the
+      // story API compares against (numeric DB id vs public user_id) —
+      // giftedChatUser._id is the identity the rest of the app trusts for
+      // "is this me" checks (see HomeScreen.tsx's isMyRing), so check both.
+      const mine = new Set(
+        [giftedChatUser?._id, userId].filter(Boolean).map(String),
+      );
+      return mine.has(String(r.authorId ?? '')) || mine.has(String(r.authorPublicId ?? ''));
     },
-    [activePage, userId],
+    [activePage, userId, giftedChatUser?._id],
   );
 
   const { rings, tiles } = useMemo(() => {
@@ -160,11 +203,14 @@ const StoriesScreen = () => {
       ringIndex: 0,
     });
     ringsList.forEach((r, idx) => {
+      const textSlide = firstTextSlide(r);
       list.push({
         id: r.id,
         name: isMyRing(r) ? 'Your story' : r.name,
         avatar: r.avatarUri,
         cover: coverUriFor(r),
+        textContent: textSlide?.text,
+        textBg: textSlide?.backgroundColor,
         isMine: isMyRing(r),
         ringIndex: idx,
       });
@@ -248,6 +294,18 @@ const StoriesScreen = () => {
             style={styles.cover}
             resizeMode={FastImage.resizeMode.cover}
           />
+        ) : item.textContent != null ? (
+          <View
+            style={[
+              styles.cover,
+              styles.coverText,
+              { backgroundColor: item.textBg || '#0084FF' },
+            ]}
+          >
+            <Text style={styles.coverTextContent} numberOfLines={6}>
+              {item.textContent || 'Text story'}
+            </Text>
+          </View>
         ) : (
           <View style={[styles.cover, styles.coverFall]}>
             <Text style={styles.coverChr}>{initial}</Text>
@@ -374,6 +432,17 @@ const stylesFunc = (colorss: AppColors) =>
       fontSize: 48,
       fontWeight: '800',
       opacity: 0.85,
+    },
+    coverText: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 14,
+    },
+    coverTextContent: {
+      color: '#fff',
+      fontSize: 15,
+      fontWeight: '700',
+      textAlign: 'center',
     },
     scrim: {
       position: 'absolute',
