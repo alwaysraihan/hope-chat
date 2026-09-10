@@ -89,6 +89,10 @@ import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForegroun
 // useOverlayPermissionPrompt removed — SYSTEM_ALERT_WINDOW dropped from manifest.
 // Re-add when the floating in-call bubble feature is shipped.
 import { registerActiveCall } from '../services/livekit/activeCallRegistry';
+import {
+  emitActiveCallStatus,
+  emitActiveCallEnded,
+} from '../services/livekit/activeCallStatusBus';
 import { useCallTimer } from '../hooks/useCallTimer';
 import {
   sendCallModeChange,
@@ -354,6 +358,48 @@ function VideoCallGate({
       if (data.liveKitRoom === liveKitRoomName) setPeerIsRinging(true);
     });
   }, [outgoing, liveKitRoomName]);
+
+  // Drive the in-app "return to call" banner (App.tsx's CallStatusBanner) so
+  // minimizing the call (or navigating elsewhere) still shows a WhatsApp-style
+  // bar with live status instead of the call silently vanishing from view.
+  const connectedAtMsRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!liveKitRoomName || cs === ConnectionState.Disconnected) return;
+    const hasRemote = remotes.length > 0;
+    if (hasRemote && cs === ConnectionState.Connected && !connectedAtMsRef.current) {
+      connectedAtMsRef.current = Date.now();
+    }
+    const status =
+      cs === ConnectionState.Reconnecting
+        ? 'reconnecting'
+        : hasRemote && cs === ConnectionState.Connected
+          ? 'connected'
+          : outgoing && !peerIsRinging
+            ? 'connecting'
+            : 'ringing';
+    emitActiveCallStatus({
+      liveKitRoom: liveKitRoomName,
+      kind: 'video',
+      status,
+      peerName: routeParams?.displayName ?? displayName,
+      peerAvatarUrl: routeParams?.avatarUrl ?? peerAvatarUrl,
+      connectedAtMs: connectedAtMsRef.current,
+    });
+  }, [
+    liveKitRoomName,
+    cs,
+    remotes.length,
+    outgoing,
+    peerIsRinging,
+    routeParams?.displayName,
+    routeParams?.avatarUrl,
+    displayName,
+    peerAvatarUrl,
+  ]);
+  useEffect(() => {
+    if (!liveKitRoomName) return;
+    return () => emitActiveCallEnded(liveKitRoomName);
+  }, [liveKitRoomName]);
 
   const prevRemoteCountRef = useRef(0);
   useEffect(() => {

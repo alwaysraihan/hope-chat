@@ -17,6 +17,7 @@ import { LanguageProvider } from './src/context/LanguageContext';
 import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
 import CallWaitingBanner from './src/components/CallWaitingBanner';
+import CallStatusBanner from './src/components/CallStatusBanner';
 import AppErrorBoundary from './src/components/AppErrorBoundary';
 import { ToastContainer } from './src/components/Toast';
 import { refreshExchangeRates } from './src/utils/currency';
@@ -340,6 +341,7 @@ const AppInner = () => {
       <IncomingCallListener />
       <RootNavigator />
       {/* Overlays the call screens, so it must render AFTER the navigator. */}
+      <CallStatusBanner />
       <CallWaitingBanner />
     </ChatsProvider>
   ) : (
