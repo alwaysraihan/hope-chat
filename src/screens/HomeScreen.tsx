@@ -35,7 +35,7 @@ import { setStoryFeedRings, type StoryRing } from '../data/storyFeedCache';
 import { fetchMyFriends, type HopenityFriend } from '../services/friendsService';
 import { storyRingsFromConversations } from '../services/story/buildStoryRings';
 import { fetchStoryFeed } from '../services/story/storyApi';
-import { STORY_DELETED_EVENT } from '../services/story/storyEvents';
+import { STORY_DELETED_EVENT, STORY_POSTED_EVENT } from '../services/story/storyEvents';
 import {
   readStoryFeedCache,
   writeStoryFeedCache,
@@ -215,6 +215,30 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           const next = prev
             .map(r => ({ ...r, slides: r.slides.filter(s => s.id !== storyId) }))
             .filter(r => r.slides.length > 0);
+          if (userId !== 'me') writeStoryFeedCache(userId, next);
+          return next;
+        });
+      },
+    );
+    return () => sub.remove();
+  }, [userId]);
+
+  // Mirrors the delete-sync effect above, for the opposite direction: a
+  // freshly-posted story is merged in immediately instead of waiting for the
+  // feed listing endpoint to catch up with what was just written.
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      STORY_POSTED_EVENT,
+      ({ ring: posted }: { ring: StoryRing }) => {
+        setApiRings(prev => {
+          const existing = prev.find(r => r.id === posted.id);
+          const next = existing
+            ? prev.map(r =>
+                r.id === posted.id
+                  ? { ...r, slides: [...posted.slides, ...r.slides] }
+                  : r,
+              )
+            : [posted, ...prev];
           if (userId !== 'me') writeStoryFeedCache(userId, next);
           return next;
         });
@@ -459,6 +483,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       avatarUrl?: string | null;
       isAdd?: boolean;
       active?: boolean;
+      /** Has a live story — draws the ring border so it visibly reads as a story card. */
+      hasStory?: boolean;
+      /** All of that story's slides have been viewed — ring shows muted instead of bright. */
+      storySeen?: boolean;
       onPress: () => void;
       onBadgePress?: () => void;
     }> = [
@@ -467,6 +495,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         name: myStoryTile.name,
         avatarUrl: myStoryTile.avatarUrl,
         isAdd: true,
+        hasStory: !!myRing,
+        storySeen: myRing ? myRing.slides.every(s => s.isViewed) : false,
         // Whole card opens your existing story when you have one; the +
         // badge always opens the composer regardless. No separate second
         // card for "my story" — one tile does both jobs.
@@ -506,6 +536,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         name: r.name,
         avatarUrl: r.avatarUri ?? null,
         active: authorId ? onlineByAuthorId.get(authorId) === true : false,
+        hasStory: true,
+        storySeen: r.slides.every(s => s.isViewed),
         onPress: () => openStoryViewerFor(r.id),
       });
     }
@@ -697,11 +729,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     },
     safeArea: {
       flex: 1,
-      backgroundColor: colorss.white,
+      // `white` resolves to #0A0A0A in dark mode (a near-black surface tone,
+      // not true black) — the page itself should be pure black there, same
+      // as the bottom nav, so use the actual background token.
+      backgroundColor: colorss.background,
     },
     container: {
       flex: 1,
-      backgroundColor: colorss.white,
+      backgroundColor: colorss.background,
     },
     // Styled to match ConversationItem so it reads as the first chat row,
     // not a banner bolted above the list.

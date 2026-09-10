@@ -1,5 +1,6 @@
 import { DeviceEventEmitter } from 'react-native';
 import { createMMKV, type MMKV } from 'react-native-mmkv';
+import type { StoryRing } from '../../data/storyFeedCache';
 
 /**
  * HomeScreen.tsx, StoryScreen.tsx, and StoryViewerScreen.tsx each keep their
@@ -72,4 +73,18 @@ export function isStoryDeletedLocally(storyId: string): boolean {
 export function emitStoryDeleted(storyId: string): void {
   markStoryDeletedLocally(storyId);
   DeviceEventEmitter.emit(STORY_DELETED_EVENT, { storyId });
+}
+
+/**
+ * Fired right after a successful upload, carrying a ring built from data we
+ * already have locally (no need to wait on the feed listing endpoint, which
+ * — like the delete path — can lag behind a fresh write by a few seconds).
+ * HomeScreen.tsx / StoryScreen.tsx merge this straight into their own state
+ * so the new story appears immediately instead of waiting for their next
+ * natural refetch to happen to already reflect it.
+ */
+export const STORY_POSTED_EVENT = 'hopechat:story_posted_v1';
+
+export function emitStoryPosted(ring: StoryRing): void {
+  DeviceEventEmitter.emit(STORY_POSTED_EVENT, { ring });
 }

@@ -27,7 +27,7 @@ import { useChats } from '../context/ChatsContext';
 import { setStoryFeedRings, type StoryRing } from '../data/storyFeedCache';
 import { storyRingsFromConversations } from '../services/story/buildStoryRings';
 import { fetchStoryFeed } from '../services/story/storyApi';
-import { STORY_DELETED_EVENT } from '../services/story/storyEvents';
+import { STORY_DELETED_EVENT, STORY_POSTED_EVENT } from '../services/story/storyEvents';
 import type { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import {
@@ -143,6 +143,30 @@ const StoriesScreen = () => {
           const next = prev
             .map(r => ({ ...r, slides: r.slides.filter(s => s.id !== storyId) }))
             .filter(r => r.slides.length > 0);
+          if (userId !== 'me') writeStoryFeedCache(userId, next);
+          return next;
+        });
+      },
+    );
+    return () => sub.remove();
+  }, [userId]);
+
+  // Mirrors the delete-sync effect above, for the opposite direction: a
+  // freshly-posted story is merged in immediately instead of waiting for the
+  // feed listing endpoint to catch up with what was just written.
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      STORY_POSTED_EVENT,
+      ({ ring: posted }: { ring: StoryRing }) => {
+        setApiRings(prev => {
+          const existing = prev.find(r => r.id === posted.id);
+          const next = existing
+            ? prev.map(r =>
+                r.id === posted.id
+                  ? { ...r, slides: [...posted.slides, ...r.slides] }
+                  : r,
+              )
+            : [posted, ...prev];
           if (userId !== 'me') writeStoryFeedCache(userId, next);
           return next;
         });

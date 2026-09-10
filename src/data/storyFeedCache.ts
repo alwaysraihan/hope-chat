@@ -13,6 +13,8 @@ export type StorySlide = {
   /** Content for a 'text' slide. */
   text?: string | null;
   backgroundColor?: string | null;
+  /** From the feed API — drives the seen/unseen ring color in the strip. */
+  isViewed?: boolean;
 };
 
 export type StoryRing = {

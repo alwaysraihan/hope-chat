@@ -12,7 +12,11 @@ const SearchBar = ({ onSearchPress }) => {
         container: {
           flexDirection: 'row',
           alignItems: 'center',
-          backgroundColor: colors.background,
+          // Same token the filter tab pills (All/Unread/Booking/…) already
+          // use, so the search field reads as visibly distinct from the
+          // page background in both light and dark mode instead of nearly
+          // blending into it.
+          backgroundColor: colors.bubbleIn,
           marginHorizontal: spacing.xl,
           marginBottom: 8,
           borderRadius: 9999,

@@ -106,6 +106,7 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
                 ? s.duration
                 : 5000,
               expiresAt: pickStr(s.expires_at) || null,
+              isViewed: !!s.is_viewed,
             };
           }
 
@@ -128,6 +129,7 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
               ? s.duration
               : isVideo ? 15000 : 5000,
             expiresAt: pickStr(s.expires_at) || null,
+            isViewed: !!s.is_viewed,
           };
         })
         .filter((s): s is NonNullable<typeof s> => s !== null)
