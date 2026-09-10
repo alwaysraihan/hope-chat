@@ -545,6 +545,42 @@ export async function getOrCreatePeerChat(
   }
 }
 
+export type PeerChatVersion = {
+  chatId: string;
+  /** Mirrors ChatsContext's `isV1Chat: !!chat.conversationKey` — callers need
+   * this to pick v1 vs v2 message endpoints; guessing wrong writes the message
+   * to a version InboxContext never reads back from that thread. */
+  isV1Chat: boolean;
+};
+
+/**
+ * Same as getOrCreatePeerChat but also reports which message-API generation
+ * this chat is, so a caller outside InboxContext (e.g. a story reply) can
+ * send the message through the endpoint that will actually be read back.
+ */
+export async function getOrCreatePeerChatWithVersion(
+  targetUserId: string,
+  token: string,
+): Promise<PeerChatVersion | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/chats`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ targetUserId }),
+    });
+    const json = await response.json().catch(() => null);
+    const raw = json?.responseObject ?? json?.data ?? json;
+    const id = raw?.id ?? raw?.chatId ?? raw?.conversation_id;
+    if (id == null) return null;
+    return { chatId: String(id), isV1Chat: !!raw?.conversationKey };
+  } catch {
+    return null;
+  }
+}
+
 export type PeerChatInfo = {
   chatId: string;
   peerName: string;
@@ -776,6 +812,8 @@ export async function sendHopenityChatMessage(
   senderPageId?: string | null,
   isGroup?: boolean,
   replyToId?: string | number | null,
+  /** Attaches this message to a story as a reply — same `storyId` field the web app sends. */
+  storyId?: string | number | null,
 ): Promise<HopenityChatMessage | null> {
   if (!content || !token) return null;
 
@@ -789,6 +827,14 @@ export async function sendHopenityChatMessage(
   const body: Record<string, unknown> = { content };
   if (senderPageId) body.senderPageId = senderPageId;
   if (replyToId != null) body.replyToId = replyToId;
+  // Backend validates storyId as a number ("Expected number, received
+  // string") — StorySlide.id is a string, so passing it through unconverted
+  // made every story-reply send fail with a 400 the caller never surfaced,
+  // silently dropping the message while the composer cleared as if it sent.
+  if (storyId != null) {
+    const n = typeof storyId === 'number' ? storyId : Number(storyId);
+    if (Number.isFinite(n)) body.storyId = n;
+  }
 
   const response = await fetch(url, {
     method: 'POST',

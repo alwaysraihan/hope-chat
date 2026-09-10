@@ -23,6 +23,7 @@ import { ProductCardPreview } from './ProductCardPreview';
 import { PostCardPreview } from './PostCardPreview';
 import DonationRequestBubble from './DonationRequestBubble';
 import BookingCardBubble from './BookingCardBubble';
+import StoryReplyBubble from './StoryReplyBubble';
 import MediaPreviewModal from './ImagePreviewModal';
 import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
@@ -547,6 +548,20 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     return (
       <Reaction {...reactionProps}>
         <BookingCardBubble booking={msg.bookingCard} isOwn={isOwn} />
+      </Reaction>
+    );
+  }
+
+  // ── Story reply ─────────────────────────────────────────────────────────
+
+  if (msg.messageKind === 'story_reply' && msg.storyReply) {
+    return (
+      <Reaction {...reactionProps}>
+        <StoryReplyBubble
+          story={msg.storyReply}
+          caption={msg.text?.trim() || undefined}
+          isOwn={isOwn}
+        />
       </Reaction>
     );
   }

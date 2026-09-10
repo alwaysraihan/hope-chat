@@ -7,6 +7,8 @@ export type StorySlide = {
   type?: 'image' | 'video';
   /** Poster image for video slides — used for grid covers, where `uri` is unrenderable. */
   thumbUri?: string | null;
+  /** ISO timestamp from the backend — a story past this is no longer viewable. */
+  expiresAt?: string | null;
 };
 
 export type StoryRing = {

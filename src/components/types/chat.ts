@@ -45,6 +45,20 @@ export interface BookingCardPayload {
   status: BookingCardStatus;
 }
 
+/** A reply sent from the story viewer — mirrors the `story` object feusar's
+ * Messages.tsx renders inline on the message row (`m.story`). */
+export interface StoryReplyPayload {
+  storyId: string;
+  type: string;
+  mediaUrl?: string | null;
+  thumbnailUrl?: string | null;
+  content?: string | null;
+  /** ISO timestamp — past this the story can no longer be opened. */
+  expiresAt?: string | null;
+  authorName?: string;
+  authorAvatarUrl?: string | null;
+}
+
 export type BookingCardStatus =
   | 'PENDING'
   | 'CONFIRMED'
@@ -69,9 +83,11 @@ export interface ExtendedMessage extends IMessage {
     | 'text'
     | 'donation_request'
     | 'booking_card'
+    | 'story_reply'
     | 'system';
   donationRequest?: DonationRequestPayload;
   bookingCard?: BookingCardPayload;
+  storyReply?: StoryReplyPayload;
   /** When the API returns receipts (outgoing messages). */
   delivery?: {
     state: 'sent' | 'delivered' | 'read';

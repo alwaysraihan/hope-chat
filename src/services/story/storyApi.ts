@@ -24,6 +24,7 @@ type ApiStoryItem = {
   content?: string | null;
   background_color?: string | null;
   created_at?: string;
+  expires_at?: string;
   is_viewed?: boolean;
   music_url?: string | null;
   duration?: number;
@@ -107,6 +108,7 @@ export async function fetchStoryFeed(token: string | null): Promise<StoryRing[]>
             durationMs: typeof s.duration === 'number' && s.duration > 0
               ? s.duration
               : isVideo ? 15000 : 5000,
+            expiresAt: pickStr(s.expires_at) || null,
           };
         })
         .filter((s): s is NonNullable<typeof s> => s !== null);

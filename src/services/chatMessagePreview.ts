@@ -4,6 +4,7 @@ import type {
   DonationRequestPayload,
   DonationRequestType,
   MediaPayload,
+  StoryReplyPayload,
 } from '../components/types/chat';
 import { normalizeChatUserId } from '../utils/chatUserId';
 
@@ -25,6 +26,17 @@ export type ApiLastMessageLike = {
   missed?: boolean;
   callKind?: 'audio' | 'video' | string;
   metadata?: Record<string, unknown>;
+  /** Present on a story-reply message — mirrors feusar's `m.story`. */
+  story?: {
+    id?: string | number;
+    type?: string;
+    media_url?: string | null;
+    thumbnail_url?: string | null;
+    content?: string | null;
+    expires_at?: string | null;
+    user?: { name?: string; image?: string | null };
+  } | null;
+  storyId?: string | number | null;
 };
 
 export function formatSecondsToClock(totalSec: number): string {
@@ -111,6 +123,12 @@ export function formatChatListPreview(
   if (combined.includes('donation_request') || rawType === 'donation_request') {
     const base = '💝 Donation request';
     return senderIsLocal ? `You: ${base}` : base;
+  }
+
+  // Story reply — the message row carries a nested `story` object. Content
+  // may be empty (a reaction-only reply) or the actual typed reply text.
+  if (last.story || last.storyId) {
+    return senderIsLocal ? 'You: ↩️ Replied to a story' : '↩️ Replied to your story';
   }
   // Web-generated structured messages: content starts with "JSON:{...}"
   const contentStr = String(last.content ?? '').trimStart();
@@ -207,9 +225,11 @@ export type ParsedApiMessage = {
     | 'text'
     | 'donation_request'
     | 'booking_card'
+    | 'story_reply'
     | 'system';
   donationRequest?: DonationRequestPayload;
   bookingCard?: BookingCardPayload;
+  storyReply?: StoryReplyPayload;
   delivery?: {
     state: 'sent' | 'delivered' | 'read';
     readAt?: string;
@@ -398,6 +418,24 @@ export function mapApiMessageToTimeline(
       donationRequest: { donationId, postId, status, requestType },
       delivery,
     };
+  }
+
+  // Story reply — nested `story` object on the message row (same shape
+  // feusar's Messages.tsx reads as `m.story`). The typed reply text (if any)
+  // stays in `text` so the bubble can show both the card and the caption.
+  const rawStory = raw.story as ApiLastMessageLike['story'];
+  if (rawStory) {
+    const storyReply: StoryReplyPayload = {
+      storyId: String(rawStory.id ?? raw.storyId ?? ''),
+      type: String(rawStory.type ?? 'PHOTO'),
+      mediaUrl: rawStory.media_url ?? null,
+      thumbnailUrl: rawStory.thumbnail_url ?? null,
+      content: rawStory.content ?? null,
+      expiresAt: rawStory.expires_at ?? null,
+      authorName: rawStory.user?.name,
+      authorAvatarUrl: rawStory.user?.image ?? null,
+    };
+    return { text: messageText, messageKind: 'story_reply', storyReply, delivery };
   }
 
   if (isCall) {

@@ -792,6 +792,7 @@ export function InboxProvider({
         messageKind: parsed.messageKind,
         donationRequest: parsed.donationRequest,
         bookingCard: parsed.bookingCard,
+        storyReply: parsed.storyReply,
         delivery: parsed.delivery,
         outgoingHint: hint,
         replyTo: replyToMapped,
