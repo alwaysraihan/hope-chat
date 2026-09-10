@@ -52,6 +52,12 @@ type NicknamesUpdatedListener = (data: {
   chatId: string;
   nicknames: Record<string, string>;
 }) => void;
+/** Server pushes this to everyone currently `watch_presence`-ing this userId. */
+type PresenceListener = (data: {
+  userId: string;
+  isOnline: boolean;
+  lastSeenAt?: string | null;
+}) => void;
 
 class CallSocketService {
   private socket: any = null;
@@ -68,6 +74,9 @@ class CallSocketService {
   private chatThemeUpdatedListeners: Set<ChatThemeUpdatedListener> = new Set();
   private wordEffectListeners: Set<WordEffectListener> = new Set();
   private groupCallStateListeners: Set<GroupCallStateListener> = new Set();
+  private presenceListeners: Set<PresenceListener> = new Set();
+  /** Re-asserted on reconnect — a silent server restart drops room membership. */
+  private watchedPresenceIds: Set<string> = new Set();
 
   connect(authToken: string, userId?: string): void {
     if (this.socket && this.token === authToken) {
@@ -121,6 +130,11 @@ class CallSocketService {
         if (this.userId) {
           try { this.socket?.emit('join_user', this.userId); } catch { /* */ }
         }
+        // Re-assert presence subscriptions: a reconnect drops room membership
+        // server-side even though the client still holds the same socket.
+        this.watchedPresenceIds.forEach(id => {
+          try { this.socket?.emit('watch_presence', id); } catch { /* */ }
+        });
       });
       this.socket.on('disconnect', (reason: string) => {
         if (__DEV__) console.log('[CallSocket] disconnected', reason);
@@ -215,6 +229,19 @@ class CallSocketService {
           try { l({ chatId, theme }); } catch { /* */ }
         });
       });
+      this.socket.on('presence_changed', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const presenceUserId = String(d.userId ?? d.user_id ?? '');
+        if (!presenceUserId) return;
+        const payload = {
+          userId: presenceUserId,
+          isOnline: d.isOnline === true || d.isOnline === 'true',
+          lastSeenAt:
+            d.lastSeenAt != null ? String(d.lastSeenAt) : (d.last_active_at != null ? String(d.last_active_at) : null),
+        };
+        this.presenceListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
       this.socket.on('user_typing', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
         const d = data as Record<string, unknown>;
@@ -263,6 +290,7 @@ class CallSocketService {
     }
     this.token = null;
     this.userId = null;
+    this.watchedPresenceIds.clear();
   }
 
   onIncomingCall(listener: CallSocketListener): () => void {
@@ -300,6 +328,26 @@ class CallSocketService {
   leaveChatRoom(chatId: string | number): void {
     if (!this.socket?.connected) return;
     try { this.socket.emit('leave_chat', String(chatId)); } catch { /* */ }
+  }
+
+  /** Subscribe to live online/offline updates for one friend. */
+  watchPresence(userId: string): void {
+    if (!userId) return;
+    this.watchedPresenceIds.add(userId);
+    if (!this.socket?.connected) return;
+    try { this.socket.emit('watch_presence', userId); } catch { /* */ }
+  }
+
+  unwatchPresence(userId: string): void {
+    if (!userId) return;
+    this.watchedPresenceIds.delete(userId);
+    if (!this.socket?.connected) return;
+    try { this.socket.emit('unwatch_presence', userId); } catch { /* */ }
+  }
+
+  onPresenceChanged(listener: PresenceListener): () => void {
+    this.presenceListeners.add(listener);
+    return () => this.presenceListeners.delete(listener);
   }
 
   onMessageDeleted(listener: MessageDeletedListener): () => void {

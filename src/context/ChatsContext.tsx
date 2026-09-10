@@ -1154,6 +1154,58 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [token, localUser?._id]);
 
+  /**
+   * Live "online" dot in the chat list / story strip. The REST conversations
+   * payload only carries a snapshot of `isOnline`, stale until the next 30s
+   * poll — this subscribes to the backend's `presence_changed` push (already
+   * built server-side: socket join `watch_presence`/`unwatch_presence` per
+   * friend, broadcasts on their connect/disconnect) so the dot flips near-
+   * instantly instead of waiting on the poll.
+   */
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const unsubPresence = callSocket.onPresenceChanged(({ userId, isOnline, lastSeenAt }) => {
+      setConversations(prev => {
+        let changed = false;
+        const next = prev.map(c => {
+          if (c.isGroup || !c.peerUserId || String(c.peerUserId) !== String(userId)) {
+            return c;
+          }
+          if (c.isOnline === isOnline) return c;
+          changed = true;
+          return { ...c, isOnline, lastSeenAt: lastSeenAt ?? c.lastSeenAt };
+        });
+        return changed ? next : prev;
+      });
+    });
+
+    return unsubPresence;
+  }, [token]);
+
+  /** Keep the server's presence-watch set in sync with who's actually on screen. */
+  const watchedPresenceRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const nextIds = new Set(
+      conversations
+        .filter(c => !c.isGroup && c.peerUserId)
+        .map(c => String(c.peerUserId)),
+    );
+    const prevIds = watchedPresenceRef.current;
+
+    for (const id of nextIds) {
+      if (!prevIds.has(id)) callSocket.watchPresence(id);
+    }
+    for (const id of prevIds) {
+      if (!nextIds.has(id)) callSocket.unwatchPresence(id);
+    }
+    watchedPresenceRef.current = nextIds;
+
+    return undefined;
+  }, [token, conversations]);
+
   useEffect(() => {
     if (!token) return undefined;
 
