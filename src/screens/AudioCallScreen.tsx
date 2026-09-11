@@ -777,7 +777,7 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
   // and falsely show "Voice call error" to the user.
   const [addPeopleVisible, setAddPeopleVisible] = useState(false);
 
-  const rawSafePop = useSafeSingleNavigationPop(navigation as never);
+  const rawSafePop = useSafeSingleNavigationPop(navigation as never, route.key);
   // Suppress safePop when we're intentionally swapping call screens (mode switch / call handover).
   const safePop = useCallback(() => {
     // Never drop the pop outright: if it lands inside the transition-guard

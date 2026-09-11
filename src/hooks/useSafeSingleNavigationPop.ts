@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { StackActions } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 
 import { navigationRef } from '../navigation/navigationRef';
@@ -10,15 +11,40 @@ const MAX_ATTEMPTS = 12; // ~3.6s worst case before giving up
  * Avoid double goBack / re-entrancy when LiveKit fires onDisconnected + user action.
  * If goBack is impossible (broken stack / deep link), reset to Home so the app never
  * stays stuck on a dying call screen.
+ *
+ * `routeKey`, when given, is this call screen's own route key. Minimizing a call
+ * pushes `BottomTab` ON TOP of the call screen (so LiveKit keeps running underneath),
+ * so a single `goBack()` issued after minimizing only pops that top layer and reveals
+ * the call screen again in its "Call ended" state instead of actually leaving. With
+ * the route key we instead pop everything from the call screen's own stack position
+ * up through the top in one shot, landing back on whatever was open before the call.
  */
 export function useSafeSingleNavigationPop(
   navigation: NavigationProp<Record<string, unknown>>,
+  routeKey?: string,
 ) {
   const popped = useRef(false);
   const attempts = useRef(0);
 
+  const popPastRoute = useCallback((): boolean => {
+    if (!routeKey || !navigationRef.isReady()) return false;
+    try {
+      const state = navigationRef.getRootState();
+      const idx = state.routes.findIndex(r => r.key === routeKey);
+      if (idx < 0) return false;
+      const count = state.routes.length - idx;
+      if (count <= 0) return false;
+      popped.current = true;
+      navigationRef.dispatch(StackActions.pop(count));
+      return true;
+    } catch {
+      return false;
+    }
+  }, [routeKey]);
+
   const attempt = useCallback(() => {
     if (popped.current) return;
+    if (popPastRoute()) return;
     try {
       if (navigation.canGoBack()) {
         popped.current = true;
@@ -62,7 +88,7 @@ export function useSafeSingleNavigationPop(
       return;
     }
     setTimeout(attemptRef.current, RETRY_DELAY_MS);
-  }, [navigation]);
+  }, [navigation, popPastRoute]);
 
   const attemptRef = useRef(attempt);
   attemptRef.current = attempt;

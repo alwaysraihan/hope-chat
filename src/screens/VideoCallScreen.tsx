@@ -1362,7 +1362,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
   // cannot propagate into the LiveKit error boundary and kill the video call.
   const [addPeopleVisible, setAddPeopleVisible] = useState(false);
 
-  const rawSafePop = useSafeSingleNavigationPop(navigation as never);
+  const rawSafePop = useSafeSingleNavigationPop(navigation as never, route.key);
   // Suppress safePop when we're intentionally swapping call screens (mode switch / call handover).
   const safePop = useCallback(() => {
     // Never drop the pop outright: if it lands inside the transition-guard
