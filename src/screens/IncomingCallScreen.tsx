@@ -330,7 +330,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
           accessibilityRole="button"
           accessibilityLabel={t.decline_call}
         >
-          <PhoneOff color={colorss.white} size={30} />
+          <PhoneOff color={'white'} size={30} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.circle, styles.accept]}
@@ -338,7 +338,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
           accessibilityRole="button"
           accessibilityLabel={t.accept_call}
         >
-          <Phone color={colorss.white} size={30} />
+          <Phone color={'white'} size={30} />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -361,7 +361,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   name: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 28,
     fontWeight: '800',
     textAlign: 'center',

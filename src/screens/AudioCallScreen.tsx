@@ -464,15 +464,24 @@ function AudioCallGate({
               resizeMode={FastImage.resizeMode.cover}
             />
           ) : null}
-          <ActivityIndicator color={colorss.white} size="large" />
+          <ActivityIndicator color={'white'} size="large" />
           <Text style={styles.connectOverlayText}>{label}</Text>
           <TouchableOpacity
             style={styles.endBtn}
             accessibilityRole="button"
             accessibilityLabel="End call"
-            onPress={() => void leaveCall()}
+            onPress={() => {
+              // The room may already be torn down (e.g. this is the post-remote-hangup
+              // "Call ended" screen), in which case leaveCall() is a guarded no-op —
+              // never let that leave the tap dead. Always attempt to leave the screen too.
+              if (cs === ConnectionState.Disconnected) {
+                safePop();
+              } else {
+                void leaveCall();
+              }
+            }}
           >
-            <PhoneOff size={26} color={colorss.white} />
+            <PhoneOff size={26} color={'white'} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -588,13 +597,13 @@ function AudioStage({
   const activeKind = audio.activeId;
   const activeIcon =
     activeKind === 'bluetooth' ? (
-      <Bluetooth size={22} color={colorss.white} />
+      <Bluetooth size={22} color={'white'} />
     ) : activeKind === 'wired' ? (
-      <Headphones size={22} color={colorss.white} />
+      <Headphones size={22} color={'white'} />
     ) : activeKind === 'speaker' ? (
-      <Volume2 size={22} color={colorss.white} />
+      <Volume2 size={22} color={'white'} />
     ) : (
-      <PhoneIcon size={22} color={colorss.white} />
+      <PhoneIcon size={22} color={'white'} />
     );
   const activeLabel =
     activeKind === 'bluetooth'
@@ -614,7 +623,7 @@ function AudioStage({
             accessibilityRole="button"
             accessibilityLabel="Go to chat list"
           >
-            <ChevronLeft size={28} color={colorss.white} />
+            <ChevronLeft size={28} color={'white'} />
           </TouchableOpacity>
         ) : (
           <View style={{ width: 28 }} />
@@ -710,7 +719,7 @@ function AudioStage({
           >
             <VideoIcon
               size={22}
-              color={isRinging ? 'rgba(255,255,255,0.4)' : colorss.white}
+              color={isRinging ? 'rgba(255,255,255,0.4)' : 'white'}
             />
           </TouchableOpacity>
           <Text style={styles.actionLabel}>Video</Text>
@@ -724,9 +733,9 @@ function AudioStage({
             onPress={toggleMic}
           >
             {isMicrophoneEnabled ? (
-              <Mic size={22} color={colorss.white} />
+              <Mic size={22} color={'white'} />
             ) : (
-              <MicOff size={22} color={colorss.white} />
+              <MicOff size={22} color={'white'} />
             )}
           </TouchableOpacity>
           <Text style={styles.actionLabel}>Mute</Text>
@@ -739,14 +748,14 @@ function AudioStage({
               accessibilityRole="button"
               accessibilityLabel="Add people to call"
             >
-              <UserPlus size={22} color={colorss.white} />
+              <UserPlus size={22} color={'white'} />
             </TouchableOpacity>
             <Text style={styles.actionLabel}>Add</Text>
           </View>
         )}
         <View style={styles.actionItem}>
           <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
-            <PhoneOff size={22} color={colorss.white} />
+            <PhoneOff size={22} color={'white'} />
           </TouchableOpacity>
           <Text style={styles.actionLabel}>End</Text>
         </View>
@@ -858,7 +867,7 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
       <View style={styles.container}>
         {loading ? (
           <View style={styles.centerWrap}>
-            <ActivityIndicator color={colorss.white} size="large" />
+            <ActivityIndicator color={'white'} size="large" />
             <Text style={styles.statusText}>Connecting voice…</Text>
           </View>
         ) : typeof serverUrl === 'string' &&
@@ -973,7 +982,7 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.primary,
   },
   name: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 24,
     fontWeight: '700',
     marginTop: 16,
@@ -1041,7 +1050,7 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.primaryDark,
   },
   missingTitle: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 20,
     fontWeight: '800',
     marginBottom: 10,
@@ -1060,7 +1069,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   backGhostText: {
-    color: colorss.white,
+    color: 'white',
     fontWeight: '700',
   },
   connectingFull: {
@@ -1109,7 +1118,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.35)',
   },
   participantInitial: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 20,
     fontWeight: '700',
   },
@@ -1127,7 +1136,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.14)',
   },
   autoSwitchBannerText: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 13,
     fontWeight: '600',
   },

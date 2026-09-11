@@ -42,7 +42,25 @@ export function useSafeSingleNavigationPop(
     // silently here, which is what left the "Call ended" screen stuck forever
     // on the unlucky timing. Retry instead, up to a bounded number of times.
     attempts.current += 1;
-    if (attempts.current >= MAX_ATTEMPTS) return;
+    if (attempts.current >= MAX_ATTEMPTS) {
+      // Last resort: a hard reset always succeeds once the navigator is ready,
+      // even if goBack()/navigate() kept silently failing above. Without this,
+      // exhausting retries left the call screen stuck forever with no escape.
+      try {
+        if (navigationRef.isReady()) {
+          popped.current = true;
+          navigationRef.reset({
+            index: 0,
+            routes: [{ name: 'BottomTab', params: { screen: 'Home' } }],
+          });
+          return;
+        }
+      } catch {
+        /* fall through */
+      }
+      setTimeout(attemptRef.current, RETRY_DELAY_MS);
+      return;
+    }
     setTimeout(attemptRef.current, RETRY_DELAY_MS);
   }, [navigation]);
 

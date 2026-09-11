@@ -516,15 +516,24 @@ function VideoCallGate({
               resizeMode={FastImage.resizeMode.cover}
             />
           ) : null}
-          <ActivityIndicator color={colorss.white} size="large" />
+          <ActivityIndicator color={'white'} size="large" />
           <Text style={styles.connectOverlayText}>{label}</Text>
           <TouchableOpacity
             style={styles.endBtn}
             accessibilityRole="button"
             accessibilityLabel="End call"
-            onPress={() => void leaveCall()}
+            onPress={() => {
+              // The room may already be torn down (e.g. this is the post-remote-hangup
+              // "Call ended" screen), in which case leaveCall() is a guarded no-op —
+              // never let that leave the tap dead. Always attempt to leave the screen too.
+              if (cs === ConnectionState.Disconnected) {
+                safePop();
+              } else {
+                void leaveCall();
+              }
+            }}
           >
-            <PhoneOff size={26} color={colorss.white} />
+            <PhoneOff size={26} color={'white'} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -650,13 +659,13 @@ function AndroidConnectedCallStage({
   const activeKind = audio.activeId;
   const activeAudioIcon =
     activeKind === 'bluetooth' ? (
-      <Bluetooth size={22} color={colorss.white} />
+      <Bluetooth size={22} color={'white'} />
     ) : activeKind === 'wired' ? (
-      <Headphones size={22} color={colorss.white} />
+      <Headphones size={22} color={'white'} />
     ) : activeKind === 'earpiece' ? (
-      <Phone size={22} color={colorss.white} />
+      <Phone size={22} color={'white'} />
     ) : (
-      <Volume2 size={22} color={colorss.white} />
+      <Volume2 size={22} color={'white'} />
     );
 
   const showAndroidVideoNotice = useCallback(() => {
@@ -675,7 +684,7 @@ function AndroidConnectedCallStage({
             accessibilityRole="button"
             accessibilityLabel="Go to chat list"
           >
-            <ChevronLeft size={28} color={colorss.white} />
+            <ChevronLeft size={28} color={'white'} />
           </TouchableOpacity>
         ) : (
           <View style={{ width: 28 }} />
@@ -746,9 +755,9 @@ function AndroidConnectedCallStage({
           onPress={toggleMic}
         >
           {isMicrophoneEnabled ? (
-            <Mic size={22} color={colorss.white} />
+            <Mic size={22} color={'white'} />
           ) : (
-            <MicOff size={22} color={colorss.white} />
+            <MicOff size={22} color={'white'} />
           )}
         </TouchableOpacity>
         <TouchableOpacity
@@ -757,13 +766,13 @@ function AndroidConnectedCallStage({
           accessibilityRole="button"
           accessibilityLabel="Switch to voice call"
         >
-          <Phone size={22} color={colorss.white} />
+          <Phone size={22} color={'white'} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.ctrlBtn, styles.ctrlBtnDim]}
           onPress={showAndroidVideoNotice}
         >
-          <VideoOff size={22} color={colorss.white} />
+          <VideoOff size={22} color={'white'} />
         </TouchableOpacity>
       </View>
 
@@ -775,11 +784,11 @@ function AndroidConnectedCallStage({
             accessibilityRole="button"
             accessibilityLabel="Add people to call"
           >
-            <UserPlus size={22} color={colorss.white} />
+            <UserPlus size={22} color={'white'} />
           </TouchableOpacity>
         )}
         <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
-          <PhoneOff size={26} color={colorss.white} />
+          <PhoneOff size={26} color={'white'} />
         </TouchableOpacity>
       </View>
 
@@ -935,13 +944,13 @@ function VideoStage({
   const videoActiveKind = audio.activeId;
   const videoActiveAudioIcon =
     videoActiveKind === 'bluetooth' ? (
-      <Bluetooth size={22} color={colorss.white} />
+      <Bluetooth size={22} color={'white'} />
     ) : videoActiveKind === 'wired' ? (
-      <Headphones size={22} color={colorss.white} />
+      <Headphones size={22} color={'white'} />
     ) : videoActiveKind === 'earpiece' ? (
-      <Phone size={22} color={colorss.white} />
+      <Phone size={22} color={'white'} />
     ) : (
-      <Volume2 size={22} color={colorss.white} />
+      <Volume2 size={22} color={'white'} />
     );
 
   const [mainIsLocal, setMainIsLocal] = useState(false);
@@ -1197,7 +1206,7 @@ function VideoStage({
               accessibilityRole="button"
               accessibilityLabel="Go to chat list"
             >
-              <ChevronLeft size={28} color={colorss.white} />
+              <ChevronLeft size={28} color={'white'} />
             </TouchableOpacity>
           ) : (
             <View style={{ width: 28 }} />
@@ -1229,7 +1238,7 @@ function VideoStage({
               accessibilityRole="button"
               accessibilityLabel="Add people to call"
             >
-              <UserPlus size={22} color={colorss.white} />
+              <UserPlus size={22} color={'white'} />
             </TouchableOpacity>
           ) : (
             <View style={{ width: 28 }} />
@@ -1276,9 +1285,9 @@ function VideoStage({
               onPress={toggleMic}
             >
               {isMicrophoneEnabled ? (
-                <Mic size={22} color={colorss.white} />
+                <Mic size={22} color={'white'} />
               ) : (
-                <MicOff size={22} color={colorss.white} />
+                <MicOff size={22} color={'white'} />
               )}
             </TouchableOpacity>
             <TouchableOpacity
@@ -1289,9 +1298,9 @@ function VideoStage({
               onPress={toggleCam}
             >
               {isCameraEnabled ? (
-                <Video size={22} color={colorss.white} />
+                <Video size={22} color={'white'} />
               ) : (
-                <VideoOff size={22} color={colorss.white} />
+                <VideoOff size={22} color={'white'} />
               )}
             </TouchableOpacity>
             <TouchableOpacity
@@ -1300,7 +1309,7 @@ function VideoStage({
               accessibilityRole="button"
               accessibilityLabel="Switch to voice call"
             >
-              <Phone size={22} color={colorss.white} />
+              <Phone size={22} color={'white'} />
             </TouchableOpacity>
             {isCameraEnabled &&
             (Platform.OS === 'ios' ||
@@ -1314,7 +1323,7 @@ function VideoStage({
                 accessibilityRole="button"
                 accessibilityLabel="Switch camera"
               >
-                <SwitchCamera size={22} color={colorss.white} />
+                <SwitchCamera size={22} color={'white'} />
               </TouchableOpacity>
             ) : null}
             {Platform.OS !== 'android' ? (
@@ -1325,14 +1334,14 @@ function VideoStage({
                 ]}
                 onPress={toggleScreenShare}
               >
-                <MonitorUp size={22} color={colorss.white} />
+                <MonitorUp size={22} color={'white'} />
               </TouchableOpacity>
             ) : null}
           </View>
 
           <View style={styles.bottomBar}>
             <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
-              <PhoneOff size={26} color={colorss.white} />
+              <PhoneOff size={26} color={'white'} />
             </TouchableOpacity>
           </View>
         </View>
@@ -1452,7 +1461,7 @@ const VideoCallScreen: React.FC<Props> = ({ navigation, route }) => {
     <View style={styles.container}>
       {loading ? (
         <View style={styles.centerWrap}>
-          <ActivityIndicator color={colorss.white} size="large" />
+          <ActivityIndicator color={'white'} size="large" />
           <Text style={styles.statusText}>Connecting to Hopechat…</Text>
         </View>
       ) : typeof serverUrl === 'string' &&
@@ -1688,7 +1697,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   topName: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -1830,7 +1839,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
   },
   missingTitle: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 20,
     fontWeight: '800',
     marginBottom: 10,
@@ -1854,7 +1863,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   backGhostText: {
-    color: colorss.white,
+    color: 'white',
     fontWeight: '700',
   },
   connectingFull: {

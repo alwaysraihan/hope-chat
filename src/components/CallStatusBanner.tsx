@@ -32,6 +32,7 @@ import {
 } from '../services/livekit/activeCallStatusBus';
 import { OPEN_ACTIVE_CALL_EVENT } from '../services/livekit/pendingCallScreenOpen';
 import { getActiveCall } from '../services/livekit/activeCallRegistry';
+import { colorss } from '../theme';
 
 const CALL_SCREEN_NAMES = new Set(['VideoCall', 'AudioCall']);
 
@@ -160,7 +161,7 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2FA36B',
+    backgroundColor: colorss.primary,
     paddingBottom: 8,
     paddingHorizontal: 14,
     zIndex: 9998,
