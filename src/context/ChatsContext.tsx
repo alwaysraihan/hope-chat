@@ -1165,7 +1165,14 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!token) return undefined;
 
-    const unsubPresence = callSocket.onPresenceChanged(({ userId, isOnline, lastSeenAt }) => {
+    // Going online applies instantly (feels responsive), but going offline is
+    // held for a grace period first — a brief network blip otherwise made
+    // friends flicker in and out of the active-friends story strip on every
+    // reconnect. Coming back online within the window just cancels the timer.
+    const OFFLINE_GRACE_MS = 30_000;
+    const offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    const applyPresence = (userId: string, isOnline: boolean, lastSeenAt?: string | null) => {
       setConversations(prev => {
         let changed = false;
         const next = prev.map(c => {
@@ -1178,9 +1185,33 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         });
         return changed ? next : prev;
       });
+    };
+
+    const unsubPresence = callSocket.onPresenceChanged(({ userId, isOnline, lastSeenAt }) => {
+      const id = String(userId);
+      const pending = offlineTimers.get(id);
+      if (pending) {
+        clearTimeout(pending);
+        offlineTimers.delete(id);
+      }
+      if (isOnline) {
+        applyPresence(id, true, lastSeenAt);
+        return;
+      }
+      offlineTimers.set(
+        id,
+        setTimeout(() => {
+          offlineTimers.delete(id);
+          applyPresence(id, false, lastSeenAt);
+        }, OFFLINE_GRACE_MS),
+      );
     });
 
-    return unsubPresence;
+    return () => {
+      unsubPresence();
+      offlineTimers.forEach(t => clearTimeout(t));
+      offlineTimers.clear();
+    };
   }, [token]);
 
   /** Keep the server's presence-watch set in sync with who's actually on screen. */
