@@ -13,6 +13,7 @@ import React, {
 import {
   Alert,
   Animated,
+  AppState,
   DeviceEventEmitter,
   useWindowDimensions,
   View,
@@ -1276,8 +1277,25 @@ export function InboxProvider({
       playWordEffect(emoji);
     });
 
+    // The backend suppresses the push banner for a message whenever the recipient's
+    // socket is joined to this chat's room (it assumes that means they're already
+    // looking at it live). That's correct while the app is foregrounded, but this
+    // effect only re-runs on navigation/unmount — backgrounding the app (or just
+    // switching to another app) does NOT unmount this screen, so the join lingered
+    // forever and every message to this chat silently stopped pushing a notification
+    // until the socket eventually dropped. Leave the room the moment the app leaves
+    // the foreground, and rejoin if the user comes back to this same screen.
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        callSocket.joinChatRoom(_conversationId);
+      } else {
+        callSocket.leaveChatRoom(_conversationId);
+      }
+    });
+
     return () => {
       callSocket.leaveChatRoom(_conversationId);
+      appStateSub.remove();
       unsubDeleted();
       unsubNew();
       unsubWordEffect();
