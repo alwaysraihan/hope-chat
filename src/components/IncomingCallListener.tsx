@@ -841,7 +841,9 @@ const IncomingCallListener = () => {
           // the same Messenger-style notification here, unless the user is
           // already looking at that conversation.
           if (!isViewingChat(notificationChatId(data))) {
-            void displayMessagingNotification(data).catch(() => undefined);
+            void displayMessagingNotification(data).catch(e =>
+              console.error('[HopeChat FG] displayMessagingNotification failed — message notification dropped:', e),
+            );
           }
           if (__DEV__ && Object.keys(data).length > 0) {
             console.log(

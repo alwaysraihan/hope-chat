@@ -334,5 +334,19 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
 
   // ── Only messaging-related types get a push notification.
   //    All other types (POST_LIKE, COMMENT, STORY_REACTION, etc.) are dropped.
-  await displayMessagingNotification(data);
+  //
+  // This used to be an unguarded `await` — unlike every other branch above,
+  // which wraps its notifee/native calls in try/catch. If displayMessagingNotification
+  // ever throws (bad avatar URL, a malformed cached `history` blob, a notifee
+  // native error), the exception was silently swallowed by the FCM background
+  // handler: no crash, no log, the message just never appeared. That failure
+  // mode is indistinguishable from "notifications don't work" and would repeat
+  // for every message from a device carrying one bad cached value, while calls
+  // (which are fully try/catch-guarded) kept working — exactly the asymmetry
+  // reported. Logging here, even outside __DEV__, is the only way to ever see it.
+  try {
+    await displayMessagingNotification(data);
+  } catch (e) {
+    console.error('[HopeChat BG] displayMessagingNotification failed — message notification dropped:', e);
+  }
 });
