@@ -13,6 +13,17 @@ import { AppState, DeviceEventEmitter } from 'react-native';
 /** Emitting this event from anywhere (e.g. FCM handler) triggers an immediate inbox reload. */
 export const RELOAD_CHAT_LIST_EVENT = 'hopechat:reload_chat_list';
 const POLL_INTERVAL_MS = 30_000;
+/**
+ * How long a friend keeps showing "active" after the last time we actually
+ * saw them online, from ANY source (live socket push or a REST snapshot).
+ * Both the presence-socket handler and the 30s REST poll below read/write the
+ * same `lastOnlineAtRef` map so neither one can undercut the other — without
+ * this, a REST poll's slightly-stale snapshot would flip someone back to
+ * "offline" the instant it landed, even while the live socket said they were
+ * still online seconds earlier, which is what made two people who were both
+ * genuinely in the app see each other pop in and out of the active strip.
+ */
+const PRESENCE_GRACE_MS = 30_000;
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
   clearAuth,
@@ -827,6 +838,9 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<ConversationSummary[]>(
     () => [],
   );
+  // Shared between the presence-socket handler and the REST poll merge — see
+  // PRESENCE_GRACE_MS above for why this needs to be one shared clock.
+  const lastOnlineAtRef = useRef<Map<string, number>>(new Map());
 
   useLayoutEffect(() => {
     const uid = String(localUser._id ?? '');
@@ -976,7 +990,34 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           ? counts.requested
           : mapped.filter(c => c.needsAcceptance).length;
       setPendingRequestCount(newRequestCount);
-      setConversations(next);
+      // A REST snapshot can lag a few seconds behind the live socket state —
+      // applying its `isOnline: false` immediately is what let a 30s poll snap
+      // a friend back to "offline" for a moment even while the socket had
+      // already confirmed them online seconds earlier. Protect anyone seen
+      // online within the shared grace window instead of trusting this
+      // snapshot's offline verdict outright.
+      const now = Date.now();
+      setConversations(prevConversations => {
+        const prevOnlineById = new Map(
+          prevConversations
+            .filter(c => c.peerUserId)
+            .map(c => [String(c.peerUserId), c.isOnline === true]),
+        );
+        return next.map(c => {
+          if (c.isGroup || !c.peerUserId) return c;
+          const id = String(c.peerUserId);
+          if (c.isOnline) {
+            lastOnlineAtRef.current.set(id, now);
+            return c;
+          }
+          const wasOnline = prevOnlineById.get(id);
+          const lastSeen = lastOnlineAtRef.current.get(id) ?? 0;
+          if (wasOnline && now - lastSeen < PRESENCE_GRACE_MS) {
+            return { ...c, isOnline: true };
+          }
+          return c;
+        });
+      });
       setHasMoreConversations(chats.length >= CHAT_PAGE_SIZE);
       // Only cache personal-mode results — page inbox is transient and should
       // never appear after switching back to personal account.
@@ -1169,10 +1210,10 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     // held for a grace period first — a brief network blip otherwise made
     // friends flicker in and out of the active-friends story strip on every
     // reconnect. Coming back online within the window just cancels the timer.
-    const OFFLINE_GRACE_MS = 30_000;
     const offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     const applyPresence = (userId: string, isOnline: boolean, lastSeenAt?: string | null) => {
+      if (isOnline) lastOnlineAtRef.current.set(userId, Date.now());
       setConversations(prev => {
         let changed = false;
         const next = prev.map(c => {
@@ -1203,7 +1244,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         setTimeout(() => {
           offlineTimers.delete(id);
           applyPresence(id, false, lastSeenAt);
-        }, OFFLINE_GRACE_MS),
+        }, PRESENCE_GRACE_MS),
       );
     });
 

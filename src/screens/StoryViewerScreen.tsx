@@ -85,15 +85,15 @@ function useBounce() {
 /** One reaction-picker emoji — each needs its own animated scale, not a shared one. */
 const ReactionButton: React.FC<{
   emoji: string;
-  onPress: () => void;
+  onPress: (x: number, y: number) => void;
   disabled?: boolean;
 }> = ({ emoji, onPress, disabled }) => {
   const { scale, bounce } = useBounce();
   return (
     <Pressable
-      onPress={() => {
+      onPress={e => {
         bounce();
-        onPress();
+        onPress(e.nativeEvent.pageX, e.nativeEvent.pageY);
       }}
       disabled={disabled}
       hitSlop={6}
@@ -348,18 +348,39 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
   const [sending, setSending] = useState(false);
   const { scale: heartScale, bounce: bounceHeart } = useBounce();
 
+  // The picker sits directly above the heart toggle that opens it, so growing
+  // it from that corner (rather than just popping in, which read as sliding
+  // up from the bottom of the screen) makes it visually originate from the
+  // button the user actually pressed.
+  const reactionAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(reactionAnim, {
+      toValue: showReactions ? 1 : 0,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 90,
+    }).start();
+  }, [showReactions, reactionAnim]);
+
   // Floating reaction — flies up over the story itself (Instagram/TikTok
   // double-tap style) so the reaction visibly lands on the content, not just
   // on the toolbar button that triggered it.
   const [floaters, setFloaters] = useState<
-    { id: number; emoji: string; anim: Animated.Value; dx: number }[]
+    { id: number; emoji: string; anim: Animated.Value; x: number; y: number; dx: number }[]
   >([]);
   const floaterIdRef = useRef(0);
-  const spawnFloater = useCallback((emoji: string) => {
+  // Origin defaults to the heart toggle's own spot (bottom-right of the bar)
+  // for taps that don't report a position (e.g. triggered without an event).
+  const defaultFloaterOrigin = useCallback(
+    () => ({ x: width - 34 - 18, y: height - insets.bottom - 96 - 18 }),
+    [insets.bottom],
+  );
+  const spawnFloater = useCallback((emoji: string, x?: number, y?: number) => {
     const id = ++floaterIdRef.current;
     const anim = new Animated.Value(0);
     const dx = (Math.random() - 0.5) * 60;
-    setFloaters(prev => [...prev, { id, emoji, anim, dx }]);
+    const origin = x != null && y != null ? { x, y } : defaultFloaterOrigin();
+    setFloaters(prev => [...prev, { id, emoji, anim, dx, ...origin }]);
     Animated.timing(anim, {
       toValue: 1,
       duration: 1200,
@@ -367,12 +388,12 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
     }).start(() => {
       setFloaters(prev => prev.filter(f => f.id !== id));
     });
-  }, []);
+  }, [defaultFloaterOrigin]);
 
   const sendReaction = useCallback(
-    async (emoji: string) => {
+    async (emoji: string, originX?: number, originY?: number) => {
       if (!slide || sending) return;
-      spawnFloater(emoji);
+      spawnFloater(emoji, originX, originY);
       setSending(true);
       try {
         await reactToStory(slide.id, emoji, token);
@@ -631,6 +652,8 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
             style={[
               styles.floaterEmoji,
               {
+                left: f.x - 17,
+                top: f.y - 17,
                 opacity: f.anim.interpolate({
                   inputRange: [0, 0.12, 0.75, 1],
                   outputRange: [0, 1, 1, 0],
@@ -696,16 +719,32 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
               pointerEvents="none"
             />
             {showReactions ? (
-              <View style={styles.reactionRow}>
+              <Animated.View
+                style={[
+                  styles.reactionRow,
+                  {
+                    transformOrigin: 'bottom right',
+                    opacity: reactionAnim,
+                    transform: [
+                      {
+                        scale: reactionAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.3, 1],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
                 {REACTIONS.map(emoji => (
                   <ReactionButton
                     key={emoji}
                     emoji={emoji}
-                    onPress={() => sendReaction(emoji)}
+                    onPress={(x, y) => sendReaction(emoji, x, y)}
                     disabled={sending}
                   />
                 ))}
-              </View>
+              </Animated.View>
             ) : null}
             <View style={styles.replyRow}>
               <TextInput
@@ -738,11 +777,15 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
                     styles.reactToggle,
                     showReactions && styles.reactToggleActive,
                   ]}
-                  onPress={() => {
+                  onPress={e => {
                     bounceHeart();
-                    sendReaction('❤️');
+                    sendReaction('❤️', e.nativeEvent.pageX, e.nativeEvent.pageY);
                   }}
                   onLongPress={() => {
+                    // Reset before the mount-driven spring below runs, or a second
+                    // open in the same session would start from wherever the value
+                    // was left (1, from the previous open) and skip the animation.
+                    reactionAnim.setValue(0);
                     setShowReactions(true);
                     setInteracting(true);
                   }}
@@ -1117,10 +1160,6 @@ const styles = StyleSheet.create({
   },
   floaterLayer: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: 'flex-end',
-    justifyContent: 'flex-end',
-    paddingRight: 34,
-    paddingBottom: 96,
     zIndex: 50,
   },
   floaterEmoji: {
