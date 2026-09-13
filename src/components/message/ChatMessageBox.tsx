@@ -396,7 +396,7 @@ const sheet = StyleSheet.create({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function ChatMessageBox(props: ChatMessageBoxProps) {
+function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
   const { currentMessage, position, onPressReactions, isGroup, onSenderPress } = props;
   const { handlePressReplyPreview, handleDelete } = useInbox();
   const msg = currentMessage as ExtendedMessage;
@@ -831,6 +831,37 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     </Reaction>
   );
 }
+
+/**
+ * One of these renders per row in a chat thread — without memoization, ANY
+ * unrelated state change in the screen (typing indicator, a poll tick, the
+ * retro-decrypt sweep resolving one other message, a reaction on a different
+ * bubble) re-renders every bubble currently on screen, which is exactly the
+ * "chat feels slow/laggy" complaint on longer threads and weaker devices.
+ *
+ * `currentMessage`/`previousMessage`/`nextMessage` keep stable object identity
+ * for any message that hasn't actually changed (confirmed across the mapping
+ * code in InboxContext — untouched rows are returned as the same reference,
+ * not a new object), so comparing those by reference is the fast path that
+ * skips the vast majority of re-renders. `onPressReactions`/`onSenderPress` are
+ * deliberately NOT compared: GiftedChat's renderMessage recreates them as new
+ * closures on every call regardless of whether this row changed, so comparing
+ * them would defeat the memoization entirely without ever meaning something
+ * behaviorally different.
+ */
+function areEqual(prev: ChatMessageBoxProps, next: ChatMessageBoxProps): boolean {
+  return (
+    prev.currentMessage === next.currentMessage &&
+    prev.previousMessage === next.previousMessage &&
+    prev.nextMessage === next.nextMessage &&
+    prev.position === next.position &&
+    prev.isGroup === next.isGroup &&
+    prev.refreshTrigger === next.refreshTrigger
+  );
+}
+
+const ChatMessageBox = React.memo(ChatMessageBoxImpl, areEqual);
+export default ChatMessageBox;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
