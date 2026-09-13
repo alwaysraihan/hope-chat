@@ -568,6 +568,11 @@ export function InboxProvider({
 
       const rawObj = { ...(raw as Record<string, unknown>) };
       const rawContent = String(rawObj.content ?? rawObj.text ?? '').trimStart();
+      // Set only when a group envelope fails to decrypt with the key we
+      // currently hold — carried onto the parsed message so the retro-decrypt
+      // sweep below can retry it once our member-list cache (and therefore
+      // our derived key) catches up, without ever rendering the raw envelope.
+      let pendingCipherText: string | undefined;
       if (isV2Envelope(rawContent) || isSenderKeyEnvelope(rawContent)) {
         // New scheme. decryptIncoming reads the plaintext cache first, so this
         // is a cache hit for every message after the first — which is what
@@ -582,7 +587,21 @@ export function InboxProvider({
       } else if (dmCryptoKey && rawContent.startsWith('HC1:')) {
         rawObj.content = maybeDecryptContent(rawContent, dmCryptoKey);
       } else if (groupCryptoKey && rawContent.startsWith('HCG1:')) {
-        rawObj.content = maybeDecryptGroupContent(rawContent, groupCryptoKey);
+        const attempt = maybeDecryptGroupContent(rawContent, groupCryptoKey);
+        if (attempt === rawContent) {
+          // Our key didn't open this — almost always because this device's
+          // cached member list is stale relative to whatever the sender used
+          // (the legacy group key is derived from the member list, so ANY
+          // membership change instantly changes it for everyone, and each
+          // device only catches up whenever its own fetchGroupInfo refresh
+          // lands). That is the "some people see plaintext, some see raw
+          // ciphertext" report — never show the envelope itself; wait for the
+          // sweep below to retry with a fresher key.
+          rawObj.content = '🔒 Decrypting…';
+          pendingCipherText = rawContent;
+        } else {
+          rawObj.content = attempt;
+        }
       } else if (rawContent.startsWith('HC1:') || rawContent.startsWith('HCG1:')) {
         // Envelope with no key available YET.
         //
@@ -597,6 +616,7 @@ export function InboxProvider({
         // show a neutral placeholder and let the re-map swap in the real text
         // when the key lands.
         rawObj.content = '🔒 Decrypting…';
+        if (rawContent.startsWith('HCG1:')) pendingCipherText = rawContent;
       }
 
       const parsed = mapApiMessageToTimeline(rawObj);
@@ -640,16 +660,15 @@ export function InboxProvider({
         };
       }
       if (groupCryptoKey && media?.remoteUri?.startsWith('HCG1:')) {
-        media = {
-          ...media,
-          remoteUri: maybeDecryptGroupContent(media.remoteUri, groupCryptoKey),
-        };
+        const attempt = maybeDecryptGroupContent(media.remoteUri, groupCryptoKey);
+        // A stale key leaves this unchanged — never hand a raw envelope to an
+        // <Image>/<Video> source as if it were a real URL; drop it instead so
+        // this render falls back to no-media rather than a broken fetch.
+        media = { ...media, remoteUri: attempt === media.remoteUri ? undefined : attempt };
       }
       if (groupCryptoKey && media?.url?.startsWith('HCG1:')) {
-        media = {
-          ...media,
-          url: maybeDecryptGroupContent(media.url!, groupCryptoKey),
-        };
+        const attempt = maybeDecryptGroupContent(media.url!, groupCryptoKey);
+        media = { ...media, url: attempt === media.url ? undefined : attempt };
       }
 
       const hint = extractOutgoingHint(rawDict);
@@ -738,7 +757,12 @@ export function InboxProvider({
       if (dmCryptoKey && rawReplyContent.startsWith('HC1:')) {
         replyText = maybeDecryptContent(rawReplyContent, dmCryptoKey);
       } else if (groupCryptoKey && rawReplyContent.startsWith('HCG1:')) {
-        replyText = maybeDecryptGroupContent(rawReplyContent, groupCryptoKey);
+        const attempt = maybeDecryptGroupContent(rawReplyContent, groupCryptoKey);
+        // Same stale-key case as the main message above — never show the
+        // quoted message's raw envelope.
+        replyText = attempt === rawReplyContent ? '🔒 Decrypting…' : attempt;
+      } else if (rawReplyContent.startsWith('HCG1:')) {
+        replyText = '🔒 Decrypting…';
       }
 
       let replyMedia = rawReplyTo
@@ -797,6 +821,7 @@ export function InboxProvider({
         delivery: parsed.delivery,
         outgoingHint: hint,
         replyTo: replyToMapped,
+        pendingCipherText,
       };
     },
     // groupCryptoKey is intentionally a dependency: it resolves asynchronously
@@ -1311,18 +1336,23 @@ export function InboxProvider({
   ]);
 
   // ─── Retro-decrypt: groupCryptoKey is derived asynchronously (after an
-  // extra fetchGroupInfo round-trip), so any group message mapped before it
-  // resolved was stored with its raw "HCG1:…" ciphertext still in `.text` and
-  // never re-processed. Once the key becomes available, sweep the messages
-  // already in state and decrypt anything still ciphertext-shaped.
+  // extra fetchGroupInfo round-trip, or a member-list cache that just caught
+  // up with a recent membership change), so a group message can be mapped
+  // before the RIGHT key is available. `pendingCipherText` is where the real
+  // ciphertext for a still-placeholder message lives (see the mapping above —
+  // `.text` itself is only ever the "🔒 Decrypting…" placeholder, never the raw
+  // envelope). Retry every such message whenever the key changes.
   useEffect(() => {
     if (!isGroup || !groupCryptoKey) return;
     const decryptPass = (list: ExtendedMessage[]) =>
       list.map(m => {
-        const t = String(m.text ?? '');
-        if (!t.startsWith('HCG1:')) return m;
-        const plain = maybeDecryptGroupContent(t, groupCryptoKey);
-        return plain === t ? m : { ...m, text: plain };
+        // Backward-compat: a message stored before this field existed could
+        // still have raw ciphertext sitting directly in `.text`.
+        const cipher = m.pendingCipherText ?? (String(m.text ?? '').startsWith('HCG1:') ? m.text : undefined);
+        if (!cipher) return m;
+        const plain = maybeDecryptGroupContent(cipher, groupCryptoKey);
+        if (plain === cipher) return m; // still doesn't open — keep waiting
+        return { ...m, text: plain, pendingCipherText: undefined };
       });
     setAllMessages(prev => decryptPass(prev));
     setMessages(prev => mergeIntroDesc(decryptPass(stripIntro(prev)), threadIntroPeer));
@@ -1898,8 +1928,9 @@ export function InboxProvider({
       let text = msg.text ?? '';
       if (text.startsWith('HC1:') && dmCryptoKey) {
         text = maybeDecryptContent(text, dmCryptoKey);
-      } else if (text.startsWith('HCG1:') && groupCryptoKey) {
-        text = maybeDecryptGroupContent(text, groupCryptoKey);
+      } else if (text.startsWith('HCG1:')) {
+        const attempt = groupCryptoKey ? maybeDecryptGroupContent(text, groupCryptoKey) : text;
+        text = attempt === text ? '🔒 Decrypting…' : attempt;
       }
       dispatch(
         setReplayTo({

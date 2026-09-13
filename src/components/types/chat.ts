@@ -96,6 +96,15 @@ export interface ExtendedMessage extends IMessage {
   /** When API provides direction flags (`isOutgoing`, `direction`, …) for bubble alignment. */
   outgoingHint?: boolean;
   media?: MediaPayload;
+  /**
+   * A group message whose sender-key/legacy key we don't currently hold (or
+   * whose cached member list is stale relative to the sender's, deriving a
+   * different key). `.text` is the neutral "🔒 Decrypting…" placeholder shown
+   * meanwhile; this keeps the real ciphertext around so the retro-decrypt
+   * sweep can retry once our key catches up, without ever having rendered the
+   * raw envelope in the meantime.
+   */
+  pendingCipherText?: string;
   pending?: boolean;
   failed?: boolean;
   reactions?: ReactionItem[];
