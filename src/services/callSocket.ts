@@ -77,6 +77,16 @@ class CallSocketService {
   private presenceListeners: Set<PresenceListener> = new Set();
   /** Re-asserted on reconnect — a silent server restart drops room membership. */
   private watchedPresenceIds: Set<string> = new Set();
+  /**
+   * Chat rooms this device has asked to join (usually just the one thread
+   * currently open). Tracked separately from the emit itself because a
+   * reconnect drops room membership server-side even though the client still
+   * holds "the same" socket — without re-asserting these on 'connect', a
+   * network blip while a chat was open silently and permanently lost message
+   * notifications for that chat (the backend treats room membership as "user
+   * is watching live" and suppresses the push).
+   */
+  private joinedChatIds: Set<string> = new Set();
 
   connect(authToken: string, userId?: string): void {
     if (this.socket && this.token === authToken) {
@@ -134,6 +144,10 @@ class CallSocketService {
         // server-side even though the client still holds the same socket.
         this.watchedPresenceIds.forEach(id => {
           try { this.socket?.emit('watch_presence', id); } catch { /* */ }
+        });
+        // Same reasoning for chat rooms — see joinedChatIds' doc comment above.
+        this.joinedChatIds.forEach(id => {
+          try { this.socket?.emit('join_chat', id); } catch { /* */ }
         });
       });
       this.socket.on('disconnect', (reason: string) => {
@@ -321,13 +335,20 @@ class CallSocketService {
   }
 
   joinChatRoom(chatId: string | number): void {
+    const id = String(chatId);
+    // Tracked even if the socket is mid-reconnect right now — the 'connect'
+    // handler below re-asserts every tracked id, so this still joins as soon
+    // as the connection comes back instead of being silently dropped forever.
+    this.joinedChatIds.add(id);
     if (!this.socket?.connected) return;
-    try { this.socket.emit('join_chat', String(chatId)); } catch { /* */ }
+    try { this.socket.emit('join_chat', id); } catch { /* */ }
   }
 
   leaveChatRoom(chatId: string | number): void {
+    const id = String(chatId);
+    this.joinedChatIds.delete(id);
     if (!this.socket?.connected) return;
-    try { this.socket.emit('leave_chat', String(chatId)); } catch { /* */ }
+    try { this.socket.emit('leave_chat', id); } catch { /* */ }
   }
 
   /** Subscribe to live online/offline updates for one friend. */
