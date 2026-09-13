@@ -779,6 +779,14 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           {ReplySnippet}
           {hideUrlText ? null : (
             <Text
+              // Caps how far the OS "larger text" / "bold text" accessibility
+              // settings can scale this — those are what caused the text-cutoff
+              // reports specifically on Samsung/OnePlus (One UI's default font
+              // + a system-wide bold override both change glyph metrics without
+              // Yoga's cached layout accounting for it). 1.3x keeps some
+              // accessibility headroom without letting the mismatch reach the
+              // point of clipping against the fixed lineHeight below.
+              maxFontSizeMultiplier={1.3}
               style={[
                 styles.messageText,
                 // Let the shaper do its job for Bengali & co. — see
@@ -908,6 +916,15 @@ const styles = StyleSheet.create({
     // which is why emoji "did not show" on some devices and were fine on others
     // (it depends on the system emoji font's metrics).
     lineHeight: 22,
+    // Samsung/OnePlus/Oppo ship a custom One UI / ColorOS system font by
+    // default, whose glyph metrics differ enough from stock Android that Yoga's
+    // layout pass (measured against the OEM font) and the native text renderer
+    // (which can substitute differently once "Bold text" accessibility is on)
+    // disagree — the mismatch is what clipped message text on those devices
+    // specifically. Pinning the generic Android alias sidesteps the OEM
+    // substitution entirely; it still falls through the system's normal script
+    // fallback chain for non-Latin text, so Bengali etc. keep shaping correctly.
+    fontFamily: Platform.OS === 'android' ? 'sans-serif' : undefined,
     letterSpacing: 0.1,
     // Was flexShrink: 0, which stops the Text shrinking inside the bubble's
     // maxWidth — so long messages were clipped instead of wrapping. That is the

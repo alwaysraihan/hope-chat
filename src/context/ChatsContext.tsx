@@ -23,7 +23,7 @@ const POLL_INTERVAL_MS = 30_000;
  * still online seconds earlier, which is what made two people who were both
  * genuinely in the app see each other pop in and out of the active strip.
  */
-const PRESENCE_GRACE_MS = 30_000;
+const PRESENCE_GRACE_MS = 45_000;
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
   clearAuth,
