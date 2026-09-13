@@ -298,6 +298,8 @@
 				DEVELOPMENT_TEAM = M5KASSDH5L;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = hopeChat/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Hopechat;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -312,6 +314,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hopechat;
 				PRODUCT_NAME = hopeChat;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OBJC_BRIDGING_HEADER = "hopeChat/hopeChat-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -329,6 +332,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = M5KASSDH5L;
 				INFOPLIST_FILE = hopeChat/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Hopechat;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -343,6 +348,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hopechat;
 				PRODUCT_NAME = hopeChat;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OBJC_BRIDGING_HEADER = "hopeChat/hopeChat-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";

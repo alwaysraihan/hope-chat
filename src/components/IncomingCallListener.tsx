@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
 import { AppState, DeviceEventEmitter, Platform } from 'react-native';
+import RNCallKeep from 'react-native-callkeep';
+import RNVoipPushNotification from 'react-native-voip-push-notification';
 import { RELOAD_CHAT_LIST_EVENT } from '../context/ChatsContext';
 import NetInfo from '@react-native-community/netinfo';
 import { getApp } from '@react-native-firebase/app';
@@ -49,6 +51,7 @@ import {
   emitCallWaitingCleared,
 } from '../services/incomingCall/callWaitingBus';
 import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
+import { postVoipTokenToHopenity, rememberVoipToken } from '../services/registerVoipDeviceToken';
 import { publishKeys } from '../services/e2ee/keyDirectory';
 import { scheduleArchiveSync } from '../services/e2ee/archive';
 import {
@@ -123,6 +126,14 @@ function endActiveCallIfMatchesRoom(liveKitRoom?: string): void {
   if (!active || active.liveKitRoom !== liveKitRoom) return;
   void endActiveCallForRemoteHangup(liveKitRoom);
 }
+
+/**
+ * iOS only: a VoIP push's `uuid` is the same one handed to CallKit natively
+ * (`RNCallKeep.reportNewIncomingCall`), so this maps that uuid back to the raw
+ * call payload — `answerCall`/`endCall` only give us the uuid, not the call
+ * data, since those fire from the native CallKit UI (lock screen, Recents).
+ */
+const pendingVoipCalls = new Map<string, Record<string, string>>();
 
 /**
  * Accept a call directly — skips IncomingCallScreen entirely so the user lands
@@ -944,6 +955,89 @@ const IncomingCallListener = () => {
       unsubMessage?.();
       unsubOpenedApp?.();
       unsubNotifee?.();
+    };
+  }, [loggedIn]);
+
+  // ── iOS VoIP (PushKit) + CallKit ────────────────────────────────────────────
+  // Regular FCM/APNs pushes are throttled by iOS whenever the app is
+  // backgrounded and are NOT delivered at all once the app has been force-quit
+  // — a VoIP push is the only kind Apple guarantees near-instant delivery for
+  // in that state, in exchange for immediately reporting the call to CallKit
+  // (done natively in AppDelegate.swift, before JS is even guaranteed to be
+  // running). This effect handles everything JS-side needs: registering the
+  // VoIP token with the backend, and answering/declining from the native
+  // CallKit UI (lock screen, Recents) by driving the exact same
+  // acceptCallDirectly / processRejectPayload paths the FCM flow uses.
+  useEffect(() => {
+    if (!loggedIn || Platform.OS !== 'ios') return;
+
+    RNCallKeep.setup({
+      ios: {
+        appName: 'Hope Chat',
+        supportsVideo: true,
+        includesCallsInRecents: true,
+      },
+      android: {
+        alertTitle: '',
+        alertDescription: '',
+        cancelButton: '',
+        okButton: '',
+        additionalPermissions: [],
+      },
+    }).catch(() => undefined);
+
+    const syncVoipToken = (token: string) => {
+      rememberVoipToken(token);
+      const apiToken = store.getState().auth.token;
+      if (apiToken && token) {
+        void postVoipTokenToHopenity(apiToken, token);
+      }
+    };
+
+    RNVoipPushNotification.addEventListener('register', syncVoipToken);
+
+    RNVoipPushNotification.addEventListener('notification', (rawPayload: object) => {
+      // The payload is whatever the backend's direct-APNs VoIP send put in it —
+      // same shape as the FCM `incoming_call` data (see chatService's
+      // inviteHopeChatCall on the backend) so both flows can share every
+      // downstream handler.
+      const data: Record<string, string> = {};
+      for (const [k, v] of Object.entries(rawPayload as Record<string, unknown>)) {
+        data[k] = typeof v === 'string' ? v : JSON.stringify(v);
+      }
+      const uuid = String((rawPayload as Record<string, unknown>).uuid ?? '');
+      if (uuid) pendingVoipCalls.set(uuid, data);
+
+      // The native side already told CallKit about this call — this only
+      // needs to feed the app's own ring state (missed-call bookkeeping,
+      // duplicate-suppression) the same way an FCM `incoming_call` push does.
+      const parsed = parseIncomingCallPayload(data);
+      if (parsed && !isCallCancelled(parsed.liveKitRoom)) {
+        navigateIncomingCall(parsed);
+      }
+    });
+
+    const answerSub = RNCallKeep.addEventListener('answerCall', ({ callUUID }) => {
+      const raw = pendingVoipCalls.get(callUUID);
+      pendingVoipCalls.delete(callUUID);
+      if (!raw) return;
+      void acceptCallDirectly(parseIncomingCallPayload(raw));
+    });
+
+    const endSub = RNCallKeep.addEventListener('endCall', ({ callUUID }) => {
+      const raw = pendingVoipCalls.get(callUUID);
+      pendingVoipCalls.delete(callUUID);
+      // Only meaningful here if the call was declined before being answered —
+      // an end after answering is already handled by the normal in-call hangup
+      // flow once the user is on the AudioCall/VideoCall screen.
+      if (raw) processRejectPayload(raw);
+    });
+
+    return () => {
+      RNVoipPushNotification.removeEventListener('register');
+      RNVoipPushNotification.removeEventListener('notification');
+      answerSub?.remove();
+      endSub?.remove();
     };
   }, [loggedIn]);
 

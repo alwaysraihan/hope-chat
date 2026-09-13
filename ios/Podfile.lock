@@ -2318,6 +2318,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - RNCallKeep (4.3.16):
+    - React
   - RNCCheckbox (0.5.20):
     - BEMCheckBox (~> 1.4)
     - React-Core
@@ -2614,6 +2616,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - RNVoipPushNotification (3.3.3):
+    - React-Core
   - RNWorklets (0.8.1):
     - hermes-engine
     - RCTRequired
@@ -2793,6 +2797,7 @@ DEPENDENCIES:
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
   - RNBootSplash (from `../node_modules/react-native-bootsplash`)
+  - RNCallKeep (from `../node_modules/react-native-callkeep`)
   - "RNCCheckbox (from `../node_modules/@react-native-community/checkbox`)"
   - "RNFastImage (from `../node_modules/@d11/react-native-fast-image`)"
   - "RNFBApp (from `../node_modules/@react-native-firebase/app`)"
@@ -2804,6 +2809,7 @@ DEPENDENCIES:
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNSVG (from `../node_modules/react-native-svg`)
+  - RNVoipPushNotification (from `../node_modules/react-native-voip-push-notification`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
@@ -3010,6 +3016,8 @@ EXTERNAL SOURCES:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
   RNBootSplash:
     :path: "../node_modules/react-native-bootsplash"
+  RNCallKeep:
+    :path: "../node_modules/react-native-callkeep"
   RNCCheckbox:
     :path: "../node_modules/@react-native-community/checkbox"
   RNFastImage:
@@ -3032,6 +3040,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-screens"
   RNSVG:
     :path: "../node_modules/react-native-svg"
+  RNVoipPushNotification:
+    :path: "../node_modules/react-native-voip-push-notification"
   RNWorklets:
     :path: "../node_modules/react-native-worklets"
   Yoga:
@@ -3142,6 +3152,7 @@ SPEC CHECKSUMS:
   ReactCommon: 309419492d417c4cbb87af06f67735afa40ecb9d
   ReactNativeDependencies: be66ed9e0f76a2671ff1234a8ae45d4a02f5e66d
   RNBootSplash: 7adde79e6fbb9e8ccff6b8eccbcda6856b1f816e
+  RNCallKeep: 94bbe46b807ccf58e9f6ec11bc4d6087323a1954
   RNCCheckbox: 471ebdc33884c084f362615c1ef3507496cc07f1
   RNFastImage: a5fcea64e7e5f602f07e2cc36592bd5459623fa9
   RNFBApp: 36eb434d58b125bdc63797c78ca67d2648f9cdb2
@@ -3153,6 +3164,7 @@ SPEC CHECKSUMS:
   RNReanimated: d570323905a3ee01616fc504a9327e7d7c48b1a5
   RNScreens: 088d923c4327c63c9f8c942cae17a9d038f47d97
   RNSVG: 2ead7004a54d1cded41af4e6ee29104e94ba48c6
+  RNVoipPushNotification: a6f7c09e1ca7220e2be1c45e9b6b897c9600024b
   RNWorklets: 0d4c7664dfbb168bb4edf5906a0b7c11701677b8
   SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   SDWebImageAVIFCoder: afe194a084e851f70228e4be35ef651df0fc5c57
@@ -3161,6 +3173,6 @@ SPEC CHECKSUMS:
   WebRTC-SDK: ab9b5319e458c2bfebdc92b3600740da35d5630d
   Yoga: c0b3f2c7e8d3e327e450223a2414ca3fa296b9a2
 
-PODFILE CHECKSUM: 5ad2f409a73b80c7bb96de5b7c23db67f1dc4d57
+PODFILE CHECKSUM: 9662c16673d5ccf12dc1899e659c8260dd4cf721
 
 COCOAPODS: 1.16.2

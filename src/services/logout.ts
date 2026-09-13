@@ -37,6 +37,10 @@ import {
   deleteFcmTokenFromHopenity,
   postFcmTokenToHopenity,
 } from './registerFcmDeviceToken';
+import {
+  deleteVoipTokenFromHopenity,
+  readLastKnownVoipToken,
+} from './registerVoipDeviceToken';
 
 /**
  * Drop this device's FCM registration server-side. Read the auth token BEFORE
@@ -74,6 +78,20 @@ function unregisterFcmToken(): void {
   })();
 }
 
+/**
+ * iOS only: the same reasoning as unregisterFcmToken above, for the VoIP
+ * token — otherwise this device keeps getting native CallKit rings for the
+ * account being signed out.
+ */
+function unregisterVoipToken(): void {
+  const apiToken = store.getState().auth.token;
+  const voip = readLastKnownVoipToken();
+  if (!apiToken || !voip) return;
+  void deleteVoipTokenFromHopenity(apiToken, voip).then(r => {
+    if (!r.ok) console.warn('[HopeChat] VoIP token unregister failed HTTP', r.status);
+  });
+}
+
 export function performLogout(dispatch: AppDispatch): void {
   // 1. Close any active LiveKit call first so WebRTC cleans up before unmount.
   const activeCall = getActiveCall();
@@ -83,6 +101,7 @@ export function performLogout(dispatch: AppDispatch): void {
 
   // 2. Stop this device from ringing for the account being signed out.
   unregisterFcmToken();
+  unregisterVoipToken();
 
   // 3. Drop this account's cached conversations, threads and previews from the
   //    device. They are keyed per user so the next account never reads them, but

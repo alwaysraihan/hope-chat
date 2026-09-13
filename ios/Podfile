@@ -47,5 +47,19 @@ target 'hopeChat' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # react-native-callkeep / react-native-voip-push-notification are plain
+    # Objective-C pods that don't set DEFINES_MODULE themselves, so CocoaPods
+    # never generates a Clang module map for them even under use_frameworks! —
+    # that's what made Swift's `import RNCallKeep` in AppDelegate.swift fail
+    # with "no such module 'RNCallKeep'". Forcing it on just these two targets
+    # (not every pod) keeps this scoped to the actual problem.
+    installer.pods_project.targets.each do |target|
+      if ['RNCallKeep', 'RNVoipPushNotification'].include?(target.name)
+        target.build_configurations.each do |bc|
+          bc.build_settings['DEFINES_MODULE'] = 'YES'
+        end
+      end
+    end
   end
 end
