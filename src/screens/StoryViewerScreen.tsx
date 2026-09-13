@@ -10,6 +10,7 @@ import {
   Platform,
   TextInput,
   KeyboardAvoidingView,
+  Keyboard,
   Modal,
   FlatList,
 } from 'react-native';
@@ -161,6 +162,22 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
   // at, which lets resume continue from the same point instead of restarting.
   const [interacting, setInteracting] = useState(false);
   const pausedAtRef = useRef(0);
+
+  // The extra safe-area padding on the reply bar is only meant to clear the
+  // home-indicator when the keyboard is closed — with the keyboard open it
+  // just stacked on top of KeyboardAvoidingView's own offset, leaving a dead
+  // gray gap between the input and the keyboard itself.
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
+    const onHide = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!slide || isExpired) return;
@@ -649,7 +666,7 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
       {/* -- Reply + react bar: friends only, never on your own story ---- */}
       {showReplyBar ? (
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.replyWrap}
         >
           {/* KeyboardAvoidingView manages its OWN bottom padding internally
@@ -662,7 +679,11 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
           <View
             style={[
               styles.replyInner,
-              { paddingBottom: Math.max(insets.bottom, 24) + 12 },
+              {
+                paddingBottom: keyboardVisible
+                  ? 12
+                  : Math.max(insets.bottom, 24) + 12,
+              },
             ]}
           >
             {/* Fills the whole bar INCLUDING the bottom safe-area padding, so the

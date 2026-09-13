@@ -16,7 +16,7 @@
  * doubles as both the thumbnail source and the expiry signal: if the id
  * isn't in it, the story is gone.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -29,7 +29,8 @@ import { setStoryFeedRings, type StoryRing } from '../../data/storyFeedCache';
 import { fetchStoryFeed } from '../../services/story/storyApi';
 import { useAppSelector } from '../../hooks/redux';
 import { selectAuthToken } from '../../redux/features/auth/authSlice';
-import { colorss } from '../../theme';
+import { AppColors } from '../../context/ThemeContext';
+import { useColors } from '../../hooks/useColors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.66, 260);
@@ -45,6 +46,8 @@ export default function StoryReplyBubble({ story, caption, isOwn }: Props) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackNavigatorParamList>>();
   const token = useAppSelector(selectAuthToken);
+  const colorss = useColors();
+  const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const isVideo = story.type === 'VIDEO';
 
   // Resolved against the live feed — null while loading (never shown as
@@ -160,72 +163,73 @@ export default function StoryReplyBubble({ story, caption, isOwn }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    maxWidth: CARD_WIDTH,
-    marginVertical: 2,
-  },
-  wrapLeft: { alignSelf: 'flex-start', marginLeft: 12 },
-  wrapRight: { alignSelf: 'flex-end', marginRight: 12 },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#F0D0DA',
-  },
-  cardExpired: {
-    opacity: 0.7,
-  },
-  previewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 8,
-  },
-  thumbWrap: {
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  thumb: {
-    width: 48,
-    height: 64,
-    borderRadius: 10,
-  },
-  thumbFallback: {
-    backgroundColor: colorss.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  thumbFallbackTxt: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  textCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colorss.primary,
-    textTransform: 'uppercase',
-    marginBottom: 2,
-  },
-  snippet: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  captionRow: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F0D0DA',
-  },
-  captionTxt: {
-    fontSize: 14,
-    color: colorss.textPrimary,
-  },
-});
+const stylesFunc = (colorss: AppColors) =>
+  StyleSheet.create({
+    wrap: {
+      maxWidth: CARD_WIDTH,
+      marginVertical: 2,
+    },
+    wrapLeft: { alignSelf: 'flex-start', marginLeft: 12 },
+    wrapRight: { alignSelf: 'flex-end', marginRight: 12 },
+    card: {
+      backgroundColor: colorss.cardBg,
+      borderRadius: 14,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colorss.border,
+    },
+    cardExpired: {
+      opacity: 0.7,
+    },
+    previewRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      padding: 8,
+    },
+    thumbWrap: {
+      borderRadius: 10,
+      overflow: 'hidden',
+    },
+    thumb: {
+      width: 48,
+      height: 64,
+      borderRadius: 10,
+    },
+    thumbFallback: {
+      backgroundColor: colorss.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    thumbFallbackTxt: {
+      color: '#fff',
+      fontSize: 20,
+      fontWeight: '800',
+    },
+    textCol: {
+      flex: 1,
+      minWidth: 0,
+    },
+    label: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: colorss.primary,
+      textTransform: 'uppercase',
+      marginBottom: 2,
+    },
+    snippet: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colorss.textPrimary,
+    },
+    captionRow: {
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      borderTopWidth: 1,
+      borderTopColor: colorss.border,
+    },
+    captionTxt: {
+      fontSize: 14,
+      color: colorss.textPrimary,
+    },
+  });
