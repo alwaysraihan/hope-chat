@@ -557,6 +557,20 @@ function isViewingChat(chatId: string): boolean {
 }
 
 /**
+ * Guards the notifee foreground-event subscription so at most one is ever
+ * live, no matter how many times the effect below re-runs (a remount, a
+ * second listener mounted before the first unmounted, or — in a dev build —
+ * a Fast Refresh that re-executes the effect without the native side
+ * releasing the previous subscription). Without this, two live subscriptions
+ * both fire for a single notification tap, so a "Hang up" or "Accept" press
+ * runs `room.disconnect()` / the accept navigation TWICE concurrently — two
+ * overlapping LiveKit/WebRTC teardown-or-join calls racing on the same
+ * native room is consistent with the native SIGSEGV crash seen when an
+ * incoming call arrived while the app was already busy.
+ */
+let releasePreviousForegroundSubscription: (() => void) | undefined;
+
+/**
  * Registers FCM + Notifee listeners while the user is signed in.
  * Posts the device FCM token to `POST /api/v1/users/fcm-token` so the server can reach this device for incoming calls.
  */
@@ -880,6 +894,12 @@ const IncomingCallListener = () => {
         );
       }
 
+      // Release any subscription a previous mount/effect-run left behind
+      // BEFORE creating a new one — see releasePreviousForegroundSubscription
+      // above. This is what actually enforces the single-listener invariant;
+      // registering first and releasing on cleanup still leaves a window
+      // where two are simultaneously live.
+      releasePreviousForegroundSubscription?.();
       unsubNotifee = notifee.onForegroundEvent(({ type, detail }) => {
         if (__DEV__) {
           console.log('[HopeChat DEBUG][fg] notifee.onForegroundEvent', {
@@ -937,6 +957,7 @@ const IncomingCallListener = () => {
 
         openFromNotificationData(data, actionId === 'accept');
       });
+      releasePreviousForegroundSubscription = unsubNotifee;
 
       // Also consume on initial mount — the AppState 'change' listener doesn't fire
       // if the app launches directly into the 'active' state (cold-start via notification tap).
@@ -957,6 +978,12 @@ const IncomingCallListener = () => {
       unsubMessage?.();
       unsubOpenedApp?.();
       unsubNotifee?.();
+      // Only clear the module-level slot if it's still ours — a newer
+      // mount may already have replaced it (e.g. Fast Refresh running this
+      // cleanup after the next effect already registered).
+      if (releasePreviousForegroundSubscription === unsubNotifee) {
+        releasePreviousForegroundSubscription = undefined;
+      }
     };
   }, [loggedIn]);
 
