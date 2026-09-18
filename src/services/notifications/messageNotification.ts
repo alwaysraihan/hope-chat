@@ -258,62 +258,91 @@ export async function displayMessagingNotification(
   ].slice(-MAX_HISTORY);
 
   await ensureMessagesChannel();
-  await notifee.displayNotification({
-    // One notification per chat, so a burst of messages updates the same banner
-    // instead of stacking a dozen of them.
-    id: notificationId,
-    title,
-    body,
-    data: { ...data, history: JSON.stringify(history) },
-    android: {
-      channelId: MESSAGE_CHANNEL_ID,
-      importance: AndroidImportance.HIGH,
-      timestamp: sentAt,
-      showTimestamp: true,
-      // Round avatar next to the message, like Messenger.
-      // Without an explicit smallIcon Android falls back to the launcher icon and
-      // flattens it to a silhouette — the empty ring beside HopeChat messages.
-      smallIcon: 'ic_stat_notification',
-      largeIcon,
-      circularLargeIcon: true,
-      // MESSAGING style renders it as a conversation with the sender.
-      style: isDonationRequest
-        ? undefined
-        : {
-            type: AndroidStyle.MESSAGING,
-            // In Notifee's MessagingStyle the TOP-LEVEL person is the device
-            // user, and the sender of each message goes on messages[].person.
-            // These were the wrong way round: the sender was set as "self" and
-            // the message itself had no person, so Android rendered it as sent
-            // BY you — which is why the avatar circle came up empty while
-            // WhatsApp/Messenger/Discord showed the photo.
-            person: { name: 'You' },
-            group: isGroup,
-            title: isGroup ? groupName || undefined : undefined,
-            messages: history.map(line => ({
-              text: line.text,
-              timestamp: line.timestamp,
-              person: {
-                // The person on a message is always the SENDER — in a group the
-                // title is the group, so using it here would attribute every
-                // message to the group itself.
-                name: line.senderName,
-                icon: line.senderIcon,
-              },
-            })),
-          },
-      groupId: MESSAGE_GROUP_ID,
-      pressAction: { id: 'default', launchActivity: 'default' },
-    },
-    ios: {
-      attachments: avatarUrl ? [{ url: avatarUrl }] : undefined,
-      threadId: chatId ? `chat_${chatId}` : undefined,
-      // iOS rolls its own summary up from the thread id.
-      summaryArgument: isGroup ? groupName || senderName : senderName,
-    },
-  });
+  try {
+    await notifee.displayNotification({
+      // One notification per chat, so a burst of messages updates the same banner
+      // instead of stacking a dozen of them.
+      id: notificationId,
+      title,
+      body,
+      data: { ...data, history: JSON.stringify(history) },
+      android: {
+        channelId: MESSAGE_CHANNEL_ID,
+        importance: AndroidImportance.HIGH,
+        timestamp: sentAt,
+        showTimestamp: true,
+        // Round avatar next to the message, like Messenger.
+        // Without an explicit smallIcon Android falls back to the launcher icon and
+        // flattens it to a silhouette — the empty ring beside HopeChat messages.
+        smallIcon: 'ic_stat_notification',
+        largeIcon,
+        circularLargeIcon: true,
+        // MESSAGING style renders it as a conversation with the sender.
+        style: isDonationRequest
+          ? undefined
+          : {
+              type: AndroidStyle.MESSAGING,
+              // In Notifee's MessagingStyle the TOP-LEVEL person is the device
+              // user, and the sender of each message goes on messages[].person.
+              // These were the wrong way round: the sender was set as "self" and
+              // the message itself had no person, so Android rendered it as sent
+              // BY you — which is why the avatar circle came up empty while
+              // WhatsApp/Messenger/Discord showed the photo.
+              person: { name: 'You' },
+              group: isGroup,
+              title: isGroup ? groupName || undefined : undefined,
+              messages: history.map(line => ({
+                text: line.text,
+                timestamp: line.timestamp,
+                person: {
+                  // The person on a message is always the SENDER — in a group the
+                  // title is the group, so using it here would attribute every
+                  // message to the group itself.
+                  name: line.senderName,
+                  icon: line.senderIcon,
+                },
+              })),
+            },
+        groupId: MESSAGE_GROUP_ID,
+        pressAction: { id: 'default', launchActivity: 'default' },
+      },
+      ios: {
+        attachments: avatarUrl ? [{ url: avatarUrl }] : undefined,
+        threadId: chatId ? `chat_${chatId}` : undefined,
+        // iOS rolls its own summary up from the thread id.
+        summaryArgument: isGroup ? groupName || senderName : senderName,
+      },
+    });
+  } catch (e) {
+    // The rich call above can throw on things that have nothing to do with
+    // whether the user should be notified: a largeIcon URL notifee's native
+    // layer fails to download, a malformed cached `history` blob from a past
+    // session, a native notifee error on a specific OEM build. Any of those
+    // used to mean NO notification at all — indistinguishable from "push
+    // notifications don't work" while the message itself was delivered fine.
+    // Retry with the smallest possible payload (no icon, no history, no
+    // MessagingStyle) so the user still sees SOMETHING instead of nothing.
+    console.error('[HopeChat] Rich message notification failed, retrying minimal:', e);
+    try {
+      await notifee.displayNotification({
+        id: notificationId,
+        title,
+        body,
+        data: { ...data },
+        android: {
+          channelId: MESSAGE_CHANNEL_ID,
+          importance: AndroidImportance.HIGH,
+          smallIcon: 'ic_stat_notification',
+          groupId: MESSAGE_GROUP_ID,
+          pressAction: { id: 'default', launchActivity: 'default' },
+        },
+      });
+    } catch (e2) {
+      console.error('[HopeChat] Minimal fallback notification also failed:', e2);
+    }
+  }
 
-  await refreshSummary();
+  await refreshSummary().catch(() => undefined);
 }
 
 /**
