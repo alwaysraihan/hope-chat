@@ -689,7 +689,15 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
       {/* -- Reply + react bar: friends only, never on your own story ---- */}
       {showReplyBar ? (
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          // 'height' shrinks the view's own height when the keyboard opens —
+          // for a normal-flow view that pulls its bottom edge up correctly,
+          // but replyWrap is `position: 'absolute', bottom: 0`, so shrinking
+          // height instead pulls the TOP edge down (bottom stays pinned at
+          // the screen edge), pushing the whole reply bar behind the
+          // keyboard instead of above it. 'padding' grows the container from
+          // its pinned bottom, which is what an absolute bottom bar needs —
+          // this already worked on iOS for that reason.
+          behavior="padding"
           style={styles.replyWrap}
         >
           {/* KeyboardAvoidingView manages its OWN bottom padding internally

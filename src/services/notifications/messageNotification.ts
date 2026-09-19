@@ -290,7 +290,13 @@ export async function displayMessagingNotification(
               // WhatsApp/Messenger/Discord showed the photo.
               person: { name: 'You' },
               group: isGroup,
-              title: isGroup ? groupName || undefined : undefined,
+              // Omit the key entirely for a 1:1 chat rather than setting it to
+              // `undefined` — the old bridge dropped `undefined` values during
+              // JSON serialization, but Bridgeless/JSI marshals them through as
+              // a real (non-string) value, which notifee's native MessagingStyle
+              // validator rejects with "'title' expected a string value",
+              // silently killing the whole notification.
+              ...(isGroup && groupName ? { title: groupName } : {}),
               messages: history.map(line => ({
                 text: line.text,
                 timestamp: line.timestamp,
