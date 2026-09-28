@@ -157,7 +157,7 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
   }, []);
 
   // Pausing while the user is typing a reply / picking a reaction — same
-  // behaviour as feusar's StoryViewer (isPaused gates both the timer and
+  // behaviour as Hopenity web's StoryViewer (isPaused gates both the timer and
   // autoplay). progress.stopAnimation hands back the exact value it froze
   // at, which lets resume continue from the same point instead of restarting.
   const [interacting, setInteracting] = useState(false);
@@ -213,7 +213,7 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
     pausedAtRef.current = 0;
   }, [slide?.id]);
 
-  // Mark viewed — fire once per slide shown, same as feusar's
+  // Mark viewed — fire once per slide shown, same as Hopenity web's
   // markStoryViewed(currentStory.id) on mount/slide-change.
   useEffect(() => {
     if (!slide || isExpired) return;
@@ -278,7 +278,7 @@ const StoryViewerScreen: React.FC<Props> = ({ navigation, route }) => {
   const isFriend = !ring?.isPage && !!friendIds && friendIds.has(authorId);
   const showReplyBar = !!ring && !isOwnStory && isFriend && !isExpired;
 
-  // ── Own story: who viewed / reacted (mirrors feusar's "Story details" sheet) ──
+  // ── Own story: who viewed / reacted (mirrors Hopenity web's "Story details" sheet) ──
   const [viewers, setViewers] = useState<StoryViewerRow[]>([]);
   const [viewersOpen, setViewersOpen] = useState(false);
   useEffect(() => {

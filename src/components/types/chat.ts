@@ -45,7 +45,7 @@ export interface BookingCardPayload {
   status: BookingCardStatus;
 }
 
-/** A reply sent from the story viewer — mirrors the `story` object feusar's
+/** A reply sent from the story viewer — mirrors the `story` object Hopenity web's
  * Messages.tsx renders inline on the message row (`m.story`). */
 export interface StoryReplyPayload {
   storyId: string;

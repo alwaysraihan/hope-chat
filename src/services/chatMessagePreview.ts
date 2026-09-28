@@ -26,7 +26,7 @@ export type ApiLastMessageLike = {
   missed?: boolean;
   callKind?: 'audio' | 'video' | string;
   metadata?: Record<string, unknown>;
-  /** Present on a story-reply message — mirrors feusar's `m.story`. */
+  /** Present on a story-reply message — mirrors Hopenity web's `m.story`. */
   story?: {
     id?: string | number;
     type?: string;
@@ -421,7 +421,7 @@ export function mapApiMessageToTimeline(
   }
 
   // Story reply — nested `story` object on the message row (same shape
-  // feusar's Messages.tsx reads as `m.story`). The typed reply text (if any)
+  // Hopenity web's Messages.tsx reads as `m.story`). The typed reply text (if any)
   // stays in `text` so the bubble can show both the card and the caption.
   const rawStory = raw.story as ApiLastMessageLike['story'];
   if (rawStory) {

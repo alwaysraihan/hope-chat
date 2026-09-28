@@ -1,5 +1,5 @@
 /**
- * Story-reply message card — mirrors feusar's StoryPreviewCard
+ * Story-reply message card — mirrors Hopenity web's StoryPreviewCard
  * (Messages.tsx:333-399), which reads the same nested `story` object the
  * backend attaches to a message sent with `storyId`.
  *

@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '../../config/env';
 
 /**
- * Mirrors feusar's StoryViewer.tsx (markStoryViewed / reactToStory mutations)
+ * Mirrors Hopenity web's StoryViewer.tsx (markStoryViewed / reactToStory mutations)
  * against the same backend endpoints — POST /stories/:id/view and
  * POST /stories/:id/react. Fire-and-forget: a story view/reaction failing
  * silently must never interrupt playback.
@@ -36,7 +36,7 @@ export type StoryViewerRow = {
 /**
  * Owner-only — confirmed against the live API (403 for a non-owner viewer,
  * 200 with the full `views`/`reactions` arrays for the story's own author).
- * Mirrors feusar's "Story details" sheet (StoryViewer.tsx:800-948).
+ * Mirrors Hopenity web's "Story details" sheet (StoryViewer.tsx:800-948).
  */
 export async function fetchStoryViewers(
   storyId: string,
@@ -82,7 +82,7 @@ export async function fetchStoryViewers(
   }
 }
 
-/** Mirrors feusar's deleteStory mutation — DELETE /stories/:id, owner-only. */
+/** Mirrors Hopenity web's deleteStory mutation — DELETE /stories/:id, owner-only. */
 export async function deleteStory(
   storyId: string,
   token: string | null,
