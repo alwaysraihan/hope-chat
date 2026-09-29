@@ -16,6 +16,7 @@ import {
   Copy,
   Trash2,
   MoreHorizontal,
+  Pencil,
   Reply,
   Forward,
   Check,
@@ -66,12 +67,14 @@ interface TimeMetaProps {
   createdAt?: Date | number | string;
   isOwn: boolean;
   deliveryState?: 'sent' | 'delivered' | 'read';
+  edited?: boolean;
 }
 
 const MessageTimeMeta: React.FC<TimeMetaProps> = ({
   createdAt,
   isOwn,
   deliveryState,
+  edited,
 }) => {
   const timeString = createdAt ? formatMessageTime(createdAt) : '';
   if (!timeString) return null;
@@ -92,14 +95,16 @@ const MessageTimeMeta: React.FC<TimeMetaProps> = ({
         isOwn ? styles.timeMetaRight : styles.timeMetaLeft,
       ]}
     >
-      <Text style={styles.timeMetaText}>{timeString}</Text>
+      <Text style={styles.timeMetaText}>
+        {edited ? `Edited · ${timeString}` : timeString}
+      </Text>
       <SeenIcon />
     </View>
   );
 };
 
 //  Component
-// All message actions (react, reply, delete, forward) come from InboxContext.
+// All message actions (react, reply, edit, delete, forward) come from InboxContext.
 // No callback props needed from the parent.
 
 export default function Reaction({
@@ -113,6 +118,8 @@ export default function Reaction({
     handleReply,
     handleDelete,
     handleForward,
+    canEditMessage,
+    handleEdit,
     reactionEmojiRow,
   } = useInbox();
 
@@ -280,13 +287,19 @@ export default function Reaction({
   }, [media]);
 
   //  Action buttons (all wired to context functions)
+  const editAction: ActionButton[] = canEditMessage(currentMessage)
+    ? [
+        {
+          id: 'edit',
+          label: 'Edit',
+          icon: <Pencil size={22} color={colorss.primary} />,
+          onPress: () => closeTray(() => handleEdit(currentMessage)),
+        },
+      ]
+    : [];
+
   const actions: ActionButton[] = [
-    {
-      id: 'reply',
-      label: 'Reply',
-      icon: <Reply size={22} color={colorss.primary} />,
-      onPress: () => closeTray(() => dispatchReply()),
-    },
+    ...editAction,
     {
       id: 'copy',
       label: 'Copy',
@@ -464,6 +477,7 @@ export default function Reaction({
             createdAt={currentMessage.createdAt as any}
             isOwn={isRight}
             deliveryState={deliveryState}
+            edited={!!currentMessage.editedAt}
           />
 
           {hasReactions && (

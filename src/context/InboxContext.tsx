@@ -32,6 +32,7 @@ import { ExtendedMessage } from '../components/types/chat';
 import { RELOAD_CHAT_LIST_EVENT, useChats } from './ChatsContext';
 import {
   deleteHopenityChatMessage,
+  editHopenityChatMessage,
   fetchHopenityChatMessages,
   formatChatTime,
   markHopenityChatRead,
@@ -131,6 +132,11 @@ interface InboxContextValue {
   handleReply: (message: IMessage) => void;
   clearReply: () => void;
   handleDelete: (message: IMessage) => void;
+  /** Own, text-only, confirmed messages can be edited. */
+  canEditMessage: (message: IMessage) => boolean;
+  handleEdit: (message: IMessage) => void;
+  cancelEdit: () => void;
+  editingMessage: ExtendedMessage | null;
   handleForward: (message: IMessage) => void;
   forwardingMessage: ExtendedMessage | null;
   clearForwarding: () => void;
@@ -408,6 +414,9 @@ export function InboxProvider({
   const [forwardingMessage, setForwardingMessage] = useState<ExtendedMessage | null>(null);
   const clearForwarding = useCallback(() => setForwardingMessage(null), []);
 
+  // ── Edit state — while set, the composer's send submits an edit instead
+  const [editingMessage, setEditingMessage] = useState<ExtendedMessage | null>(null);
+
   // ── Message state
   const [messages, setMessages] = useState<ExtendedMessage[]>([]);
   const [allMessages, setAllMessages] = useState<ExtendedMessage[]>([]);
@@ -625,6 +634,9 @@ export function InboxProvider({
         delivery: parsed.delivery,
         outgoingHint: hint,
         replyTo: replyToMapped,
+        ...(raw.editedAt ?? raw.edited_at
+          ? { editedAt: String(raw.editedAt ?? raw.edited_at) }
+          : {}),
       };
     },
     // groupCryptoKey is intentionally a dependency: it resolves asynchronously
@@ -1100,11 +1112,63 @@ export function InboxProvider({
     };
   }, []);
 
+  // ─── Edit text ─────────────────────────────────────────────────────────────
+
+  const submitEdit = useCallback(
+    async (target: ExtendedMessage, nextText: string) => {
+      const plain = nextText.trim();
+      const prevText = target.text ?? '';
+      const prevEditedAt = target.editedAt;
+      if (!plain || plain === prevText) return;
+
+      // Optimistic update; rolled back if the server rejects it.
+      updateMessage(target._id, { text: plain, editedAt: new Date().toISOString() });
+
+      if (!_conversationId || !token) return;
+      let wire = plain;
+      if (shouldEncryptOutgoing) {
+        wire = isGroup
+          ? encryptGroupMessage(plain, groupCryptoKey!)
+          : encryptMessagePayload(plain, dmCryptoKey!);
+      }
+      const { ok, editedAt, error } = await editHopenityChatMessage(
+        target._id,
+        wire,
+        token,
+        useV2Messages,
+      );
+      if (!ok) {
+        updateMessage(target._id, { text: prevText, editedAt: prevEditedAt });
+        Alert.alert('Could not edit', error ?? 'Please try again.');
+        return;
+      }
+      if (editedAt) updateMessage(target._id, { editedAt });
+      DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+    },
+    [
+      updateMessage,
+      _conversationId,
+      token,
+      shouldEncryptOutgoing,
+      isGroup,
+      groupCryptoKey,
+      dmCryptoKey,
+      useV2Messages,
+    ],
+  );
+
   // ─── Send text / media ─────────────────────────────────────────────────────
 
   const onSend = useCallback(
     (outgoing: ExtendedMessage[] = []) => {
       if (!outgoing.length) return;
+
+      if (editingMessage) {
+        const target = editingMessage;
+        setEditingMessage(null);
+        submitEdit(target, String(outgoing[0]?.text ?? ''));
+        return;
+      }
 
       if (_conversationId && localUserIdStr) {
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -1204,6 +1268,8 @@ export function InboxProvider({
       dispatch(resetReplayTo());
     },
     [
+      editingMessage,
+      submitEdit,
       user._id,
       user.name,
       replyTo,
@@ -1491,6 +1557,7 @@ export function InboxProvider({
       } else if (text.startsWith('HCG1:') && groupCryptoKey) {
         text = maybeDecryptGroupContent(text, groupCryptoKey);
       }
+      setEditingMessage(null);
       dispatch(
         setReplayTo({
           _id: msg._id,
@@ -1549,6 +1616,38 @@ export function InboxProvider({
     },
     [deleteMessage, token, localUserIdStr],
   );
+
+  // ─── Edit ──────────────────────────────────────────────────────────────────
+
+  const canEditMessage = useCallback(
+    (message: IMessage) => {
+      const msg = message as ExtendedMessage;
+      const isMine = String(msg.user?._id ?? '') === String(localUserIdStr ?? '');
+      const isPlainText =
+        !msg.media &&
+        !msg.threadIntro &&
+        !msg.donationRequest &&
+        (msg.messageKind == null || msg.messageKind === 'text');
+      return isMine && isPlainText && !msg.pending && !msg.failed && !!msg.text;
+    },
+    [localUserIdStr],
+  );
+
+  const handleEdit = useCallback(
+    (message: IMessage) => {
+      if (!canEditMessage(message)) return;
+      const msg = message as ExtendedMessage;
+      dispatch(resetReplayTo());
+      setEditingMessage(msg);
+      // Prefill the composer with the current text (GiftedChat syncs `text` prop into its state).
+      setInitialText(msg.text ?? '');
+    },
+    [canEditMessage, dispatch],
+  );
+
+  const cancelEdit = useCallback(() => {
+    setEditingMessage(null);
+  }, []);
 
   // ─── Forward ───────────────────────────────────────────────────────────────
 
@@ -1694,6 +1793,10 @@ export function InboxProvider({
     handleReply,
     clearReply,
     handleDelete,
+    canEditMessage,
+    handleEdit,
+    cancelEdit,
+    editingMessage,
     handleForward,
     forwardingMessage,
     clearForwarding,

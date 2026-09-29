@@ -621,6 +621,48 @@ export async function deleteHopenityChatMessage(
 }
 
 /**
+ * Edit the text of a message the current user sent.
+ * v1/v2 message ids share one id space, so try the generation the chat belongs
+ * to first and fall back to the other (mirrors the Hopenity client).
+ */
+export async function editHopenityChatMessage(
+  messageId: string | number,
+  content: string,
+  token?: string | null,
+  preferV2?: boolean,
+): Promise<{ ok: boolean; editedAt?: string; error?: string }> {
+  if (!token) return { ok: false, error: 'Not authenticated' };
+  const id = encodeURIComponent(String(messageId));
+  const order: Array<'v1' | 'v2'> = preferV2 ? ['v2', 'v1'] : ['v1', 'v2'];
+  let lastError: string | undefined;
+  for (const version of order) {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/${version}/chats/messages/${id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ content }),
+        },
+      );
+      const json = await response.json().catch(() => null);
+      if (response.ok) {
+        const raw = json?.responseObject ?? json?.data ?? json;
+        const editedAt = raw?.editedAt ?? raw?.edited_at;
+        return { ok: true, editedAt: editedAt ? String(editedAt) : undefined };
+      }
+      lastError = json?.message ?? lastError;
+    } catch {
+      lastError = lastError ?? 'Network error';
+    }
+  }
+  return { ok: false, error: lastError ?? 'Edit failed' };
+}
+
+/**
  * Dedicated lean endpoint for message requests.
  * Returns { chats, total } with 2 backend queries only (no unread subquery per row).
  */
