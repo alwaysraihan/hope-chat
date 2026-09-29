@@ -13,6 +13,17 @@ import { AppState, DeviceEventEmitter } from 'react-native';
 /** Emitting this event from anywhere (e.g. FCM handler) triggers an immediate inbox reload. */
 export const RELOAD_CHAT_LIST_EVENT = 'hopechat:reload_chat_list';
 const POLL_INTERVAL_MS = 30_000;
+/**
+ * How long a friend keeps showing "active" after the last time we actually
+ * saw them online, from ANY source (live socket push or a REST snapshot).
+ * Both the presence-socket handler and the 30s REST poll below read/write the
+ * same `lastOnlineAtRef` map so neither one can undercut the other — without
+ * this, a REST poll's slightly-stale snapshot would flip someone back to
+ * "offline" the instant it landed, even while the live socket said they were
+ * still online seconds earlier, which is what made two people who were both
+ * genuinely in the app see each other pop in and out of the active strip.
+ */
+const PRESENCE_GRACE_MS = 45_000;
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import {
   clearAuth,
@@ -24,6 +35,7 @@ import {
   formatChatTime,
   HopenityChatItem,
 } from '../services/chatService';
+import { callSocket } from '../services/callSocket';
 import { formatChatListPreview } from '../services/chatMessagePreview';
 import type { ApiLastMessageLike } from '../services/chatMessagePreview';
 import {
@@ -34,6 +46,9 @@ import {
   deriveGroupMessageKey,
   maybeDecryptGroupContent,
 } from '../services/e2ee/groupConversationCrypto';
+import { isV2Envelope } from '../services/e2ee/secureMessaging';
+import { readPlaintext } from '../services/e2ee/sessionStore';
+import { writeCachedGroupMembers } from '../services/e2ee/groupMemberCache';
 import { isE2eeEnabled } from '../services/chatPrefs';
 import type { ExtendedMessage } from '../components/types/chat';
 import {
@@ -41,6 +56,8 @@ import {
   getHiddenConversationIds,
   readChatDirectoryCache,
   readRequestCountCache,
+  readRequestsSeenCount,
+  writeRequestsSeenCount,
   writeChatDirectoryCache,
   writeRequestCountCache,
 } from '../services/offlineCache';
@@ -52,8 +69,24 @@ import {
 } from '../services/callOutcomeBus';
 import { persistCallOutcomeChatMessage } from '../services/callLogPersist';
 import { normalizeChatUserId } from '../utils/chatUserId';
-import { getLocalNickname } from '../services/nicknameCache';
-import { getPinnedConversationIds, getMutedConversationIds } from '../services/chatPrefs';
+import { getLocalNickname, setLocalNickname } from '../services/nicknameCache';
+import { getPinnedConversationIds, getMutedConversationIds, setConvAppearance } from '../services/chatPrefs';
+
+/**
+ * Pinned first, then real activity (sortAt). Used by EVERY path that produces a
+ * list — fresh fetch, cache restore, identity switch — so a stale persisted
+ * order can never resurface. `sortAt` is stamped from the server's
+ * lastMessageAt when the rows are mapped, and is persisted with the cache.
+ */
+export function sortConversations<T extends { pinned?: boolean; sortAt?: number }>(
+  rows: T[],
+): T[] {
+  const byRecency = (a: T, b: T) => (b.sortAt ?? 0) - (a.sortAt ?? 0);
+  return [
+    ...rows.filter(c => c.pinned).sort(byRecency),
+    ...rows.filter(c => !c.pinned).sort(byRecency),
+  ];
+}
 
 export type ConversationSummary = {
   id: string;
@@ -84,8 +117,16 @@ export type ConversationSummary = {
   remoteWallpaperUrl?: string | null;
   remoteThemePresetId?: number | null;
   remoteReactionPalette?: string[] | null;
+  /** Peer's Hopenity verification — shows the blue badge after their name. */
+  peerIsVerified?: boolean;
   /** From chat list / peer profile — drives home + Story tab rings when set. */
   peerHasActiveStory?: boolean;
+  /**
+   * Real last-activity timestamp (ms). Kept so ordering survives every path a
+   * list can arrive by — server fetch, v1/v2 merge, or the offline cache — and
+   * cannot be left stale by whichever one happened to write last.
+   */
+  sortAt?: number;
   peerStoryCount?: number;
   unviewedStoryCount?: number;
   /** Group-only: total member count (including self). */
@@ -107,8 +148,14 @@ type ChatsContextValue = {
   bumpUnread: (conversationId: string, delta?: number) => void;
   reloadConversations: () => Promise<void>;
   listLoading: boolean;
+  /** True while an additional page of chats is being fetched. */
+  loadingMoreConversations: boolean;
+  hasMoreConversations: boolean;
+  loadMoreConversations: () => Promise<void>;
   /** Pending REQUESTED chats folder — surfaced beside Requests UI */
   pendingRequestCount: number;
+  /** Call when the Requests folder is opened — clears the badge. */
+  markRequestsSeen: () => void;
 };
 
 const ChatsContext = createContext<ChatsContextValue | null>(null);
@@ -544,6 +591,38 @@ function readStoryHintsFromChat(
   return { peerHasActiveStory, peerStoryCount, unviewedStoryCount };
 }
 
+/**
+ * Whether the OTHER side of a 1:1 chat is a verified Hopenity account. The flag
+ * rides on whichever participant object the API version happens to fill in, so
+ * check every side rather than assuming userA/userB ordering.
+ */
+function extractPeerVerified(
+  chat: HopenityChatItem,
+  localUserId: string | number,
+): boolean {
+  const rid = getRemoteParticipantId(chat, localUserId);
+  if (!rid) return false;
+
+  let verified = false;
+  const check = (u: unknown, sideUserId?: string | null) => {
+    if (verified || !u) return;
+    const r = asRecord(u);
+    if (!r) return;
+    const candidate = sideUserId
+      ? String(sideUserId)
+      : String(r.user_id ?? r.userId ?? r.id ?? r._id ?? '');
+    if (!sameChatParticipant(candidate, rid)) return;
+    if (r.is_verified === true || r.isVerified === true || r.verified === true) {
+      verified = true;
+    }
+  };
+
+  check(chat.userA, chat.userAId != null ? String(chat.userAId) : undefined);
+  check(chat.userB, chat.userBId != null ? String(chat.userBId) : undefined);
+  for (const p of chat.participants ?? []) check(p, undefined);
+  return verified;
+}
+
 /** Maps API chat row → home/list row (no seeded GiftedChat messages — Inbox loads history via API). */
 export function mapChatItemToSummary(
   chat: HopenityChatItem,
@@ -566,11 +645,28 @@ export function mapChatItemToSummary(
   const created = lastRaw.createdAt ?? lastRaw.created_at;
 
   let lastForPreview = lastRaw as ApiLastMessageLike;
+  // HC2 (real E2EE) previews come from the plaintext cache the thread filled
+  // when it decrypted the message. The list must never run the ratchet itself:
+  // ratchet keys are single-use and ordered, so decrypting here would consume a
+  // key the thread still needs and desync the session.
   if (
+    typeof lastForPreview?.content === 'string' &&
+    isV2Envelope(lastForPreview.content)
+  ) {
+    const cached = readPlaintext(
+      String((lastForPreview as { id?: unknown }).id ?? ''),
+    );
+    lastForPreview = {
+      ...lastForPreview,
+      content: cached ?? '🔒 New message',
+    };
+  } else if (
+
     peerUserNorm &&
     typeof lastForPreview.content === 'string' &&
     lastForPreview.content.startsWith('HC1:')
   ) {
+    // NOTE: HC2 previews are handled before this branch — see below.
     const key = deriveConversationMessageKey(
       localId,
       peerUserNorm,
@@ -688,6 +784,7 @@ export function mapChatItemToSummary(
     needsAcceptance,
     isSentRequest,
     peerUserId: peerUserNorm,
+    peerIsVerified: isGroup ? undefined : extractPeerVerified(chat, localUser._id),
     peerHasActiveStory: storyHints.peerHasActiveStory,
     peerStoryCount: storyHints.peerStoryCount,
     unviewedStoryCount: storyHints.unviewedStoryCount,
@@ -720,15 +817,30 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
   const token = useAppSelector(selectAuthToken);
   const [listLoading, setListLoading] = useState(false);
-  const [pendingRequestCount, setPendingRequestCount] = useState(() => {
+  // Chat list paging. The directory was fetched once at limit 50 with no way to
+  // reach anything past that, so accounts with more chats simply could not see
+  // them however far they scrolled.
+  const CHAT_PAGE_SIZE = 50;
+  const [hasMoreConversations, setHasMoreConversations] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [rawRequestCount, setPendingRequestCount] = useState(() => {
     const uid = normalizeChatUserId(
       giftedChatUser?._id ?? hopenityProfile?.userId ?? '',
     );
     return readRequestCountCache(uid) ?? 0;
   });
+  const [requestsSeenCount, setRequestsSeenCount] = useState(() => {
+    const uid = normalizeChatUserId(
+      giftedChatUser?._id ?? hopenityProfile?.userId ?? '',
+    );
+    return readRequestsSeenCount(uid);
+  });
   const [conversations, setConversations] = useState<ConversationSummary[]>(
     () => [],
   );
+  // Shared between the presence-socket handler and the REST poll merge — see
+  // PRESENCE_GRACE_MS above for why this needs to be one shared clock.
+  const lastOnlineAtRef = useRef<Map<string, number>>(new Map());
 
   useLayoutEffect(() => {
     const uid = String(localUser._id ?? '');
@@ -740,10 +852,10 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       const visible = cached
         .filter(c => !hidden.has(c.id))
         .map(c => ({ ...c, pinned: pinnedIds.has(c.id) }));
-      setConversations([
-        ...visible.filter(c => c.pinned),
-        ...visible.filter(c => !c.pinned),
-      ]);
+      // Sorted, not replayed. The cache preserves the order it was written in,
+      // so without this a cold start showed whatever ordering was persisted
+      // before the server-side fix — which is why old chats kept sitting on top.
+      setConversations(sortConversations(visible));
     }
   }, [token, localUser._id]);
 
@@ -753,18 +865,36 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
 
-  // When the active page changes, show a loading state immediately so the inbox
-  // feels instant (like Messenger) — the reload will overwrite the list when
-  // the API responds.  We no longer blank the list here because a blank screen
-  // is more jarring than briefly seeing the previous account's conversations.
+  // Switching identity (personal <-> page, or page <-> page) must NOT leave the
+  // previous identity's conversations on screen while the new list loads.
+  //
+  // This used to keep them deliberately, to avoid a blank frame. But the list
+  // carries names and message previews: holding a page's customer conversations
+  // on screen after switching to personal — or the operator's private chats
+  // after switching INTO a page other staff can operate — leaks one identity's
+  // content into another. A loading state is the correct trade here.
+  //
+  // Personal mode has a cached list keyed to the user, so switching back is
+  // still instant; page inboxes are deliberately never cached, so they clear.
   useEffect(() => {
     const prev = activePageIdRef.current;
     const next = activePage?.id ?? null;
     if (prev !== next) {
       activePageIdRef.current = next;
       setListLoading(true);
+      if (next) {
+        // Entering a page: nothing of the previous identity may remain.
+        setConversations([]);
+        setPendingRequestCount(0);
+      } else {
+        // Back to personal: restore this user's own cached list, never the page's.
+        const uid = String(localUser?._id ?? '');
+        setConversations(
+          uid ? sortConversations(readChatDirectoryCache(uid) ?? []) : [],
+        );
+      }
     }
-  }, [activePage]);
+  }, [activePage, localUser]);
 
   const reloadConversations = useCallback(async () => {
     if (!token) {
@@ -778,7 +908,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     try {
       const { chats, counts, httpStatus } = await fetchHopenityChatDirectory(token, {
         status: 'inbox',
-        limit: 50,
+        limit: CHAT_PAGE_SIZE,
         offset: 0,
         localUserId: String(localUser._id ?? ''),
         // When a page is active, fetch that page's conversations
@@ -808,11 +938,50 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           pinned: pinnedIds.has(c.id),
           isMuted: mutedIds.has(c.id),
         }));
-      // Pinned chats sort to the top; within each group order is preserved from server.
-      const next = [
-        ...mapped.filter(c => c.pinned),
-        ...mapped.filter(c => !c.pinned),
-      ];
+      // Seed the group-member cache from the chat list.
+      //
+      // Group message keys are derived from the member list, and until it is
+      // known a group thread has no key — which is why opening a group flashed
+      // "🔒 Decrypting…" while fetchGroupInfo made a round trip. The list
+      // response ALREADY carries participants, so every group the user can see
+      // gets its key material cached here, long before they tap into one.
+      // Opening a group is then instant, the way WhatsApp/Telegram feel,
+      // because the key derives synchronously from local storage.
+      try {
+        for (const c of chats as any[]) {
+          if (!c?.isGroup || !c?.id) continue;
+          const memberIds: string[] = (c.participants ?? [])
+            .map((p: any) => String(p?.user_id ?? '').trim())
+            .filter(Boolean);
+          if (memberIds.length > 0) {
+            writeCachedGroupMembers(String(c.id), memberIds);
+          }
+        }
+      } catch {
+        // Never let a cache warm-up break the inbox.
+      }
+
+      // Stamp each row with its real activity time, then sort explicitly.
+      //
+      // "Order preserved from server" was true for a fresh fetch but not for the
+      // cache: readChatDirectoryCache replays whatever order was persisted last,
+      // so a stale list could keep an old chat pinned to the top even after the
+      // server started returning the right order. Sorting here makes the result
+      // deterministic no matter which path produced the rows.
+      const rawById = new Map<string, any>(chats.map((c: any) => [String(c.id ?? ''), c]));
+      const stamped = mapped.map(c => {
+        const raw = rawById.get(c.id) ?? {};
+        const at =
+          raw.lastMessageAt ??
+          raw.last_message_at ??
+          raw.lastMessage?.createdAt ??
+          raw.updatedAt ??
+          raw.updated_at ??
+          null;
+        const ms = at ? new Date(at).getTime() : 0;
+        return { ...c, sortAt: Number.isFinite(ms) ? ms : 0 };
+      });
+      const next = sortConversations(stamped);
       // Prefer the server's requested count — the inbox fetch excludes received
       // requests (they live in the Requests folder), so counting needsAcceptance
       // rows in this list always yielded 0 and the Requests badge never showed.
@@ -821,7 +990,35 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           ? counts.requested
           : mapped.filter(c => c.needsAcceptance).length;
       setPendingRequestCount(newRequestCount);
-      setConversations(next);
+      // A REST snapshot can lag a few seconds behind the live socket state —
+      // applying its `isOnline: false` immediately is what let a 30s poll snap
+      // a friend back to "offline" for a moment even while the socket had
+      // already confirmed them online seconds earlier. Protect anyone seen
+      // online within the shared grace window instead of trusting this
+      // snapshot's offline verdict outright.
+      const now = Date.now();
+      setConversations(prevConversations => {
+        const prevOnlineById = new Map(
+          prevConversations
+            .filter(c => c.peerUserId)
+            .map(c => [String(c.peerUserId), c.isOnline === true]),
+        );
+        return next.map(c => {
+          if (c.isGroup || !c.peerUserId) return c;
+          const id = String(c.peerUserId);
+          if (c.isOnline) {
+            lastOnlineAtRef.current.set(id, now);
+            return c;
+          }
+          const wasOnline = prevOnlineById.get(id);
+          const lastSeen = lastOnlineAtRef.current.get(id) ?? 0;
+          if (wasOnline && now - lastSeen < PRESENCE_GRACE_MS) {
+            return { ...c, isOnline: true };
+          }
+          return c;
+        });
+      });
+      setHasMoreConversations(chats.length >= CHAT_PAGE_SIZE);
       // Only cache personal-mode results — page inbox is transient and should
       // never appear after switching back to personal account.
       if (!activePage) {
@@ -834,6 +1031,60 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       setListLoading(false);
     }
   }, [dispatch, localUser, token, activePage]);
+
+  /**
+   * Append the next page of conversations. Guarded on the loading flag because
+   * onEndReached fires repeatedly while a list settles, and each duplicate call
+   * would request the same offset.
+   */
+  const loadMoreConversations = useCallback(async () => {
+    if (!token || loadingMore || !hasMoreConversations) return;
+    setLoadingMore(true);
+    try {
+      const { chats } = await fetchHopenityChatDirectory(token, {
+        status: 'inbox',
+        limit: CHAT_PAGE_SIZE,
+        offset: conversationsRef.current.length,
+        localUserId: String(localUser._id ?? ''),
+        ...(activePage ? { pageId: Number(activePage.id) } : {}),
+      });
+
+      if (chats.length === 0) {
+        setHasMoreConversations(false);
+        return;
+      }
+
+      const hidden = new Set(getHiddenConversationIds());
+      const pinnedIds = new Set(getPinnedConversationIds());
+      const mutedIds = new Set(getMutedConversationIds());
+      const effectiveLocalUser = activePage
+        ? { _id: activePage.id, name: activePage.name }
+        : localUser;
+
+      const mapped = chats
+        .map(chat => mapChatItemToSummary(chat, effectiveLocalUser))
+        .filter(c => !hidden.has(c.id))
+        .map(c => ({
+          ...c,
+          pinned: pinnedIds.has(c.id),
+          isMuted: mutedIds.has(c.id),
+        }));
+
+      setConversations(prev => {
+        // The server can shift rows between pages as chats reorder by recency,
+        // so drop anything already on screen rather than rendering it twice.
+        const seen = new Set(prev.map(c => String(c.id)));
+        const fresh = mapped.filter(c => !seen.has(String(c.id)));
+        if (fresh.length === 0) return prev;
+        return [...prev, ...fresh];
+      });
+      setHasMoreConversations(chats.length >= CHAT_PAGE_SIZE);
+    } catch (err) {
+      console.error('[ChatsProvider] loadMoreConversations error:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [token, loadingMore, hasMoreConversations, localUser, activePage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -875,6 +1126,245 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(id);
   }, [token, reloadConversations]);
 
+  /**
+   * Live chat-list updates.
+   *
+   * The list previously only refreshed when InboxContext emitted — which it
+   * does only for the thread the user currently has open. So a message arriving
+   * in any other conversation did not surface until the 30s poll, which is why
+   * the inbox felt stale while the thread itself felt live.
+   *
+   * The server pushes the whole message row, so patch the affected row in place
+   * and float it to the top. That is instant and costs no request; the poll
+   * still reconciles ordering and counts.
+   */
+  /**
+   * Nicknames and the chat theme are shared by both participants, so a change
+   * made on the other device must land here even when the Nicknames / Theme
+   * screen isn't mounted.
+   */
+  /**
+   * Typing indicator in the CHAT LIST.
+   *
+   * ConversationItem already renders `item.isTyping`, but nothing ever set it —
+   * only the open thread reacted to typing events, so the list never showed
+   * "typing…" the way Messenger does. The server now also emits to the peers'
+   * user rooms, which is what makes this reachable without the thread open.
+   */
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    const setTyping = (chatId: string, value: boolean) => {
+      setConversations(prev =>
+        prev.some(c => String(c.id) === chatId && !!c.isTyping !== value)
+          ? prev.map(c =>
+              String(c.id) === chatId ? { ...c, isTyping: value } : c,
+            )
+          : prev,
+      );
+    };
+
+    const unsubTyping = callSocket.onUserTyping(({ chatId, userId }) => {
+      const id = String(chatId);
+      // Our own typing must never light up our own row.
+      if (localUser?._id && String(userId) === String(localUser._id)) return;
+      setTyping(id, true);
+      const existing = timers.get(id);
+      if (existing) clearTimeout(existing);
+      // Safety net for a dropped stop event — matches the thread's own timeout.
+      timers.set(id, setTimeout(() => setTyping(id, false), 5000));
+    });
+
+    const unsubStopped = callSocket.onUserStoppedTyping(({ chatId, userId }) => {
+      const id = String(chatId);
+      if (localUser?._id && String(userId) === String(localUser._id)) return;
+      const existing = timers.get(id);
+      if (existing) clearTimeout(existing);
+      timers.delete(id);
+      setTyping(id, false);
+    });
+
+    return () => {
+      unsubTyping();
+      unsubStopped();
+      // Clear every pending timer, or a backgrounded list leaks one per chat.
+      timers.forEach(t => clearTimeout(t));
+      timers.clear();
+    };
+  }, [token, localUser?._id]);
+
+  /**
+   * Live "online" dot in the chat list / story strip. The REST conversations
+   * payload only carries a snapshot of `isOnline`, stale until the next 30s
+   * poll — this subscribes to the backend's `presence_changed` push (already
+   * built server-side: socket join `watch_presence`/`unwatch_presence` per
+   * friend, broadcasts on their connect/disconnect) so the dot flips near-
+   * instantly instead of waiting on the poll.
+   */
+  useEffect(() => {
+    if (!token) return undefined;
+
+    // Going online applies instantly (feels responsive), but going offline is
+    // held for a grace period first — a brief network blip otherwise made
+    // friends flicker in and out of the active-friends story strip on every
+    // reconnect. Coming back online within the window just cancels the timer.
+    const offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    const applyPresence = (userId: string, isOnline: boolean, lastSeenAt?: string | null) => {
+      if (isOnline) lastOnlineAtRef.current.set(userId, Date.now());
+      setConversations(prev => {
+        let changed = false;
+        const next = prev.map(c => {
+          if (c.isGroup || !c.peerUserId || String(c.peerUserId) !== String(userId)) {
+            return c;
+          }
+          if (c.isOnline === isOnline) return c;
+          changed = true;
+          return { ...c, isOnline, lastSeenAt: lastSeenAt ?? c.lastSeenAt };
+        });
+        return changed ? next : prev;
+      });
+    };
+
+    const unsubPresence = callSocket.onPresenceChanged(({ userId, isOnline, lastSeenAt }) => {
+      const id = String(userId);
+      const pending = offlineTimers.get(id);
+      if (pending) {
+        clearTimeout(pending);
+        offlineTimers.delete(id);
+      }
+      if (isOnline) {
+        applyPresence(id, true, lastSeenAt);
+        return;
+      }
+      offlineTimers.set(
+        id,
+        setTimeout(() => {
+          offlineTimers.delete(id);
+          applyPresence(id, false, lastSeenAt);
+        }, PRESENCE_GRACE_MS),
+      );
+    });
+
+    return () => {
+      unsubPresence();
+      offlineTimers.forEach(t => clearTimeout(t));
+      offlineTimers.clear();
+    };
+  }, [token]);
+
+  /** Keep the server's presence-watch set in sync with who's actually on screen. */
+  const watchedPresenceRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const nextIds = new Set(
+      conversations
+        .filter(c => !c.isGroup && c.peerUserId)
+        .map(c => String(c.peerUserId)),
+    );
+    const prevIds = watchedPresenceRef.current;
+
+    for (const id of nextIds) {
+      if (!prevIds.has(id)) callSocket.watchPresence(id);
+    }
+    for (const id of prevIds) {
+      if (!nextIds.has(id)) callSocket.unwatchPresence(id);
+    }
+    watchedPresenceRef.current = nextIds;
+
+    return undefined;
+  }, [token, conversations]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const unsubNicknames = callSocket.onNicknamesUpdated(({ chatId, nicknames }) => {
+      const id = String(chatId);
+      setConversations(prev =>
+        prev.map(c => {
+          if (String(c.id) !== id || c.isGroup) return c;
+          const peerId = c.peerUserId?.trim();
+          if (!peerId) return c;
+          const nick = nicknames?.[peerId];
+          if (typeof nick === 'string' && nick) {
+            setLocalNickname(id, peerId, nick);
+            return { ...c, name: nick };
+          }
+          // Removed on the other end — drop the cached override too.
+          setLocalNickname(id, peerId, '');
+          return c;
+        }),
+      );
+    });
+
+    const unsubTheme = callSocket.onChatThemeUpdated(({ chatId, theme }) => {
+      const presetId = Number(theme);
+      if (!Number.isFinite(presetId) || presetId <= 0) return;
+      setConvAppearance(String(chatId), { themePresetId: presetId });
+    });
+
+    return () => {
+      unsubNicknames();
+      unsubTheme();
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const unsub = callSocket.onNewMessage(({ chatId, message }) => {
+      const id = String(chatId);
+      if (!message) {
+        void reloadConversations();
+        return;
+      }
+
+      const senderId = String(
+        (message.senderId ?? message.sender_id ?? '') as string,
+      );
+      const localId = String(localUser._id ?? '');
+      const fromMe =
+        !!senderId &&
+        normalizeChatUserId(senderId) === normalizeChatUserId(localId);
+
+      setConversations(prev => {
+        const idx = prev.findIndex(c => String(c.id) === id);
+        // A brand-new conversation isn't in the list yet — only then pay for a
+        // refetch.
+        if (idx === -1) {
+          void reloadConversations();
+          return prev;
+        }
+
+        const target = prev[idx]!;
+        const preview = formatChatListPreview(
+          message as unknown as ApiLastMessageLike,
+          localId,
+        );
+        const updated: ConversationSummary = {
+          ...target,
+          preview,
+          time: 'now',
+          unreadCount: fromMe ? target.unreadCount : target.unreadCount + 1,
+          isUnread: fromMe ? target.isUnread : true,
+        };
+
+        const rest = prev.filter((_, i) => i !== idx);
+        // Pinned rows keep their block at the top.
+        const pinned = rest.filter(c => c.pinned);
+        const unpinned = rest.filter(c => !c.pinned);
+        return updated.pinned
+          ? [updated, ...pinned, ...unpinned]
+          : [...pinned, updated, ...unpinned];
+      });
+    });
+
+    return () => unsub();
+  }, [token, reloadConversations, localUser._id]);
+
   // Instant reload when something (e.g. FCM new-message notification) fires the event.
   useEffect(() => {
     if (!token) return undefined;
@@ -899,6 +1389,11 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
             ...prev[idx],
             preview: line,
             time: formatChatTime(iso),
+            // A call outcome IS new activity (the server writes a call row into
+            // the thread). Without bumping sortAt the row jumps to the top now
+            // and then falls back on the next sorted load — the list would
+            // disagree with itself.
+            sortAt: Date.now(),
           };
           const next = [row, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
           const uidStr = String(localUser._id ?? '');
@@ -1013,6 +1508,24 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  // Accepting/declining requests lowers the server count. Without clamping,
+  // the seen mark would stay above it and swallow the next genuine arrival.
+  useEffect(() => {
+    if (rawRequestCount < requestsSeenCount) {
+      setRequestsSeenCount(rawRequestCount);
+      writeRequestsSeenCount(String(localUser._id ?? ''), rawRequestCount);
+    }
+  }, [rawRequestCount, requestsSeenCount, localUser._id]);
+
+  // Badge = new requests since the folder was last opened. Opening it once
+  // clears the badge; later arrivals push it back above the seen mark.
+  const pendingRequestCount = Math.max(0, rawRequestCount - requestsSeenCount);
+
+  const markRequestsSeen = useCallback(() => {
+    setRequestsSeenCount(rawRequestCount);
+    writeRequestsSeenCount(String(localUser._id ?? ''), rawRequestCount);
+  }, [rawRequestCount, localUser._id]);
+
   const value = useMemo(
     () => ({
       conversations,
@@ -1020,9 +1533,23 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       bumpUnread,
       reloadConversations,
       listLoading,
+      loadingMoreConversations: loadingMore,
+      hasMoreConversations,
+      loadMoreConversations,
       pendingRequestCount,
+      markRequestsSeen,
     }),
-    [bumpUnread, conversations, listLoading, pendingRequestCount, reloadConversations],
+    [
+      bumpUnread,
+      conversations,
+      hasMoreConversations,
+      listLoading,
+      loadMoreConversations,
+      loadingMore,
+      markRequestsSeen,
+      pendingRequestCount,
+      reloadConversations,
+    ],
   );
 
   return (

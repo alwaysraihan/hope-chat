@@ -18,10 +18,14 @@ import {
   TimeProps,
 } from 'react-native-gifted-chat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Phone as PhoneIcon, Video as VideoIcon } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { InboxProvider, useInbox } from '../context/InboxContext';
+import WordEffectOverlay from '../components/WordEffectOverlay';
+import { clearChatNotification } from '../services/notifications/messageNotification';
+import { clearCallCancelled } from '../services/incomingCall/navigateIncomingCall';
 import ChatMessageBox from '../components/message/ChatMessageBox';
 import ForwardModal from '../components/message/ForwardModal';
 import MessageHeader from '../components/message/MessageHeader';
@@ -38,11 +42,17 @@ import {
   selectAuthToken,
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
+import { ensureCallPermissions } from '../utils/permissions';
 import { useAppSelector } from '../hooks/redux';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
-import { notifyGroupCall } from '../services/groupService';
+import {
+  fetchGroupCallState,
+  notifyGroupCall,
+  type GroupCallState,
+} from '../services/groupService';
+import { callSocket } from '../services/callSocket';
 import { getEffectiveAppearance, getConvAppearance } from '../services/chatPrefs';
 import { Toast } from '../components/Toast';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
@@ -50,6 +60,7 @@ import { formatLastSeenLine } from '../utils/formatLastSeen';
 import { selectActivePage } from '../redux/features/auth/authSlice';
 import { openHopenityProfile } from '../services/hopenityLinking';
 import { ShopSheet } from '../components/message/ShopSheet';
+import SharePreviewBar, { type PendingShare } from '../components/message/SharePreviewBar';
 
 const PRESET_IMAGES: Record<number, number> = {
   1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
@@ -95,6 +106,39 @@ const InboxScreenInner: React.FC<
       fontSize: 12,
       color: colorss.primary,
     },
+    joinCallBanner: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      backgroundColor: `${colorss.success}1A`,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: `${colorss.success}55`,
+    },
+    joinCallText: {
+      flex: 1,
+      fontSize: 13,
+      color: colorss.textPrimary,
+      fontWeight: '600' as const,
+    },
+    joinCallSub: {
+      fontSize: 11,
+      color: colorss.textSecondary,
+      marginTop: 1,
+      fontWeight: '400' as const,
+    },
+    joinCallBtn: {
+      backgroundColor: colorss.success,
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+      borderRadius: 18,
+    },
+    joinCallBtnText: {
+      color: '#FFFFFF',
+      fontWeight: '700' as const,
+      fontSize: 13,
+    },
   }), [colorss]);
   const token = useAppSelector(selectAuthToken);
   const hopenityProfile = useAppSelector(selectHopenityProfile);
@@ -106,6 +150,9 @@ const InboxScreenInner: React.FC<
   );
   // Booking-linked chat: track whether messaging is allowed.
   // Re-synced on every focus so admin toggles from ConversationAction are reflected.
+  const [bookingClosed, setBookingClosed] = useState(false);
+  const [bookingStatus, setBookingStatus] = useState<string | undefined>();
+  const [bookingCancelStatus, setBookingCancelStatus] = useState<string | undefined>();
   const [bookingMessagingEnabled, setBookingMessagingEnabled] = useState(
     route.params.messagingEnabled ?? true,
   );
@@ -124,6 +171,15 @@ const InboxScreenInner: React.FC<
   // Block means no text AND no call — re-checked on every focus so an
   // in-session block/unblock (from Profile or the conversation menu) is reflected.
   const [isBlocked, setIsBlocked] = useState(false);
+  // Reading a chat clears its banner — a shade full of messages the user is
+  // currently looking at is the classic "notifications feel broken" complaint.
+  useFocusEffect(
+    useCallback(() => {
+      void clearChatNotification(conversation.id);
+      return undefined;
+    }, [conversation.id]),
+  );
+
   useFocusEffect(
     useCallback(() => {
       if (!token || conversation.isGroup) return undefined;
@@ -158,7 +214,16 @@ const InboxScreenInner: React.FC<
       ]).then(([booked, received]) => {
         const asCallee = received.find(b => b.id === bookingId);
         const booking = asCallee ?? booked.find(b => b.id === bookingId);
-        if (booking != null) setBookingMessagingEnabled(booking.messagingEnabled);
+        if (booking != null) {
+          setBookingMessagingEnabled(booking.messagingEnabled);
+          setBookingStatus(booking.status);
+          setBookingCancelStatus(booking.cancelStatus ?? 'NONE');
+          // A closed or cancelled booking is history — distinguish it from a
+          // plain messaging toggle so the banner can say why.
+          setBookingClosed(
+            booking.status === 'CLOSED' || booking.status === 'CANCELLED',
+          );
+        }
         setIsBookingCallee(!!asCallee);
       });
       return undefined;
@@ -214,6 +279,7 @@ const InboxScreenInner: React.FC<
     sellerSheetVisible,
     closeSellerSheet,
     peerIsTyping,
+    wordEffect,
   } = useInbox();
 
   // ── GiftedChat FlatList ref for reply-tap scroll ───────────────────────────
@@ -241,6 +307,77 @@ const InboxScreenInner: React.FC<
     return () => clearTimeout(t);
   }, [initialText, setInitialText]);
 
+  const peerName = route.params.displayName ?? conversation.name;
+
+  /**
+   * A group's live call. Drives the "Join call" banner so a member who missed
+   * the ring can still walk into the conversation that is already happening —
+   * previously the only way in was to press call, which started a rival room.
+   */
+  const [groupCall, setGroupCall] = useState<GroupCallState | null>(null);
+  useEffect(() => {
+    if (!conversation.isGroup || !token) {
+      setGroupCall(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchGroupCallState(conversation.id, token).then(state => {
+      if (!cancelled) setGroupCall(state?.active ? state : null);
+    });
+    const unsub = callSocket.onGroupCallState(evt => {
+      if (String(evt.threadId) !== String(conversation.id)) return;
+      setGroupCall(
+        evt.active
+          ? {
+              active: true,
+              liveKitRoom: evt.liveKitRoom,
+              callKind: evt.callKind === 'video' ? 'video' : 'audio',
+              startedByUserId: evt.startedByUserId,
+              startedByName: evt.startedByName,
+              participantCount: evt.participantCount,
+            }
+          : null,
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [conversation.isGroup, conversation.id, token]);
+
+  const joinGroupCall = useCallback(async () => {
+    if (!groupCall?.liveKitRoom) return;
+    const kind = groupCall.callKind === 'video' ? 'video' : 'audio';
+    if (!(await ensureCallPermissions(kind))) return;
+    if (token) {
+      // Registers us as a participant and posts "{name} joined the call".
+      void notifyGroupCall({
+        groupId: conversation.id,
+        liveKitRoom: groupCall.liveKitRoom,
+        callKind: kind,
+        token,
+        displayName: peerName,
+      });
+    }
+    navigation.navigate(kind === 'video' ? 'VideoCall' : 'AudioCall', {
+      displayName: peerName,
+      liveKitRoom: groupCall.liveKitRoom,
+      avatarUrl: route.params.avatarUrl ?? conversation.avatarUrl,
+      conversationId: conversation.id,
+      // Joining an in-progress call: not an outgoing ring.
+      callDirection: 'incoming',
+      isGroupCall: true,
+    });
+  }, [
+    groupCall,
+    token,
+    conversation.id,
+    conversation.avatarUrl,
+    peerName,
+    navigation,
+    route.params.avatarUrl,
+  ]);
+
   const audioRoom = useMemo(
     () =>
       resolveLiveKitRoomName({
@@ -258,7 +395,6 @@ const InboxScreenInner: React.FC<
       user._id,
     ],
   );
-  const peerName = route.params.displayName ?? conversation.name;
 
   const headerStatus = useMemo(() => {
     if (conversation.isGroup) {
@@ -322,9 +458,73 @@ const InboxScreenInner: React.FC<
     return null;
   })();
 
+  // A post handed over from Hopenity's share sheet. Held as state so dismissing
+  // it (or sending it) clears the bar without needing a navigation param change.
+  const [pendingShare, setPendingShare] = useState<PendingShare | null>(
+    route.params.pendingShare ?? null,
+  );
+  const [sharingPost, setSharingPost] = useState(false);
+
+  // route.params.pendingShare only seeds the initial mount — when this screen is
+  // already focused (user shares again into the same open chat), React Navigation
+  // merges the new params into the existing route without remounting, so the
+  // useState initializer above never re-runs. Sync it live instead.
+  useEffect(() => {
+    if (route.params.pendingShare) {
+      setPendingShare(route.params.pendingShare);
+    }
+  }, [route.params.pendingShare]);
+
+  const sendPendingShare = useCallback(async () => {
+    const share = pendingShare;
+    if (!share || sharingPost) return;
+    setSharingPost(true);
+    try {
+      // The post link IS the message — HopeChat renders link previews for it,
+      // and it stays readable on any client that does not.
+      await onSend([
+        {
+          _id: String(Date.now()),
+          text: share.url,
+          createdAt: new Date(),
+          user: { _id: user._id },
+        } as ExtendedMessage,
+      ]);
+      setPendingShare(null);
+    } finally {
+      setSharingPost(false);
+    }
+  }, [pendingShare, sharingPost, onSend, user._id]);
+
+  /**
+   * Props gifted-chat v3 accepts at runtime but does not expose in its public
+   * types (this element also passes `placeholder` and `textInputProps`). Spread
+   * as a loose record so naming them does not switch on JSX excess-property
+   * checking for the whole element.
+   *
+   * `messagesContainerRef` is the v3 name — it used to be passed as
+   * `messageContainerRef`, which the library silently ignored, so reply-tap
+   * scroll-to-message never worked.
+   */
+  const giftedChatCompatProps: Record<string, unknown> = {
+    messagesContainerRef: messageContainerRef,
+  };
+
   const renderInputToolbar = useCallback(
-    (p: unknown) => <CustomInputToolbar {...(p as object)} />,
-    [],
+    (p: unknown) => (
+      <>
+        {pendingShare ? (
+          <SharePreviewBar
+            share={pendingShare}
+            sending={sharingPost}
+            onSend={sendPendingShare}
+            onDismiss={() => setPendingShare(null)}
+          />
+        ) : null}
+        <CustomInputToolbar {...(p as object)} />
+      </>
+    ),
+    [pendingShare, sharingPost, sendPendingShare],
   );
 
   const renderTime = useCallback((props: TimeProps<IMessage>) => {
@@ -460,6 +660,7 @@ const InboxScreenInner: React.FC<
     >
       <MessageHeader
         name={peerName}
+        isVerified={!conversation.isGroup && !!conversation.peerIsVerified}
         status={headerStatus}
         avatarUri={route.params.avatarUrl ?? conversation.avatarUrl}
         isEncrypted={isEncrypted}
@@ -481,7 +682,7 @@ const InboxScreenInner: React.FC<
         // the chat must be accepted before voice/video calls are allowed.
         // Booking callers (the person who booked) also cannot initiate calls —
         // only the callee (expert) can call when the scheduled time arrives.
-        onAudioCall={needsAcceptance || isSentRequest ? undefined : () => {
+        onAudioCall={needsAcceptance || isSentRequest ? undefined : async () => {
           if (isBlocked) {
             Toast.info("You can't call this user — you've blocked them.");
             return;
@@ -490,28 +691,44 @@ const InboxScreenInner: React.FC<
             Toast.info("You can't call directly. The expert will call you at the scheduled time.");
             return;
           }
+          // Ask before ringing the peer — a denial here must not leave them
+          // with a ringing call we can never join.
+          if (!(await ensureCallPermissions('audio'))) return;
+          // Placing a call in a room we ourselves marked cancelled (previous
+          // attempt) must not be suppressed — room names repeat for a pair.
+          clearCallCancelled(audioRoom);
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
+          // A group has ONE call: the server hands back the room of a call that
+          // is already running, so this joins it rather than opening a second
+          // room beside the people already talking.
+          let dispatchRoom = audioRoom;
           if (isGroupDispatch) {
             if (token) {
-              notifyGroupCall({
+              const res = await notifyGroupCall({
                 groupId: conversation.id,
                 liveKitRoom: audioRoom,
                 callKind: 'audio',
                 token,
                 displayName: peerName,
               });
+              if (res?.liveKitRoom) dispatchRoom = res.liveKitRoom;
             }
           } else {
-            notifyPeerIncomingHopeChatCall({
+            // Stop on a deliberate refusal — see notifyPeerIncomingHopeChatCall.
+            const ring = await notifyPeerIncomingHopeChatCall({
               token,
               conversationId: conversation.id,
               liveKitRoom: audioRoom,
               callKind: 'audio',
             });
+            if (!ring.ok && ring.refused) {
+              Toast.show(ring.message, 'error');
+              return;
+            }
           }
           navigation.navigate('AudioCall', {
             displayName: peerName,
-            liveKitRoom: audioRoom,
+            liveKitRoom: dispatchRoom,
             avatarUrl: route.params.avatarUrl ?? conversation.avatarUrl,
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
@@ -519,7 +736,7 @@ const InboxScreenInner: React.FC<
             isGroupCall: isGroupDispatch,
           });
         }}
-        onVideoCall={needsAcceptance || isSentRequest ? undefined : () => {
+        onVideoCall={needsAcceptance || isSentRequest ? undefined : async () => {
           if (isBlocked) {
             Toast.info("You can't call this user — you've blocked them.");
             return;
@@ -528,28 +745,41 @@ const InboxScreenInner: React.FC<
             Toast.info("You can't call directly. The expert will call you at the scheduled time.");
             return;
           }
+          // Ask before ringing the peer — a denial here must not leave them
+          // with a ringing call we can never join.
+          if (!(await ensureCallPermissions('video'))) return;
+          // Placing a call in a room we ourselves marked cancelled (previous
+          // attempt) must not be suppressed — room names repeat for a pair.
+          clearCallCancelled(audioRoom);
           const isGroupDispatch = conversation.isGroup || !!route.params.isGroupBooking;
+          // Join the group's live call when there is one — see the audio path.
+          let dispatchRoom = audioRoom;
           if (isGroupDispatch) {
             if (token) {
-              notifyGroupCall({
+              const res = await notifyGroupCall({
                 groupId: conversation.id,
                 liveKitRoom: audioRoom,
                 callKind: 'video',
                 token,
                 displayName: peerName,
               });
+              if (res?.liveKitRoom) dispatchRoom = res.liveKitRoom;
             }
           } else {
-            notifyPeerIncomingHopeChatCall({
+            const ring = await notifyPeerIncomingHopeChatCall({
               token,
               conversationId: conversation.id,
               liveKitRoom: audioRoom,
               callKind: 'video',
             });
+            if (!ring.ok && ring.refused) {
+              Toast.show(ring.message, 'error');
+              return;
+            }
           }
           navigation.navigate('VideoCall', {
             displayName: peerName,
-            liveKitRoom: audioRoom,
+            liveKitRoom: dispatchRoom,
             avatarUrl: route.params.avatarUrl ?? conversation.avatarUrl,
             conversationId: conversation.id,
             peerUserId: conversation.peerUserId ?? undefined,
@@ -568,10 +798,41 @@ const InboxScreenInner: React.FC<
             isMuted: !!conversation.isMuted,
             bookingId: resolvedBookingId,
             messagingEnabled: bookingMessagingEnabled,
+            bookingStatus,
+            bookingCancelStatus,
             isBookingCallee,
           })
         }
       />
+
+      {/* A call is live in this group — offer to walk into it. */}
+      {conversation.isGroup && groupCall?.active ? (
+        <View style={acceptStyles.joinCallBanner}>
+          {groupCall.callKind === 'video' ? (
+            <VideoIcon size={18} color={colorss.success} />
+          ) : (
+            <PhoneIcon size={18} color={colorss.success} />
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={acceptStyles.joinCallText} numberOfLines={1}>
+              {groupCall.callKind === 'video' ? 'Video call' : 'Audio call'} in
+              progress
+            </Text>
+            <Text style={acceptStyles.joinCallSub} numberOfLines={1}>
+              {groupCall.participantCount > 0
+                ? `${groupCall.participantCount} in the call`
+                : `Started by ${groupCall.startedByName ?? 'someone'}`}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={acceptStyles.joinCallBtn}
+            onPress={() => void joinGroupCall()}
+            activeOpacity={0.8}
+          >
+            <Text style={acceptStyles.joinCallBtnText}>Join</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {activePage && (
         <View style={acceptStyles.pageBanner}>
@@ -624,7 +885,9 @@ const InboxScreenInner: React.FC<
         const messagingRestrictedBanner = !bookingMessagingEnabled ? (
           <View style={acceptStyles.banner}>
             <Text style={acceptStyles.bannerText}>
-              🚫 Messaging has been restricted for this booking.
+              {bookingClosed
+                ? '✓ This booking has ended. The conversation is read-only history.'
+                : '🚫 Messaging has been restricted for this booking.'}
             </Text>
           </View>
         ) : null;
@@ -633,19 +896,51 @@ const InboxScreenInner: React.FC<
 
         const mainChat = (
           <GiftedChat
-            messageContainerRef={messageContainerRef}
-            placeholder={
-              needsAcceptance
+            // gifted-chat v3 renamed this to messagesContainerRef; the old name was
+            // silently ignored, so reply-tap scroll-to-message never worked.
+            // gifted-chat v3 renamed this to messagesContainerRef; the old name was
+            // silently ignored, so reply-tap scroll-to-message never worked. Cast
+            // because several other props on this element (placeholder,
+            // textInputProps) are outside the library's public types, and naming a
+            // valid prop directly turns on excess-property checking for all of them.
+            {...giftedChatCompatProps}
+            // `placeholder` is not a GiftedChat v3 prop — it belongs to the text
+            // input. Passing it at the top level was silently ignored, which is
+            // why the composer always read "Type here…" even when the thread was
+            // locked awaiting acceptance.
+            textInputProps={{
+              editable: !inputLocked,
+              placeholder: needsAcceptance
                 ? 'Accept the request above to reply…'
                 : sentRequestLocked
                   ? 'Waiting for acceptance…'
                   : !bookingMessagingEnabled
-                    ? 'Messaging restricted for this booking…'
-                    : 'Type here…'
-            }
-            textInputProps={{ editable: !inputLocked }}
+                    ? bookingClosed
+                      ? 'This booking has ended…'
+                      : 'Messaging restricted for this booking…'
+                    : 'Type here…',
+            }}
             messages={messages as unknown as IMessage[]}
-            {...(initialText ? { text: initialText } : {})}
+            // ALWAYS pass text. This used to be a conditional spread —
+            // `{...(initialText ? { text: initialText } : {})}` — which flipped
+            // GiftedChat between controlled and uncontrolled at runtime: it was
+            // controlled while initialText was set, then went uncontrolled 100ms
+            // later when initialText cleared. GiftedChat's internal text state
+            // reset to '' on that switch, so the toolbar saw props.text === ''
+            // while characters were still on screen, and swapped the Send button
+            // for the thumbs-up. Controlled throughout, driven by
+            // onInputTextChanged below.
+            // GiftedChat stays UNCONTROLLED.
+            //
+            // Passing `text` made it controlled, but nothing in this app ever
+            // clears that state after a send — so the prop fought the composer's
+            // own value and wiped what the user was typing. The send button's
+            // dependence on props.text is handled inside CustomInputToolbar
+            // instead, which falls back to the context value.
+            //
+            // Do NOT reintroduce a conditional `{...(cond ? { text } : {})}`
+            // either: flipping controlled/uncontrolled at runtime is what made
+            // the Send button disappear mid-typing.
             onSend={(msgs: IMessage[]) => onSend(msgs as ExtendedMessage[])}
             // @ts-ignore
             onInputTextChanged={setText}
@@ -661,13 +956,20 @@ const InboxScreenInner: React.FC<
             renderInputToolbar={renderInputToolbar}
             renderMessage={renderMessage}
             isTyping={peerIsTyping}
-            loadEarlier={hasMore}
-            infiniteScroll
-            renderLoadEarlier={() => <></>}
-            onLoadEarlier={loadEarlier}
-            isLoadingEarlier={loadingMore}
-            keyboardShouldPersistTaps="handled"
             listProps={{ showsVerticalScrollIndicator: false }}
+            // gifted-chat v3 replaced the old loadEarlier/infiniteScroll/
+            // onLoadEarlier/isLoadingEarlier props with this single object —
+            // the old names are silently ignored (same pattern as the
+            // messagesContainerRef rename noted above), which meant scrolling
+            // up to load older history never actually triggered a fetch.
+            renderLoadEarlier={() => <></>}
+            loadEarlierMessagesProps={{
+              isAvailable: hasMore,
+              isLoading: loadingMore,
+              isInfiniteScrollEnabled: true,
+              onPress: loadEarlier,
+            }}
+            keyboardShouldPersistTaps="handled"
             timeFormat="LT"
             bottomOffset={insets.bottom}
             renderDay={props => {
@@ -712,6 +1014,11 @@ const InboxScreenInner: React.FC<
           </View>
         );
       })()}
+      {/* Word-effect burst — above the thread, below the modals. */}
+      <WordEffectOverlay
+        emoji={wordEffect.emoji}
+        burstId={wordEffect.burstId}
+      />
       {forwardingMessage && (
         <ForwardModal message={forwardingMessage} onClose={clearForwarding} />
       )}
@@ -731,15 +1038,87 @@ const InboxScreenInner: React.FC<
 const InboxGate: React.FC<Props> = props => {
   const colorss = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations } = useChats();
+  const { conversations, listLoading } = useChats();
   const id = props.route.params.conversationId;
   const seed = props.route.params.seedConversation;
-  const conv =
-    conversations.find(c => c.id === id) ??
-    (seed?.id === id
-      ? { ...seed, messages: seed.messages?.length ? seed.messages : [] }
-      : undefined);
 
+  /**
+   * Resolve the conversation for this screen.
+   *
+   * A THIRD source was added: the route params themselves. Opening a chat from a
+   * notification or a deep link passes only conversationId + displayName, so when
+   * the in-memory list had not loaded yet (cold start, or after an identity
+   * switch clears it) this screen rendered "Conversation not found" for a chat
+   * that exists perfectly well. A params-derived stub lets the thread mount
+   * immediately; the real row replaces it as soon as the list arrives.
+   */
+  const conv = useMemo(() => {
+    const found = conversations.find(c => c.id === id);
+    if (found) return found;
+    if (seed?.id === id) {
+      return { ...seed, messages: seed.messages?.length ? seed.messages : [] };
+    }
+    if (!id) return undefined;
+    return {
+      id,
+      name: props.route.params.displayName ?? '',
+      avatarUrl: props.route.params.avatarUrl ?? null,
+      isGroup: !!props.route.params.isGroupBooking,
+      needsAcceptance: false,
+      preview: '',
+      time: '',
+      unreadCount: 0,
+      messages: [],
+    } as ConversationSummary;
+  }, [
+    conversations,
+    id,
+    seed,
+    props.route.params.displayName,
+    props.route.params.avatarUrl,
+    props.route.params.isGroupBooking,
+  ]);
+
+  const threadIntroPeer = useMemo(() => {
+    const name = props.route.params.displayName?.trim() || conv?.name || '';
+    const avatarUrl = props.route.params.avatarUrl ?? conv?.avatarUrl ?? null;
+
+    // Groups: show member count instead of friendship status
+    if (conv?.isGroup) {
+      const count = conv?.groupMemberCount;
+      return {
+        name,
+        avatarUrl,
+        subtitle: count ? `${count} people in this group` : 'Group chat',
+        prompt: 'Say hello to the group!',
+      };
+    }
+
+    // 1-to-1: subtitle depends on relationship
+    let subtitle: string;
+    if (conv?.needsAcceptance) {
+      subtitle = 'Wants to connect with you on Hopenity';
+    } else if (conv?.peerUserId) {
+      subtitle = "You're friends on Hopenity";
+    } else {
+      subtitle = 'Hopenity user';
+    }
+    return { name, avatarUrl, subtitle };
+  }, [
+    conv?.avatarUrl,
+    conv?.groupMemberCount,
+    conv?.isGroup,
+    conv?.name,
+    conv?.needsAcceptance,
+    conv?.peerUserId,
+    props.route.params.avatarUrl,
+    props.route.params.displayName,
+  ]);
+
+  // Bail-out AFTER every hook. This used to sit above `useMemo`, so the hook
+  // count changed between the "not found" and "found" renders — React's
+  // "rendered fewer hooks than expected" error, which unmounts the tree and
+  // leaves a black screen. Never early-return before hooks.
   if (!conv) {
     return (
       <View
@@ -754,47 +1133,11 @@ const InboxGate: React.FC<Props> = props => {
         }}
       >
         <Text style={{ color: colorss.textSecondary }}>
-          Conversation not found.
+          {listLoading ? 'Loading…' : 'Conversation not found.'}
         </Text>
       </View>
     );
   }
-
-  const threadIntroPeer = useMemo(() => {
-    const name = props.route.params.displayName?.trim() || conv.name;
-    const avatarUrl = props.route.params.avatarUrl ?? conv.avatarUrl ?? null;
-
-    // Groups: show member count instead of friendship status
-    if (conv.isGroup) {
-      const count = conv.groupMemberCount;
-      return {
-        name,
-        avatarUrl,
-        subtitle: count ? `${count} people in this group` : 'Group chat',
-        prompt: 'Say hello to the group!',
-      };
-    }
-
-    // 1-to-1: subtitle depends on relationship
-    let subtitle: string;
-    if (conv.needsAcceptance) {
-      subtitle = 'Wants to connect with you on Hopenity';
-    } else if (conv.peerUserId) {
-      subtitle = "You're friends on Hopenity";
-    } else {
-      subtitle = 'Hopenity user';
-    }
-    return { name, avatarUrl, subtitle };
-  }, [
-    conv.avatarUrl,
-    conv.groupMemberCount,
-    conv.isGroup,
-    conv.name,
-    conv.needsAcceptance,
-    conv.peerUserId,
-    props.route.params.avatarUrl,
-    props.route.params.displayName,
-  ]);
 
   return (
     <InboxProvider

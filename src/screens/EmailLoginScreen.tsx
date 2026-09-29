@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { PublicStackNavigatorParamList } from '../types/navigators';
-import { colorss } from '../theme';
+import { AppColors } from '../context/ThemeContext';
+import { useColors } from '../hooks/useColors';
 import { useAppDispatch } from '../hooks/redux';
 import { setHopenitySession } from '../redux/features/auth/authSlice';
 import { persistHopenityUser } from '../services/hopenitySharedAuth';
@@ -30,6 +31,8 @@ type Props = NativeStackScreenProps<
 const LOGIN_ENDPOINT = '/api/v1/auth/login';
 
 const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
+  const colorss = useColors();
+  const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const dispatch = useAppDispatch();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -187,7 +190,7 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color={colorss.white} />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text style={styles.primaryBtnText}>Log in</Text>
             )}
@@ -216,10 +219,10 @@ const EmailLoginScreen: React.FC<Props> = ({ navigation }) => {
 
 export default EmailLoginScreen;
 
-const styles = StyleSheet.create({
+const stylesFunc = (colorss: AppColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
   },
   content: {
     flexGrow: 1,
@@ -264,7 +267,7 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   primaryBtnText: {
-    color: colorss.white,
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
   },

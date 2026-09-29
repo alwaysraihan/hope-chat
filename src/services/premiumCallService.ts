@@ -22,6 +22,8 @@ export type PremiumCallProfile = {
   timezone?: string | null;
 };
 
+export type CancelRequestStatus = 'NONE' | 'REQUESTED' | 'APPROVED' | 'REJECTED';
+
 export type CallBooking = {
   id: number;
   calleeId: string;
@@ -31,7 +33,15 @@ export type CallBooking = {
   totalAmount: number;
   platformFee: number;
   calleePayout: number;
-  status: 'PENDING' | 'CONFIRMED' | 'IN_CALL' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+  status:
+    | 'PENDING'
+    | 'CONFIRMED'
+    | 'IN_CALL'
+    | 'COMPLETED'
+    | 'CANCELLED'
+    | 'NO_SHOW'
+    /** Ended by a participant — read-only history, never "active". */
+    | 'CLOSED';
   scheduledAt: string;
   completedAt: string | null;
   chatThreadId: number | null;
@@ -39,6 +49,13 @@ export type CallBooking = {
   noteAccepted: boolean;
   messagingEnabled: boolean;
   callType?: 'single' | 'group';
+  closedAt?: string | null;
+  closedBy?: string | null;
+  cancelStatus?: CancelRequestStatus;
+  cancelRequestedBy?: string | null;
+  cancelReason?: string | null;
+  refundedAmount?: number | null;
+  refundedAt?: string | null;
 };
 
 function bearer(token: string) {
@@ -165,6 +182,105 @@ export async function createWalletTopupCheckout(
   } catch {
     return null;
   }
+}
+
+/**
+ * Wallet balance in USD.
+ *
+ * The endpoint is named "Bdt" but returns `legacyPaisaToUsdNumber(balance) * 100`
+ * — i.e. USD cents — so divide by 100 to get the same unit booking prices use.
+ */
+/**
+ * End a booking. Either participant may close a finished engagement: the thread
+ * becomes read-only history and it stops counting as active. No money moves —
+ * that is the cancellation flow.
+ */
+export async function closeBooking(
+  bookingId: number,
+  token: string,
+): Promise<{ ok: boolean; message?: string }> {
+  return patchBooking(`${BASE}/bookings/${bookingId}/close`, token);
+}
+
+/** Ask an admin to cancel and refund. Either party may request. */
+export async function requestBookingCancellation(
+  bookingId: number,
+  reason: string,
+  token: string,
+): Promise<{ ok: boolean; message?: string }> {
+  return patchBooking(`${BASE}/bookings/${bookingId}/cancel-request`, token, 'POST', {
+    reason,
+  });
+}
+
+/** Report a booking for admin review. */
+export async function reportBooking(
+  bookingId: number,
+  payload: { reason: string; details?: string },
+  token: string,
+): Promise<{ ok: boolean; message?: string }> {
+  return patchBooking(`${BASE}/bookings/${bookingId}/report`, token, 'POST', payload);
+}
+
+async function patchBooking(
+  url: string,
+  token: string,
+  method: 'PATCH' | 'POST' = 'PATCH',
+  body?: Record<string, unknown>,
+): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: bearer(token) },
+      body: JSON.stringify(body ?? {}),
+    });
+    const json = await res.json().catch(() => null);
+    return { ok: res.ok, message: json?.message };
+  } catch {
+    return { ok: false, message: 'Network error. Please try again.' };
+  }
+}
+
+export async function fetchWalletBalanceUSD(
+  token: string,
+): Promise<number | null> {
+  try {
+    const res = await fetch(`${BASE.replace('/premium-calls', '')}/wallet/balance`, {
+      headers: { Authorization: bearer(token) },
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const cents = json?.responseObject?.balanceBdt;
+    return typeof cents === 'number' ? cents / 100 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Wait for a PayStation top-up to actually land in the wallet.
+ *
+ * The gateway redirects back the moment its own page finishes, but the credit
+ * is applied server-side when the payment is verified — so retrying a booking
+ * immediately hits "insufficient balance" again on a payment that succeeded.
+ * Poll until the balance covers the amount, then let the caller retry.
+ */
+export async function waitForWalletTopup(
+  requiredUSD: number,
+  token: string,
+  opts?: { timeoutMs?: number; intervalMs?: number },
+): Promise<boolean> {
+  const timeoutMs = opts?.timeoutMs ?? 45_000;
+  const intervalMs = opts?.intervalMs ?? 2_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const balance = await fetchWalletBalanceUSD(token);
+    // Tolerate sub-cent rounding between the gateway and the wallet ledger.
+    if (balance != null && balance + 0.005 >= requiredUSD) return true;
+    await new Promise<void>(resolve => setTimeout(() => resolve(), intervalMs));
+  }
+  return false;
 }
 
 export async function fetchMyBookings(

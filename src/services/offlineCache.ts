@@ -264,6 +264,29 @@ export function writeRequestCountCache(userId: string, count: number): void {
   try { storage().set(requestCountKey(userId), count); } catch { /* best-effort */ }
 }
 
+/**
+ * How many requests the user had already seen when they last opened the
+ * Requests folder. The badge shows the delta against the server count, so
+ * opening the folder once clears it without needing to visit each chat.
+ */
+function requestsSeenKey(userId: string): string {
+  return `msg_requests_seen_v1_${userId}`;
+}
+
+export function readRequestsSeenCount(userId: string): number {
+  if (!userId || userId === 'me') return 0;
+  try {
+    return storage().getNumber(requestsSeenKey(userId)) ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function writeRequestsSeenCount(userId: string, count: number): void {
+  if (!userId || userId === 'me') return;
+  try { storage().set(requestsSeenKey(userId), count); } catch { /* best-effort */ }
+}
+
 // ─── Thread messages cache ────────────────────────────────────────────────────
 
 /** Append a local-only group system event (member joined/left) to the thread cache. */
@@ -317,4 +340,24 @@ export function mergeLocalCallLogsFromCache(
   const merged = [...serverAsc, ...extra];
   merged.sort((a, b) => messageTimeMs(a) - messageTimeMs(b));
   return merged;
+}
+
+/**
+ * Wipe every cached artefact of a signed-out account from this device.
+ *
+ * Caches are keyed per user, so the NEXT account never reads them — but without
+ * this they stayed on disk indefinitely after logout: conversation lists with
+ * names and message previews, thread message bodies, story rings, notifications.
+ * On a shared or resold phone that is the previous person's chat history sitting
+ * in plain MMKV. Logging out should take your data with it.
+ *
+ * Deliberately clears the whole store rather than enumerating key prefixes: the
+ * only thing in it is per-user cache, all of it re-fetchable from the server.
+ */
+export function clearOfflineCacheForLogout(): void {
+  try {
+    storage().clearAll();
+  } catch (e) {
+    console.warn('[offlineCache] clearOfflineCacheForLogout', e);
+  }
 }

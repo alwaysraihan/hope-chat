@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -20,7 +20,10 @@ import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import ChatThreadIntroCard from './ChatThreadIntroCard';
 import AudioPlayer from './AudioPlayer';
 import { ProductCardPreview } from './ProductCardPreview';
+import { PostCardPreview } from './PostCardPreview';
 import DonationRequestBubble from './DonationRequestBubble';
+import BookingCardBubble from './BookingCardBubble';
+import StoryReplyBubble from './StoryReplyBubble';
 import MediaPreviewModal from './ImagePreviewModal';
 import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
@@ -29,10 +32,30 @@ import { useInbox } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { getAutoSavePhotos } from '../../services/chatPrefs';
 import { Toast } from '../Toast';
+import {
+  claimAutoSave,
+  hasAutoSaved,
+  markAutoSaved,
+  releaseAutoSave,
+} from '../../services/autoSavedMedia';
+import { useWindowDimensions } from 'react-native';
+
 import { useAppTheme } from '../../context/ThemeContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+/**
+ * Bubble widths.
+ *
+ * `Dimensions.get('window')` is read ONCE at module load, so these constants are
+ * a snapshot of whatever the window was at that instant. On a device where the
+ * app starts before the window is measured, in split-screen, on a foldable, or
+ * after a rotation, every bubble keeps sizing to a stale width — which is why
+ * message text appeared cut off on some devices and not others.
+ *
+ * The constants remain as the initial value for the StyleSheet; the component
+ * overrides them from useWindowDimensions() so the real width always wins.
+ */
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_BUBBLE_WIDTH = SCREEN_WIDTH * 0.78;
 const MIN_BUBBLE_WIDTH_WITH_REPLY = SCREEN_WIDTH * 0.58;
@@ -50,10 +73,51 @@ type ChatMessageBoxProps = {
 // ─── Link helpers ─────────────────────────────────────────────────────────────
 
 const URL_RE = /(https?:\/\/[^\s]+)/gi;
-const HOPPI_PRODUCT_RE = /^https?:\/\/(www\.)?hoppi\.live\/product\/([a-zA-Z0-9_-]+)/i;
+// The trailing segment is a product REFERENCE, not a tidy slug: a variant line
+// carries composite ids that include characters outside [A-Za-z0-9_-] (and are
+// percent-encoded in the URL). The old class silently truncated at the first
+// such character, so the card looked up a product id that does not exist and
+// rendered nothing — which is why sharing a product VARIANT showed an empty
+// message. Take everything up to a path/query boundary and decode it.
+/**
+ * The same link, matched against the RAW MESSAGE TEXT so the reference may
+ * contain spaces.
+ *
+ * Hoppi "slugs" are not slugs — the live catalogue contains values like
+ * "Premium Combo Set" and "--". Shares build the URL from that value verbatim,
+ * so the link genuinely has spaces in it, and `URL_RE` (which stops at the
+ * first whitespace) handed the card just "…/product/Premium". That 404s, the
+ * card renders nothing, and when the message is only the link the bubble came
+ * out completely EMPTY — the "sharing a product shows nothing" report.
+ *
+ * The reference therefore runs to a query/fragment or end of line, and trailing
+ * whitespace is trimmed back off.
+ */
+const HOPPI_PRODUCT_IN_TEXT_RE =
+  /https?:\/\/(?:www\.)?hoppi\.live\/product\/([^\n\r?#]+)/i;
 
-function extractProductSlug(url: string): string | null {
-  const m = url.match(HOPPI_PRODUCT_RE);
+/** The product link in `text`, with its full (possibly space-bearing) ref. */
+function findProductLink(
+  text: string,
+): { url: string; slug: string } | null {
+  const m = text.match(HOPPI_PRODUCT_IN_TEXT_RE);
+  if (!m?.[1]) return null;
+  const ref = m[1].replace(/\s+$/, '');
+  if (!ref) return null;
+  let slug = ref;
+  try {
+    slug = decodeURIComponent(ref);
+  } catch {
+    /* already decoded */
+  }
+  return { url: m[0].replace(/\s+$/, ''), slug };
+}
+// /post/:id and /post_id/:id both reach a post; feels are posts too.
+const HOPENITY_POST_RE =
+  /^https?:\/\/(www\.)?hopenity\.com\/(?:post|post_id|feels)\/([a-zA-Z0-9_-]+)/i;
+
+function extractPostId(url: string): string | null {
+  const m = url.match(HOPENITY_POST_RE);
   return m ? m[2] : null;
 }
 
@@ -61,19 +125,26 @@ function isHopenityUrl(url: string): boolean {
   return /hopenity\.com|hoppi\.live/i.test(url);
 }
 
+/**
+ * Route a hopenity.com / hoppi.live link into the Hopenity app.
+ *
+ * Both platforms go through the `hopenity://` custom scheme, which Hopenity
+ * registers on iOS (CFBundleURLSchemes) and Android (intent-filter), and which
+ * Hope Chat declares under LSApplicationQueriesSchemes so canOpenURL sees it.
+ *
+ * iOS deliberately does NOT trust the HTTPS URL: Universal Links only fire when
+ * the domain serves a valid apple-app-site-association, and canOpenURL can't
+ * detect the failure because Safari claims every http(s) URL — so a broken AASA
+ * sends the link to the browser with no fallback.
+ *
+ * The host must survive the rewrite: Hopenity dispatches hoppi links by
+ * `host === 'hoppi.live'`, so mapping them onto hopenity.com drops /product/
+ * and /seller/ into a branch with no such routes and the tap silently no-ops.
+ */
 function openHopenityDeepOrWeb(url: string): void {
-  // iOS: Hopenity uses Universal Links (applinks:hopenity.com), so the HTTPS
-  // URL opens the app directly — no scheme conversion needed.
-  // Android: swap https → hopenity:// so the intent filter routes to the app
-  // without prompting "open with browser". Fall back to the original HTTPS URL
-  // if canOpenURL returns false (Android 11+ <queries> visibility restriction).
-  if (Platform.OS === 'ios') {
-    Linking.openURL(url).catch(() => {});
-    return;
-  }
   const deepLink = url
     .replace(/^https?:\/\/(www\.)?hopenity\.com/, 'hopenity://hopenity.com')
-    .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hopenity.com');
+    .replace(/^https?:\/\/(www\.)?hoppi\.live/, 'hopenity://hoppi.live');
   Linking.canOpenURL(deepLink)
     .then(ok => Linking.openURL(ok ? deepLink : url))
     .catch(() => Linking.openURL(url).catch(() => {}));
@@ -95,6 +166,36 @@ function handleLinkPress(url: string): void {
 }
 
 /** Splits text into plain segments and URL segments for inline link rendering. */
+/**
+ * Does this text use a complex (shaped) script?
+ *
+ * Bengali, Devanagari and their neighbours render as CLUSTERS: conjuncts and
+ * matras are positioned by the shaper relative to the base glyph rather than
+ * laid out one box at a time. Two of the bubble's text styles fight that:
+ *
+ *   letterSpacing          Android inserts space between glyph clusters, which
+ *                          desynchronises measured width from drawn width. The
+ *                          last word then measures as "does not fit" when it
+ *                          does, and is dropped — the message appears cut off.
+ *   includeFontPadding:false
+ *                          strips the ascent/descent room the matras occupy, so
+ *                          the marks above and below the line get clipped.
+ *
+ * Both were added for LATIN text (tighter tracking, and emoji that Android drew
+ * taller than their line box). They are wrong for Bengali, which is why the same
+ * string renders fully in the inbox row — that style sets neither — and comes
+ * out truncated in the bubble.
+ *
+ * Range covers Devanagari through Sinhala, plus Thai/Myanmar/Khmer, which shape
+ * the same way.
+ */
+const COMPLEX_SCRIPT_RE =
+  /[\u0900-\u0DFF\u0E00-\u0E7F\u1000-\u109F\u1780-\u17FF]/;
+
+function hasComplexScript(text: string): boolean {
+  return COMPLEX_SCRIPT_RE.test(text);
+}
+
 function parseTextWithLinks(text: string): Array<{ text: string; isLink: boolean; url?: string }> {
   const parts: Array<{ text: string; isLink: boolean; url?: string }> = [];
   let last = 0;
@@ -115,23 +216,65 @@ function parseTextWithLinks(text: string): Array<{ text: string; isLink: boolean
 
 // ─── Download helper ──────────────────────────────────────────────────────────
 
+async function writeMediaToGallery(
+  remoteUrl: string,
+  type: 'image' | 'video',
+): Promise<void> {
+  const ext = type === 'video' ? 'mp4' : 'jpg';
+  const destPath = `${
+    RNFS.CachesDirectoryPath
+  }/hopechat_dl_${Date.now()}.${ext}`;
+  await RNFS.downloadFile({ fromUrl: remoteUrl, toFile: destPath }).promise;
+  await CameraRoll.saveAsset(destPath, {
+    type: type === 'video' ? 'video' : 'photo',
+  });
+}
+
+/** Manual "Save to gallery" — user-initiated, so it reports what it did. */
 async function downloadMediaToGallery(
   remoteUrl: string,
   type: 'image' | 'video',
 ): Promise<void> {
   Toast.loading('Saving to gallery…');
   try {
-    const ext = type === 'video' ? 'mp4' : 'jpg';
-    const destPath = `${
-      RNFS.CachesDirectoryPath
-    }/hopechat_dl_${Date.now()}.${ext}`;
-    await RNFS.downloadFile({ fromUrl: remoteUrl, toFile: destPath }).promise;
-    await CameraRoll.saveAsset(destPath, {
-      type: type === 'video' ? 'video' : 'photo',
-    });
+    await writeMediaToGallery(remoteUrl, type);
     Toast.success('Saved to gallery!');
   } catch {
     Toast.error('Could not save. Please try again.');
+  }
+}
+
+/**
+ * KILL SWITCH — auto-save is turned OFF for now.
+ *
+ * The feature is disabled at the point of ACTION, not by hiding the setting: the
+ * toggle still reads and writes the user's preference, so nothing is lost and
+ * re-enabling is a one-line change here. Nothing downloads or writes to the
+ * gallery while this is true.
+ *
+ * The correctness work below (save-once bookkeeping, silent operation, the
+ * effect instead of a render-time call) stays in place and is what should be
+ * re-enabled — do NOT restore the old render-time download.
+ */
+const AUTO_SAVE_DISABLED = true;
+
+/**
+ * Auto-save — runs on its own, so it is SILENT and happens at most once per
+ * image. No toast, no duplicate gallery entries, no re-download on re-render.
+ */
+async function autoSaveMediaOnce(
+  remoteUrl: string,
+  type: 'image' | 'video',
+): Promise<void> {
+  if (hasAutoSaved(remoteUrl) || !claimAutoSave(remoteUrl)) return;
+  try {
+    await writeMediaToGallery(remoteUrl, type);
+    markAutoSaved(remoteUrl);
+  } catch {
+    // Leave it unmarked so a later attempt can retry — but the in-flight guard
+    // and the render-effect below keep that from becoming a hot loop.
+  } finally {
+    releaseAutoSave(remoteUrl);
   }
 }
 
@@ -143,10 +286,17 @@ function MediaActionSheet({
   url,
   type,
   onClose,
+  onDelete,
 }: {
   url: string | null;
   type: 'image' | 'video';
   onClose: () => void;
+  /**
+   * Only present for the user's own media. Long-pressing media opens THIS sheet,
+   * which swallowed the gesture before the reaction tray (where Delete lives)
+   * could appear — so a photo or video could never be deleted after sending.
+   */
+  onDelete?: () => void;
 }) {
   if (!url) return null;
   const label = type === 'video' ? 'video' : 'photo';
@@ -171,6 +321,24 @@ function MediaActionSheet({
           <Text style={sheet.actionIcon}>{type === 'video' ? '🎬' : '🖼️'}</Text>
           <Text style={sheet.actionText}>Save {label} to gallery</Text>
         </TouchableOpacity>
+        {onDelete ? (
+          <>
+            <View style={sheet.divider} />
+            <TouchableOpacity
+              style={sheet.action}
+              onPress={() => {
+                onClose();
+                onDelete();
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={sheet.actionIcon}>🗑️</Text>
+              <Text style={[sheet.actionText, sheet.destructiveText]}>
+                Delete {label}
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
         <View style={sheet.divider} />
         <TouchableOpacity
           style={sheet.action}
@@ -185,6 +353,7 @@ function MediaActionSheet({
 }
 
 const sheet = StyleSheet.create({
+  destructiveText: { color: '#E5484D' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
   container: {
     backgroundColor: colorss.white,
@@ -227,9 +396,9 @@ const sheet = StyleSheet.create({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function ChatMessageBox(props: ChatMessageBoxProps) {
+function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
   const { currentMessage, position, onPressReactions, isGroup, onSenderPress } = props;
-  const { handlePressReplyPreview } = useInbox();
+  const { handlePressReplyPreview, handleDelete } = useInbox();
   const msg = currentMessage as ExtendedMessage;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
@@ -268,6 +437,33 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 
   const media = msg?.media;
   const isOwn = position === 'right';
+
+  // Live window width — see the note on MAX_BUBBLE_WIDTH above.
+  const { width: windowWidth } = useWindowDimensions();
+  const liveBubbleMax = windowWidth * 0.78;
+  const bubbleWidthStyle = { maxWidth: liveBubbleMax };
+
+  /**
+   * Auto-save incoming photos.
+   *
+   * This used to run in the render body, so EVERY re-render of the message
+   * (scroll, reaction, typing indicator, any parent state change) kicked off a
+   * fresh download — which is why opening a chat downloaded the same images over
+   * and over and buried the screen in toasts. An effect keyed on the URL runs it
+   * once per image; `autoSaveMediaOnce` then makes it idempotent across mounts,
+   * app restarts, and concurrent renders.
+   */
+  const autoSaveUri =
+    media?.type === 'image'
+      ? media.url ?? media.remoteUri ?? media.localUri ?? ''
+      : '';
+  const canAutoSave = !!autoSaveUri && !isOwn && !media?.uploading;
+  useEffect(() => {
+    if (AUTO_SAVE_DISABLED) return;
+    if (!canAutoSave || !getAutoSavePhotos()) return;
+    void autoSaveMediaOnce(autoSaveUri, 'image');
+  }, [autoSaveUri, canAutoSave]);
+
   const replyTo = msg?.replyTo;
   const hasReply = !!replyTo;
 
@@ -346,6 +542,30 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     );
   }
 
+  // ── Booking / Hope Wish confirmation ──────────────────────────────────────
+
+  if (msg.messageKind === 'booking_card' && msg.bookingCard) {
+    return (
+      <Reaction {...reactionProps}>
+        <BookingCardBubble booking={msg.bookingCard} isOwn={isOwn} />
+      </Reaction>
+    );
+  }
+
+  // ── Story reply ─────────────────────────────────────────────────────────
+
+  if (msg.messageKind === 'story_reply' && msg.storyReply) {
+    return (
+      <Reaction {...reactionProps}>
+        <StoryReplyBubble
+          story={msg.storyReply}
+          caption={msg.text?.trim() || undefined}
+          isOwn={isOwn}
+        />
+      </Reaction>
+    );
+  }
+
   // ── Voice ──────────────────────────────────────────────────────────────────
 
   if (media?.type === 'voice') {
@@ -353,7 +573,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
         >
           {SenderHeader}
           {ReplySnippet && (
@@ -383,14 +603,10 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
 
   if (media?.type === 'image') {
     const imageUri = media.url ?? media.remoteUri ?? media.localUri ?? '';
-    const autoSave = getAutoSavePhotos();
-    if (autoSave && imageUri && !isOwn && !media.uploading) {
-      downloadMediaToGallery(imageUri, 'image').catch(() => undefined);
-    }
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
         >
           {SenderHeader}
           {ReplySnippet && (
@@ -420,7 +636,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             />
             {media.uploading && (
               <View style={styles.overlay}>
-                <Text style={styles.overlayText}>Uploading…</Text>
+                <Text style={styles.overlayText}>Sending…</Text>
               </View>
             )}
             {media.error && (
@@ -440,6 +656,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
           url={sheetUrl}
           type={sheetType}
           onClose={() => setSheetUrl(null)}
+          onDelete={isOwn ? () => handleDelete(msg as IMessage) : undefined}
         />
       </Reaction>
     );
@@ -453,7 +670,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     return (
       <Reaction {...reactionProps}>
         <View
-          style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+          style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
         >
           {SenderHeader}
           <TouchableOpacity
@@ -488,7 +705,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             </View>
             {media.uploading && (
               <View style={styles.overlay}>
-                <Text style={styles.overlayText}>Uploading…</Text>
+                <Text style={styles.overlayText}>Sending…</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -502,6 +719,7 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
             url={sheetUrl}
             type={sheetType}
             onClose={() => setSheetUrl(null)}
+            onDelete={isOwn ? () => handleDelete(msg as IMessage) : undefined}
           />
         </View>
       </Reaction>
@@ -528,45 +746,78 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
   // Detect the first hoppi.live product URL in the message for a preview card.
   const rawText = msg?.text ?? '';
   const allUrls = rawText.match(URL_RE) ?? [];
-  const productUrl = allUrls.find(u => extractProductSlug(u) != null) ?? null;
-  const productSlug = productUrl ? extractProductSlug(productUrl) : null;
+  // Matched against the raw text, not the whitespace-split URL list, so a
+  // reference containing spaces survives intact.
+  const productLink = findProductLink(rawText);
+  const productUrl = productLink?.url ?? null;
+  const productSlug = productLink?.slug ?? null;
+  // When the message is nothing but the product link, the card already says
+  // everything the URL would — showing both stacks a long unreadable URL on it.
+  const postUrl = allUrls.find(u => extractPostId(u) != null) ?? null;
+  const postId = postUrl ? extractPostId(postUrl) : null;
+  // When the message is nothing but the link, the card already says everything
+  // the URL would — showing both stacks a long unreadable URL on it.
+  const hideUrlText =
+    (productSlug != null && rawText.trim() === productUrl) ||
+    (postId != null && rawText.trim() === postUrl);
 
   return (
     <Reaction {...reactionProps}>
       <View
-        style={[styles.column, isOwn ? styles.alignRight : styles.alignLeft]}
+        style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
       >
         {SenderHeader}
         <View
           style={[
             styles.textBubble,
+              bubbleWidthStyle,
             isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
             hasReply && styles.textBubbleWithReply,
             { backgroundColor: textBg },
           ]}
         >
           {ReplySnippet}
-          <Text
-            style={[
-              styles.messageText,
-              { color: textColor },
-              msg.messageKind === 'call_log' ? styles.callLogText : null,
-            ]}
-          >
-            {parseTextWithLinks(rawText).map((seg, i) =>
-              seg.isLink ? (
-                <Text
-                  key={i}
-                  style={styles.linkText}
-                  onPress={() => handleLinkPress(seg.url!)}
-                >
-                  {seg.text}
-                </Text>
-              ) : (
-                seg.text
-              ),
-            )}
-          </Text>
+          {hideUrlText ? null : (
+            <Text
+              // Caps how far the OS "larger text" / "bold text" accessibility
+              // settings can scale this — those are what caused the text-cutoff
+              // reports specifically on Samsung/OnePlus (One UI's default font
+              // + a system-wide bold override both change glyph metrics without
+              // Yoga's cached layout accounting for it). 1.3x keeps some
+              // accessibility headroom without letting the mismatch reach the
+              // point of clipping against the fixed lineHeight below.
+              maxFontSizeMultiplier={1.3}
+              style={[
+                styles.messageText,
+                // Let the shaper do its job for Bengali & co. — see
+                // hasComplexScript.
+                hasComplexScript(rawText) ? styles.messageTextComplex : null,
+                { color: textColor },
+                msg.messageKind === 'call_log' ? styles.callLogText : null,
+              ]}
+            >
+              {parseTextWithLinks(rawText).map((seg, i) =>
+                seg.isLink ? (
+                  <Text
+                    key={i}
+                    style={styles.linkText}
+                    onPress={() => handleLinkPress(seg.url!)}
+                  >
+                    {seg.text}
+                  </Text>
+                ) : (
+                  seg.text
+                ),
+              )}
+            </Text>
+          )}
+          {postId ? (
+            <PostCardPreview
+              postId={postId}
+              isDark={isDark}
+              onPress={() => handleLinkPress(postUrl!)}
+            />
+          ) : null}
           {productSlug ? (
             <ProductCardPreview
               slug={productSlug}
@@ -580,6 +831,37 @@ export default function ChatMessageBox(props: ChatMessageBoxProps) {
     </Reaction>
   );
 }
+
+/**
+ * One of these renders per row in a chat thread — without memoization, ANY
+ * unrelated state change in the screen (typing indicator, a poll tick, the
+ * retro-decrypt sweep resolving one other message, a reaction on a different
+ * bubble) re-renders every bubble currently on screen, which is exactly the
+ * "chat feels slow/laggy" complaint on longer threads and weaker devices.
+ *
+ * `currentMessage`/`previousMessage`/`nextMessage` keep stable object identity
+ * for any message that hasn't actually changed (confirmed across the mapping
+ * code in InboxContext — untouched rows are returned as the same reference,
+ * not a new object), so comparing those by reference is the fast path that
+ * skips the vast majority of re-renders. `onPressReactions`/`onSenderPress` are
+ * deliberately NOT compared: GiftedChat's renderMessage recreates them as new
+ * closures on every call regardless of whether this row changed, so comparing
+ * them would defeat the memoization entirely without ever meaning something
+ * behaviorally different.
+ */
+function areEqual(prev: ChatMessageBoxProps, next: ChatMessageBoxProps): boolean {
+  return (
+    prev.currentMessage === next.currentMessage &&
+    prev.previousMessage === next.previousMessage &&
+    prev.nextMessage === next.nextMessage &&
+    prev.position === next.position &&
+    prev.isGroup === next.isGroup &&
+    prev.refreshTrigger === next.refreshTrigger
+  );
+}
+
+const ChatMessageBox = React.memo(ChatMessageBoxImpl, areEqual);
+export default ChatMessageBox;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -645,7 +927,9 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 8,
     flexDirection: 'column',
-    flexShrink: 0,
+    // Must be allowed to shrink, or the bubble refuses to narrow for wrapped
+    // text and the content is cut at the edge.
+    flexShrink: 1,
   },
   textBubbleLeft: {
     alignSelf: 'flex-start',
@@ -658,10 +942,39 @@ const styles = StyleSheet.create({
   textBubbleWithReply: { minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY },
   messageText: {
     fontSize: 14.5,
-    lineHeight: 20,
+    // Emoji glyphs are drawn taller than the text they sit in. At lineHeight 20
+    // for a 14.5 font, Android clipped them — they rendered blank or sliced,
+    // which is why emoji "did not show" on some devices and were fine on others
+    // (it depends on the system emoji font's metrics).
+    lineHeight: 22,
+    // Samsung/OnePlus/Oppo ship a custom One UI / ColorOS system font by
+    // default, whose glyph metrics differ enough from stock Android that Yoga's
+    // layout pass (measured against the OEM font) and the native text renderer
+    // (which can substitute differently once "Bold text" accessibility is on)
+    // disagree — the mismatch is what clipped message text on those devices
+    // specifically. Pinning the generic Android alias sidesteps the OEM
+    // substitution entirely; it still falls through the system's normal script
+    // fallback chain for non-Latin text, so Bengali etc. keep shaping correctly.
+    fontFamily: Platform.OS === 'android' ? 'sans-serif' : undefined,
     letterSpacing: 0.1,
-    flexShrink: 0,
-    flexWrap: 'wrap',
+    // Was flexShrink: 0, which stops the Text shrinking inside the bubble's
+    // maxWidth — so long messages were clipped instead of wrapping. That is the
+    // "message kete ase" (text cut off) report. flexWrap is a View-only style
+    // and did nothing here.
+    flexShrink: 1,
+    // Android adds asymmetric padding from font metrics that compounds the
+    // clipping above; the explicit lineHeight already controls spacing.
+    includeFontPadding: false,
+  },
+  /**
+   * Overrides for shaped scripts. `lineHeight` is deliberately left to the font:
+   * a fixed 22 is too tight for Bengali's stacked matras once the font's own
+   * padding is restored.
+   */
+  messageTextComplex: {
+    letterSpacing: 0,
+    includeFontPadding: true,
+    lineHeight: undefined,
   },
   callLogText: { fontStyle: 'italic', fontSize: 14 },
   linkText: { textDecorationLine: 'underline', opacity: 0.85 },

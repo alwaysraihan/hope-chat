@@ -28,6 +28,17 @@ export type PeerLinkPayload = {
   senderPageId?: string | null;
   senderPageName?: string | null;
   senderPageImage?: string | null;
+  /**
+   * A Hopenity post queued for sharing into this conversation. HopeChat shows a
+   * preview above the composer with Send / dismiss — it is NEVER auto-sent, so
+   * the user confirms (and can add a note) inside the chat.
+   */
+  share?: {
+    url: string;
+    postId?: string | null;
+    text?: string | null;
+    image?: string | null;
+  } | null;
 };
 
 let _pending: PeerLinkPayload | null = null;

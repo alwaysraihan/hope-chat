@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colorss } from '../theme';
+import { AppColors } from '../context/ThemeContext';
 import { useColors } from '../hooks/useColors';
 import { ArrowLeft, X } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
@@ -28,6 +28,7 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'EditSearchHist
 
 const EditSearchHistoryScreen: React.FC<Props> = ({ navigation }) => {
   const colorss = useColors();
+  const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const t = useT();
   const [history, setHistory] = useState<SearchHistoryEntry[]>(() => getSearchHistory());
 
@@ -123,7 +124,7 @@ const EditSearchHistoryScreen: React.FC<Props> = ({ navigation }) => {
 
 export default EditSearchHistoryScreen;
 
-const styles = StyleSheet.create({
+const stylesFunc = (colorss: AppColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colorss.surface, paddingHorizontal: 16 },
   header: { flexDirection: 'row', alignItems: 'center', paddingTop: 8, marginBottom: 16, gap: 14 },
   headerTitle: { fontSize: 19, fontWeight: '600', color: colorss.textPrimary },

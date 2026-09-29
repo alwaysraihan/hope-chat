@@ -32,3 +32,51 @@ export async function fetchMyPages(token: string): Promise<OwnedPage[]> {
     return [];
   }
 }
+
+/**
+ * Whether visitors may place a HopeChat call to this page.
+ *
+ * A page that only does text support can turn calling off. The server enforces
+ * it on the call-invite endpoint too — hiding the buttons here is a courtesy,
+ * not the rule, so a stale client cannot get a call through.
+ */
+export async function fetchPageAllowCalls(
+  token: string,
+  pageId: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/pages/${encodeURIComponent(pageId)}/privacy`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return true; // unknown → assume calling is allowed
+    const json = await res.json();
+    const value = json?.responseObject?.allow_calls;
+    return value !== false;
+  } catch {
+    return true;
+  }
+}
+
+export async function setPageAllowCalls(
+  token: string,
+  pageId: string,
+  allowCalls: boolean,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/pages/${encodeURIComponent(pageId)}/privacy`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ allow_calls: allowCalls }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

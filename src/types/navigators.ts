@@ -43,6 +43,16 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     messagingEnabled?: boolean;
     /** True when the booking was made with callType='group' — changes call notification dispatch. */
     isGroupBooking?: boolean;
+    /**
+     * A Hopenity post handed over from the share sheet. Rendered as a preview
+     * above the composer with Send / dismiss — deliberately not auto-sent.
+     */
+    pendingShare?: {
+      url: string;
+      postId?: string | null;
+      text?: string | null;
+      image?: string | null;
+    };
   };
   Profile: {
     /** conversation ID (same as ConversationSummary.id) */
@@ -66,6 +76,10 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     messagingEnabled?: boolean;
     /** True when the current user is the callee — only they can toggle messaging. */
     isBookingCallee?: boolean;
+    /** Live booking lifecycle state — drives which booking actions are offered. */
+    bookingStatus?: string;
+    /** NONE | REQUESTED | APPROVED | REJECTED — shown to both parties. */
+    bookingCancelStatus?: string;
   };
   EditSearchHistory: undefined;
   Archive: undefined;
@@ -134,6 +148,10 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
   DisappearingMessages: { conversationId?: string } | undefined;
   Settings: undefined;
   MessageRequests: undefined;
+  /** Encryption passphrase: first-time setup, or unlock on a new device. */
+  EncryptionSetup: undefined;
+  /** Out-of-band verification that nobody is intercepting a conversation. */
+  SafetyNumber: { peerUserId?: string; peerName?: string } | undefined;
   Reactions: { conversationId?: string } | undefined;
   VideoCall: {
     displayName?: string;

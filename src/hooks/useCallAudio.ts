@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform, ToastAndroid } from 'react-native';
 import { AudioSession } from '@livekit/react-native';
 
+import { ensureBluetoothAudioPermission } from '../utils/permissions';
+
 /**
  * Logical audio-output kinds we expose to the UI. The LiveKit native API uses
  * different string identifiers per platform — we normalize them so the call
@@ -297,6 +299,19 @@ export function useCallAudio(opts?: {
           }
         }
         return;
+      }
+
+      // Android 12+ needs BLUETOOTH_CONNECT before it will route to a headset.
+      // Asked HERE — at the moment the user picks Bluetooth — rather than during
+      // the call pre-flight, so the prompt is obviously about the thing they just
+      // tapped (this is what WhatsApp/Messenger do). Declining leaves the current
+      // output untouched instead of silently appearing to switch.
+      if (kind === 'bluetooth' && Platform.OS === 'android') {
+        const allowed = await ensureBluetoothAudioPermission();
+        if (!allowed) {
+          emitToast('Allow nearby devices access to use Bluetooth audio');
+          return;
+        }
       }
 
       const nativeId =

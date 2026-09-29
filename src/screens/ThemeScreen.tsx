@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -11,7 +11,6 @@ import {
   View,
 } from 'react-native';
 import { LucideArrowLeft, Moon, Sun } from 'lucide-react-native';
-import { colorss } from '../theme';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import {
   getChatAppearance,
@@ -21,6 +20,10 @@ import {
   getEffectiveAppearance,
 } from '../services/chatPrefs';
 import { useAppTheme } from '../context/ThemeContext';
+import { useAppSelector } from '../hooks/redux';
+import { selectAuthToken } from '../redux/features/auth/authSlice';
+import { fetchChatTheme, saveChatTheme } from '../services/userSettingsService';
+import { callSocket } from '../services/callSocket';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GAP = 6;
@@ -37,6 +40,7 @@ const THEME_DATA = [
 const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) => {
   const { isDark, toggleDarkMode, colors } = useAppTheme();
   const conversationId: string | undefined = route?.params?.conversationId;
+  const token = useAppSelector(selectAuthToken);
 
   const appearance = useMemo(
     () => (conversationId ? getEffectiveAppearance(conversationId) : getChatAppearance()),
@@ -47,6 +51,35 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
   const [reactionPack, setReactionPack] = useState(
     appearance.reactionEmojiPalette.join(' '),
   );
+
+  // A per-chat theme is shared with the other participant, so the server is the
+  // source of truth: pull it on open and follow live changes from the peer.
+  useEffect(() => {
+    if (!conversationId || !token) return;
+    let cancelled = false;
+    fetchChatTheme(conversationId, token)
+      .then(remote => {
+        const id = Number(remote);
+        if (cancelled || !Number.isFinite(id) || id <= 0) return;
+        setConvAppearance(conversationId, { themePresetId: id });
+        setSelectedTheme(id);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, token]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    return callSocket.onChatThemeUpdated(({ chatId, theme }) => {
+      if (String(chatId) !== String(conversationId)) return;
+      const id = Number(theme);
+      if (!Number.isFinite(id) || id <= 0) return;
+      setConvAppearance(conversationId, { themePresetId: id });
+      setSelectedTheme(id);
+    });
+  }, [conversationId]);
 
   const saveAppearance = (patch: { themePresetId?: number; wallpaperUri?: string | null; reactionEmojiPalette?: string[] }) => {
     if (conversationId) {
@@ -59,6 +92,11 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
   const handleSelectTheme = (id: number) => {
     setSelectedTheme(id);
     saveAppearance({ themePresetId: id });
+    // Push to the peer. Wallpaper URLs stay local (they are device paths); only
+    // the preset is shared.
+    if (conversationId && token) {
+      void saveChatTheme(conversationId, String(id), token);
+    }
     // Dark mode toggle only applies to global setting (affects UI chrome, not per-chat)
     if (!conversationId) {
       if (id === 2 && !isDark) toggleDarkMode();
@@ -93,9 +131,9 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
             saveAppearance({ themePresetId: isDark ? 1 : 2 });
             setSelectedTheme(isDark ? 1 : 2);
           }}
-          trackColor={{ false: colorss.border, true: colors.accent }}
-          thumbColor={colorss.white}
-          ios_backgroundColor={colorss.border}
+          trackColor={{ false: colors.border, true: colors.accent }}
+          thumbColor={colors.white}
+          ios_backgroundColor={colors.border}
         />
       </View> */}
 
@@ -115,7 +153,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
               <View
                 style={[
                   styles.imageWrapper,
-                  active && { borderColor: colorss.primary, borderWidth: 2 },
+                  active && { borderColor: colors.primary, borderWidth: 2 },
                 ]}
               >
                 <Image
@@ -140,7 +178,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
               onChangeText={setWallpaperUri}
               onBlur={() => saveAppearance({ wallpaperUri: wallpaperUri.trim() || null })}
               placeholder="https://…"
-              placeholderTextColor={colorss.placeholder}
+              placeholderTextColor={colors.placeholder}
               style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.inputBg }]}
               autoCapitalize="none"
               autoCorrect={false}
@@ -161,7 +199,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
                 })
               }
               placeholder="❤️ 👍 😂 …"
-              placeholderTextColor={colorss.placeholder}
+              placeholderTextColor={colors.placeholder}
               style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.inputBg }]}
             /> */}
           </View>

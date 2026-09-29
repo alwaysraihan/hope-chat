@@ -1,4 +1,11 @@
-import type { DonationRequestPayload, DonationRequestType, MediaPayload } from '../components/types/chat';
+import type {
+  BookingCardPayload,
+  BookingCardStatus,
+  DonationRequestPayload,
+  DonationRequestType,
+  MediaPayload,
+  StoryReplyPayload,
+} from '../components/types/chat';
 import { normalizeChatUserId } from '../utils/chatUserId';
 
 /** Last message row from chat list API — extend as backend adds fields. */
@@ -19,6 +26,17 @@ export type ApiLastMessageLike = {
   missed?: boolean;
   callKind?: 'audio' | 'video' | string;
   metadata?: Record<string, unknown>;
+  /** Present on a story-reply message — mirrors Hopenity web's `m.story`. */
+  story?: {
+    id?: string | number;
+    type?: string;
+    media_url?: string | null;
+    thumbnail_url?: string | null;
+    content?: string | null;
+    expires_at?: string | null;
+    user?: { name?: string; image?: string | null };
+  } | null;
+  storyId?: string | number | null;
 };
 
 export function formatSecondsToClock(totalSec: number): string {
@@ -106,6 +124,12 @@ export function formatChatListPreview(
     const base = '💝 Donation request';
     return senderIsLocal ? `You: ${base}` : base;
   }
+
+  // Story reply — the message row carries a nested `story` object. Content
+  // may be empty (a reaction-only reply) or the actual typed reply text.
+  if (last.story || last.storyId) {
+    return senderIsLocal ? 'You: ↩️ Replied to a story' : '↩️ Replied to your story';
+  }
   // Web-generated structured messages: content starts with "JSON:{...}"
   const contentStr = String(last.content ?? '').trimStart();
   if (contentStr.startsWith('JSON:')) {
@@ -154,21 +178,108 @@ export function formatChatListPreview(
     const label = '🎬 Video';
     return senderIsLocal ? `You: ${label}` : label;
   }
-  const base =
-    trimmed.length > 140 ? `${trimmed.slice(0, 137)}…` : trimmed;
+  const base = truncateForPreview(trimmed, 140);
   return senderIsLocal ? `You: ${base}` : base;
+}
+
+/**
+ * Truncate without splitting an emoji.
+ *
+ * `String.slice` counts UTF-16 code units. An emoji is a surrogate pair (2
+ * units) and family/profession emoji are ZWJ sequences of many pairs, so a
+ * plain slice can end on a lone surrogate — invalid UTF-16. That is what makes
+ * a chat-list preview look "cut in half", and on some Android builds a lone
+ * surrogate makes the whole run of text fail to render, which is why emoji
+ * messages appeared blank on certain devices.
+ *
+ * Intl.Segmenter keeps whole grapheme clusters (so 👨‍👩‍👧‍👦 stays intact) where
+ * available; the fallback iterates code points, which never splits a pair.
+ */
+export function truncateForPreview(text: string, max: number): string {
+  if (text.length <= max) return text;
+
+  const Segmenter = (
+    Intl as unknown as { Segmenter?: new (l?: string, o?: object) => { segment(s: string): Iterable<{ segment: string }> } }
+  ).Segmenter;
+
+  const units: string[] = Segmenter
+    ? Array.from(new Segmenter(undefined, { granularity: 'grapheme' }).segment(text), s => s.segment)
+    : Array.from(text); // code points — still never splits a surrogate pair
+
+  if (units.length <= max) return text;
+
+  let out = '';
+  for (const u of units) {
+    // Keep room for the ellipsis.
+    if (out.length + u.length > max - 1) break;
+    out += u;
+  }
+  return `${out}…`;
 }
 
 export type ParsedApiMessage = {
   text: string;
-  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request' | 'system';
+  messageKind?:
+    | 'call_log'
+    | 'voice_note'
+    | 'text'
+    | 'donation_request'
+    | 'booking_card'
+    | 'story_reply'
+    | 'system';
   donationRequest?: DonationRequestPayload;
+  bookingCard?: BookingCardPayload;
+  storyReply?: StoryReplyPayload;
   delivery?: {
     state: 'sent' | 'delivered' | 'read';
     readAt?: string;
   };
   media?: MediaPayload;
 };
+
+
+/**
+ * Booking / Hope Wish confirmation cards are sent as human-readable multi-line
+ * text (see `formatBookingCardMessage`) so that web and older clients still
+ * show something sensible. We parse that text back into a structured payload
+ * to render a real card, and fall through to plain text if it doesn't match.
+ */
+export function parseBookingCardText(
+  text: string,
+): BookingCardPayload | null {
+  const isWish = text.startsWith('\u{1F31F} HOPE WISH CONFIRMED');
+  const isCall = text.startsWith('\u{1F4DE} CALL BOOKING CONFIRMED');
+  if (!isWish && !isCall) return null;
+
+  const grab = (re: RegExp): string | undefined => re.exec(text)?.[1]?.trim();
+
+  const bookingId = Number(grab(/Booking #(\d+)/) ?? NaN);
+  if (!Number.isFinite(bookingId)) return null;
+
+  const rawStatus = (grab(/Status:\s*([A-Z_]+)/) ?? 'PENDING').toUpperCase();
+  const known: BookingCardStatus[] = [
+    'PENDING', 'CONFIRMED', 'IN_CALL', 'COMPLETED', 'CANCELLED', 'NO_SHOW',
+  ];
+  const status = (known as string[]).includes(rawStatus)
+    ? (rawStatus as BookingCardStatus)
+    : 'PENDING';
+
+  const amountRaw = grab(/(?:Paid|Amount):\s*\$([\d.,]+)/);
+  const amount = amountRaw ? Number(amountRaw.replace(/,/g, '')) : undefined;
+
+  const durationRaw = grab(/Duration:\s*(\d+)\s*min/);
+
+  return {
+    bookingId,
+    isHopeWish: isWish,
+    peerName: grab(/(?:Creator|With):\s*(.+)/) ?? '',
+    whenLabel: grab(/(?:Deliver by|Date):\s*(.+)/) ?? '',
+    timeLabel: grab(/Time:\s*(.+)/),
+    durationMinutes: durationRaw ? Number(durationRaw) : undefined,
+    amount: Number.isFinite(amount) ? amount : undefined,
+    status,
+  };
+}
 
 /** Build inbox bubble text + flags from a raw API message row. */
 export function mapApiMessageToTimeline(
@@ -277,6 +388,12 @@ export function mapApiMessageToTimeline(
     } catch { /* not valid JSON — fall through */ }
   }
 
+  // Booking / Hope Wish confirmation cards (plain-text wire format).
+  const bookingCard = parseBookingCardText(messageText);
+  if (bookingCard) {
+    return { text: messageText, messageKind: 'booking_card', bookingCard, delivery };
+  }
+
   if (rawType === 'donation_request') {
     const donationId =
       numFromUnknown(raw.donationId) ??
@@ -303,6 +420,24 @@ export function mapApiMessageToTimeline(
     };
   }
 
+  // Story reply — nested `story` object on the message row (same shape
+  // Hopenity web's Messages.tsx reads as `m.story`). The typed reply text (if any)
+  // stays in `text` so the bubble can show both the card and the caption.
+  const rawStory = raw.story as ApiLastMessageLike['story'];
+  if (rawStory) {
+    const storyReply: StoryReplyPayload = {
+      storyId: String(rawStory.id ?? raw.storyId ?? ''),
+      type: String(rawStory.type ?? 'PHOTO'),
+      mediaUrl: rawStory.media_url ?? null,
+      thumbnailUrl: rawStory.thumbnail_url ?? null,
+      content: rawStory.content ?? null,
+      expiresAt: rawStory.expires_at ?? null,
+      authorName: rawStory.user?.name,
+      authorAvatarUrl: rawStory.user?.image ?? null,
+    };
+    return { text: messageText, messageKind: 'story_reply', storyReply, delivery };
+  }
+
   if (isCall) {
     if (missed) {
       const label = isVideo ? '📹 Missed video call' : '📞 Missed voice call';
@@ -314,21 +449,37 @@ export function mapApiMessageToTimeline(
     return { text, messageKind: 'call_log', delivery };
   }
 
+  // A voice note is recognised EITHER by its declared type OR by the file it
+  // points at. Type alone was not enough: the send path stores voice notes with
+  // a plain text type, so the message fell through every branch below — the
+  // audio extension matches no image or video pattern — and rendered as the raw
+  // CDN link. That is the "…m4a showing as a URL" bug: the player existed and
+  // was simply never reached.
+  const trimmedText = messageText.trim();
+  const looksLikeAudioOnly =
+    /^https?:\/\/.+\.(m4a|mp3|aac|ogg|oga|opus|wav|amr|3ga|caf|weba|flac)(\?|$)/i.test(
+      trimmedText,
+    );
+
   if (
     combined.includes('voice') ||
-    combined.includes('audio_message') ||
-    rawType === 'voice'
+    combined.includes('audio') ||
+    rawType === 'voice' ||
+    looksLikeAudioOnly
   ) {
     const base = durClock
       ? `🎤 Voice message · ${durClock}`
       : '🎤 Voice message';
-    if (messageText.trim().match(/^https?:\/\//i)) {
+    if (trimmedText.match(/^https?:\/\//i)) {
       return {
         text: base,
         messageKind: 'voice_note',
         media: {
           type: 'voice',
-          remoteUri: messageText.trim(),
+          // AudioPlayer reads `remoteUri ?? url ?? localUri`; populate both so
+          // it resolves regardless of which field a caller looks at.
+          remoteUri: trimmedText,
+          url: trimmedText,
           duration: durationSec ?? 0,
         },
         delivery,

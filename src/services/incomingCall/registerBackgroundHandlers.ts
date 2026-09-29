@@ -1,6 +1,16 @@
 import { getApp } from '@react-native-firebase/app';
 import { getMessaging, setBackgroundMessageHandler } from '@react-native-firebase/messaging';
-import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
+import notifee, { EventType } from '@notifee/react-native';
+import { DeviceEventEmitter } from 'react-native';
+
+import { store } from '../../redux/store';
+import { HANGUP_ACTION_ID, stopLiveKitCallForeground } from '../livekit/liveKitCallForeground';
+import { notifyCallEndedByRoom } from '../invitePeerToHopeChatCall';
+
+import {
+  MESSAGE_CHANNEL_ID,
+  displayMessagingNotification,
+} from '../notifications/messageNotification';
 
 import {
   cancelAndroidIncomingCallNotification,
@@ -10,9 +20,15 @@ import {
 } from './androidIncomingCallUi';
 import {
   CALL_CANCELLED_MESSAGE_TYPE,
+  callPayloadSentAtMs,
   normalizeFcmData,
   parseIncomingCallPayload,
 } from './payload';
+import { ONGOING_NOTIFICATION_ID } from '../livekit/liveKitCallForeground';
+import {
+  OPEN_ACTIVE_CALL_EVENT,
+  setPendingOpenActiveCall,
+} from '../livekit/pendingCallScreenOpen';
 import {
   startIncomingCallRingtone,
   stopIncomingCallRingtone,
@@ -21,61 +37,10 @@ import {
   clearPendingAutoAcceptData,
 } from './callRingtone';
 
-// ── Messaging notification channel ────────────────────────────────────────────
-
-const MESSAGE_CHANNEL_ID = 'hopechat_messages_v1';
-
-/**
- * FCM data.type values that are allowed to produce a push notification.
- * Calls are handled separately via the call-notification path.
- * FRIEND_REQUEST / FRIEND_REQUEST_ACCEPTED belong to Hopenity — only Hopenity
- * shows those banners. Every other social type (POST_LIKE, COMMENT, etc.) is
- * silently dropped here too.
- */
-const ALLOWED_PUSH_TYPES = new Set([
-  'MESSAGE',
-  'DONATION_REQUEST',
-]);
-
-async function ensureMessagesChannel(): Promise<void> {
-  await notifee.createChannel({
-    id: MESSAGE_CHANNEL_ID,
-    name: 'Messages & Requests',
-    importance: AndroidImportance.HIGH,
-    sound: 'default',
-    vibration: true,
-  });
-}
-
-async function displayMessagingNotification(
-  data: Record<string, string>,
-): Promise<void> {
-  const type = (data.type ?? '').toUpperCase();
-  if (!ALLOWED_PUSH_TYPES.has(type)) return;
-
-  const senderName =
-    data.sender_name ?? data.name ?? data.displayName ?? data.callerName ?? '';
-
-  const isDonationRequest = type === 'DONATION_REQUEST';
-  const title = isDonationRequest
-    ? senderName || 'Donation Request'
-    : senderName || 'New message';
-  const body = isDonationRequest
-    ? data.text ?? data.body ?? data.message ?? data.content ?? 'Someone is interested in your request.'
-    : data.body ?? data.message ?? data.content ?? data.message_preview ?? 'You have a new message';
-
-  await ensureMessagesChannel();
-  await notifee.displayNotification({
-    title,
-    body,
-    data,
-    android: {
-      channelId: MESSAGE_CHANNEL_ID,
-      importance: AndroidImportance.HIGH,
-      pressAction: { id: 'default', launchActivity: 'default' },
-    },
-  });
-}
+// ── Messaging notifications ───────────────────────────────────────────────────
+// The banner itself (Messenger-style: avatar + name + preview) is built in
+// services/notifications/messageNotification so the foreground path renders the
+// exact same notification.
 
 // ── Channel ownership guard ────────────────────────────────────────────────────
 
@@ -120,20 +85,100 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     return;
   }
 
-  if (type === EventType.PRESS) {
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][bg] event', { type, actionId, notifId });
+  }
+
+  // Action buttons (Hang up / Accept / Reject) fire as ACTION_PRESS on some
+  // devices/notifee versions rather than being folded into PRESS. Handling
+  // only PRESS silently dropped every button tap while a plain body tap (which
+  // does arrive as PRESS) kept working — this is why the buttons looked dead.
+  if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
+    // Ongoing-call notification tapped while the app is backgrounded. This
+    // context has no navigation, so record the intent; the main context acts on
+    // it the moment the app foregrounds.
+    // "Hang up" from the in-progress call notification while backgrounded.
+    // Ends it server-side straight away so the peer is not left in a dead call
+    // waiting for this app to be opened again.
+    if (actionId === HANGUP_ACTION_ID) {
+      const room = String(
+        (detail.notification?.data as Record<string, string> | undefined)?.liveKitRoom ?? '',
+      ).trim();
+      const token = store.getState().auth.token;
+      if (__DEV__) {
+        console.log('[HopeChat DEBUG][bg] HANGUP pressed', { room, hasToken: !!token });
+      }
+      try {
+        await notifee.stopForegroundService();
+      } catch (e) { if (__DEV__) console.log('[HopeChat DEBUG][bg] stopForegroundService failed', e); }
+      if (notifId) await notifee.cancelNotification(notifId);
+      if (room && token) {
+        try {
+          await notifyCallEndedByRoom({ token, liveKitRoom: room, reason: 'hangup' });
+          if (__DEV__) console.log('[HopeChat DEBUG][bg] notifyCallEndedByRoom OK');
+        } catch (e) {
+          if (__DEV__) console.log('[HopeChat DEBUG][bg] notifyCallEndedByRoom FAILED', e);
+        }
+      } else if (__DEV__) {
+        console.log('[HopeChat DEBUG][bg] HANGUP skipped notifyCallEndedByRoom — missing room or token', { room, hasToken: !!token });
+      }
+      return;
+    }
+
+    if (notifId === ONGOING_NOTIFICATION_ID) {
+      // Record WHICH call to return to, not merely that a return was requested.
+      // The main context may find no registered call (the screen was backed out
+      // of, or the process was restarted), in which case the room from the
+      // notification is the only way to rebuild the screen.
+      const d = detail.notification?.data as Record<string, string> | undefined;
+      const pending = {
+        liveKitRoom: String(d?.liveKitRoom ?? '').trim(),
+        callKind: String(d?.callKind ?? ''),
+        displayName: String(d?.displayName ?? ''),
+      };
+      setPendingOpenActiveCall(pending);
+      // The flag alone is not enough: if the app is still 'active' (the call
+      // screen was backed out of rather than the app backgrounded) no AppState
+      // transition will ever occur to read it. Tell the live listener directly.
+      DeviceEventEmitter.emit(OPEN_ACTIVE_CALL_EVENT, pending);
+      return;
+    }
+
     if (actionId === 'reject') {
+      if (__DEV__) console.log('[HopeChat DEBUG][bg] REJECT pressed');
       stopIncomingCallRingtone();
       if (notifId) await notifee.cancelNotification(notifId);
-      // Store the call data so the main app can emit the missed-call outcome and
-      // signal the backend (which cancels the caller's active ring) next time it foregrounds.
-      const notifData = detail.notification?.data;
+      const notifData = detail.notification?.data as Record<string, string> | undefined;
       if (notifData) {
+        // Still record it, so the main app writes the missed-call row and clears
+        // any pending ring UI when it next opens.
         try { setPendingRejectData(JSON.stringify(notifData)); } catch { /* noop */ }
+
+        // ...but tell the SERVER right now. Decline has no launchActivity — the
+        // app is never brought up — so deferring this to "next foreground" left
+        // the caller ringing until the callee happened to open HopeChat, which
+        // is indistinguishable from the Decline button doing nothing.
+        const room = String(notifData.liveKitRoom ?? notifData.room ?? '').trim();
+        const token = store.getState().auth.token;
+        if (room && token) {
+          try {
+            await notifyCallEndedByRoom({ token, liveKitRoom: room });
+            if (__DEV__) console.log('[HopeChat DEBUG][bg] REJECT notifyCallEndedByRoom OK');
+          } catch (e) {
+            if (__DEV__) console.log('[HopeChat DEBUG][bg] REJECT notifyCallEndedByRoom FAILED', e);
+            /* best-effort — the pending record above is the fallback */
+          }
+        } else if (__DEV__) {
+          console.log('[HopeChat DEBUG][bg] REJECT skipped notifyCallEndedByRoom — missing room or token', { room, hasToken: !!token });
+        }
+      } else if (__DEV__) {
+        console.log('[HopeChat DEBUG][bg] REJECT — notification had no data payload');
       }
       return;
     }
 
     if (actionId === 'accept') {
+      if (__DEV__) console.log('[HopeChat DEBUG][bg] ACCEPT pressed');
       stopIncomingCallRingtone();
       if (notifId) await notifee.cancelNotification(notifId);
       // Store the call data in the native module (shared across JS contexts in the same
@@ -142,9 +187,12 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
       if (notifData) {
         try {
           setPendingAutoAcceptData(JSON.stringify(notifData));
-        } catch {
-          /* noop */
+          if (__DEV__) console.log('[HopeChat DEBUG][bg] ACCEPT setPendingAutoAcceptData OK', notifData);
+        } catch (e) {
+          if (__DEV__) console.log('[HopeChat DEBUG][bg] ACCEPT setPendingAutoAcceptData FAILED', e);
         }
+      } else if (__DEV__) {
+        console.log('[HopeChat DEBUG][bg] ACCEPT — notification had no data payload');
       }
       return;
     }
@@ -175,22 +223,37 @@ const messaging = getMessaging(getApp());
  * — both are needed because the contexts can be different JS instances.
  */
 const bgCancelledRooms = new Map<string, number>();
-const BG_CANCEL_TTL_MS = 90_000;
+const BG_CANCEL_TTL_MS = 5 * 60_000;
+/** Suppression window for invites that carry no server `ts`. */
+const BG_UNDATED_SUPPRESSION_MS = 8_000;
 
-function markBgRoomCancelled(room: string): void {
-  bgCancelledRooms.set(room, Date.now());
+/** `cancelledAtMs` is the cancel's own server timestamp when the push carries one. */
+function markBgRoomCancelled(room: string, cancelledAtMs = Date.now()): void {
+  const prev = bgCancelledRooms.get(room) ?? 0;
+  bgCancelledRooms.set(room, Math.max(prev, cancelledAtMs));
   // Evict stale entries to prevent unbounded growth.
-  setTimeout(() => bgCancelledRooms.delete(room), BG_CANCEL_TTL_MS);
+  setTimeout(() => {
+    const at = bgCancelledRooms.get(room);
+    if (at != null && Date.now() - at >= BG_CANCEL_TTL_MS) {
+      bgCancelledRooms.delete(room);
+    }
+  }, BG_CANCEL_TTL_MS);
 }
 
-function isBgRoomCancelled(room: string): boolean {
-  const ts = bgCancelledRooms.get(room);
-  if (ts === undefined) return false;
-  if (Date.now() - ts > BG_CANCEL_TTL_MS) {
+/**
+ * Room names are deterministic per pair, so a cancel can only invalidate invites
+ * issued BEFORE it. The old blanket 90 s ban muted the callee's phone for a
+ * minute and a half after any declined/missed call — an immediate retry never rang.
+ */
+function isBgRoomCancelled(room: string, sentAtMs?: number): boolean {
+  const cancelledAt = bgCancelledRooms.get(room);
+  if (cancelledAt === undefined) return false;
+  if (Date.now() - cancelledAt > BG_CANCEL_TTL_MS) {
     bgCancelledRooms.delete(room);
     return false;
   }
-  return true;
+  if (sentAtMs != null) return sentAtMs <= cancelledAt;
+  return Date.now() - cancelledAt < BG_UNDATED_SUPPRESSION_MS;
 }
 
 /**
@@ -214,6 +277,11 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
   if (isCancelled) {
     stopIncomingCallRingtone();
     await cancelAndroidIncomingCallNotification();
+    // The other side ended it: the ongoing-call notification and its foreground
+    // service must go too, or the tray keeps showing a live call that is over.
+    try {
+      await stopLiveKitCallForeground();
+    } catch { /* best-effort */ }
     // If the user pressed "Accept" on the notification before the call was
     // cancelled, discard the stored auto-accept data so the app doesn't
     // join a dead LiveKit room when it next foregrounds.
@@ -222,7 +290,7 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
     // same room is silently discarded (FCM ordering is not guaranteed).
     const cancelledRoom = data.liveKitRoom || data.room;
     if (typeof cancelledRoom === 'string' && cancelledRoom.length > 0) {
-      markBgRoomCancelled(cancelledRoom);
+      markBgRoomCancelled(cancelledRoom, callPayloadSentAtMs(data));
     }
     return;
   }
@@ -232,7 +300,7 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
   if (parsed) {
     // Guard against FCM ordering race: if a cancel for this room already arrived,
     // don't ring — the call is dead on the caller's side.
-    if (isBgRoomCancelled(parsed.liveKitRoom)) {
+    if (isBgRoomCancelled(parsed.liveKitRoom, parsed.sentAtMs)) {
       if (__DEV__) {
         console.warn('[HopeChat BG] Dropping incoming_call FCM — room already cancelled:', parsed.liveKitRoom);
       }
@@ -266,5 +334,19 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
 
   // ── Only messaging-related types get a push notification.
   //    All other types (POST_LIKE, COMMENT, STORY_REACTION, etc.) are dropped.
-  await displayMessagingNotification(data);
+  //
+  // This used to be an unguarded `await` — unlike every other branch above,
+  // which wraps its notifee/native calls in try/catch. If displayMessagingNotification
+  // ever throws (bad avatar URL, a malformed cached `history` blob, a notifee
+  // native error), the exception was silently swallowed by the FCM background
+  // handler: no crash, no log, the message just never appeared. That failure
+  // mode is indistinguishable from "notifications don't work" and would repeat
+  // for every message from a device carrying one bad cached value, while calls
+  // (which are fully try/catch-guarded) kept working — exactly the asymmetry
+  // reported. Logging here, even outside __DEV__, is the only way to ever see it.
+  try {
+    await displayMessagingNotification(data);
+  } catch (e) {
+    console.error('[HopeChat BG] displayMessagingNotification failed — message notification dropped:', e);
+  }
 });

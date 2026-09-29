@@ -2,29 +2,35 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CLIENT_ID</key>
+	<string>393962936339-74oglqfel1kr062vb0ahbqogbhiadaln.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.393962936339-74oglqfel1kr062vb0ahbqogbhiadaln</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>393962936339-1spm56cflgdu9cs49mfvag6nbch7v38v.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
-	<string>REPLACE_WITH_FIREBASE_CONSOLE_KEY</string>
+	<string>AIzaSyAB4hScRUjw31CuLi4DL37JSmvsfyMAwoU</string>
 	<key>GCM_SENDER_ID</key>
-	<string>000000000000</string>
+	<string>393962936339</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>org.reactjs.native.example.hopeChat</string>
+	<string>com.hopechat</string>
 	<key>PROJECT_ID</key>
-	<string>hope-chat-replace-me</string>
+	<string>hopenity-app</string>
 	<key>STORAGE_BUCKET</key>
-	<string>hope-chat-replace-me.appspot.com</string>
+	<string>hopenity-app.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
-	<false/>
+	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
-	<false/>
+	<false></false>
 	<key>IS_APPINVITE_ENABLED</key>
-	<true/>
+	<true></true>
 	<key>IS_GCM_ENABLED</key>
-	<true/>
+	<true></true>
 	<key>IS_SIGNIN_ENABLED</key>
-	<true/>
+	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:000000000000:ios:replaceplaceplace</string>
+	<string>1:393962936339:ios:0c99f76d15127cd27c07e6</string>
 </dict>
 </plist>

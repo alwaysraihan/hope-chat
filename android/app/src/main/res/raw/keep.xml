@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Resources referenced only by a raw string name from JS (notifee's
+  `smallIcon`/`largeIcon` options, e.g. android/services/**/*.ts) are
+  invisible to R8's resource shrinker — it can't see into the Hermes bundle
+  to know they're used, so shrinkResources (enabled for release builds)
+  strips them as dead weight. That silently broke every notification's
+  small icon on release only ("Invalid notification (no valid small icon)"),
+  while debug builds (no shrinking) looked fine. This file is the documented
+  way to pin them: https://developer.android.com/build/shrink-code#keep-resources
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_notification,@mipmap/ic_launcher,@mipmap/ic_launcher_round" />

@@ -37,11 +37,14 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { useT } from '../hooks/useT';
 import {
+  selectActivePage,
   selectAuthToken,
   selectHopenityProfile,
 } from '../redux/features/auth/authSlice';
 import { API_BASE_URL } from '../config/env';
 import { AppColors, useAppTheme } from '../context/ThemeContext';
+import type { StoryRing } from '../data/storyFeedCache';
+import { emitStoryPosted } from '../services/story/storyEvents';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'CreateStory'>;
 
@@ -157,6 +160,7 @@ async function uploadStory(
     mimeType?: string;
     fileName?: string;
     musicId?: string | number;
+    pageId?: string | number | null;
     visibility: Visibility;
   },
   token: string,
@@ -173,6 +177,7 @@ async function uploadStory(
         background_color: payload.backgroundColor ?? '#0084FF',
       };
       if (payload.musicId != null) body.musicId = String(payload.musicId);
+      if (payload.pageId != null) body.pageId = String(payload.pageId);
       const res = await fetch(`${base}/api/v1/stories`, {
         method: 'POST',
         headers: {
@@ -189,6 +194,7 @@ async function uploadStory(
     form.append('privacy', privacy);
     if (payload.musicId != null)
       form.append('musicId', String(payload.musicId));
+    if (payload.pageId != null) form.append('pageId', String(payload.pageId));
     form.append('media', {
       uri: payload.uri,
       type:
@@ -452,6 +458,10 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
   const t = useT();
   const token = useAppSelector(selectAuthToken);
   const profile = useAppSelector(selectHopenityProfile);
+  const activePage = useAppSelector(selectActivePage);
+  const authorName =
+    activePage?.name ?? profile?.displayName ?? 'Your story';
+  const authorAvatar = activePage?.image ?? profile?.avatarUrl ?? null;
   const { colors } = useAppTheme();
   const styles = stylesFunc(colors);
   const [activeTab, setActiveTab] = useState<TabType>('gallery');
@@ -536,6 +546,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
           content: caption.trim(),
           backgroundColor: currentBg.bgColor,
           musicId: selectedMusic?.id,
+          pageId: activePage?.id,
           visibility,
         },
         token,
@@ -548,6 +559,7 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
           mimeType: media.mimeType,
           fileName: media.fileName,
           musicId: selectedMusic?.id,
+          pageId: activePage?.id,
           visibility,
         },
         token,
@@ -555,9 +567,49 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
     }
     setUploading(false);
     if (ok) {
-      Alert.alert(t.story_posted, t.story_live, [
-        { text: t.got_it, onPress: () => navigation.goBack() },
-      ]);
+      // No success alert — the story appearing bordered in "My Story"
+      // immediately (below) is the confirmation; a blocking dialog the user
+      // has to dismiss just to get back to the app was the worse UX here.
+      //
+      // Built from data already on hand rather than waiting on the feed
+      // listing endpoint, which (like the delete path) can lag a few seconds
+      // behind a fresh write — without this the new story wouldn't show up
+      // until that endpoint caught up.
+      const isPage = !!activePage;
+      const authorId = isPage ? String(activePage!.id) : String(profile?.userId ?? '');
+      const isText = bgMode && caption.trim().length > 0;
+      const ring: StoryRing = {
+        id: `${isPage ? 'page' : 'user'}_${authorId || Date.now()}`,
+        name: authorName,
+        avatarUri: authorAvatar ?? undefined,
+        isPage,
+        authorId: authorId || undefined,
+        authorPublicId: authorId || undefined,
+        isVerified: !isPage && !!profile?.isVerified,
+        slides: [
+          isText
+            ? {
+                id: `local_${Date.now()}`,
+                uri: '',
+                type: 'text',
+                text: caption.trim(),
+                backgroundColor: currentBg.bgColor,
+                durationMs: 5000,
+                expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+                isViewed: false,
+              }
+            : {
+                id: `local_${Date.now()}`,
+                uri: media?.uri ?? '',
+                type: media?.type === 'video' ? 'video' : 'image',
+                durationMs: media?.type === 'video' ? 15000 : 5000,
+                expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+                isViewed: false,
+              },
+        ],
+      };
+      emitStoryPosted(ring);
+      navigation.goBack();
     } else {
       Alert.alert(t.failed, t.story_failed);
     }
@@ -569,7 +621,13 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
     selectedMusic,
     visibility,
     media,
+    activePage,
+    profile,
+    authorName,
+    authorAvatar,
     navigation,
+    t.failed,
+    t.story_failed,
   ]);
 
   return (
@@ -747,20 +805,21 @@ const CreateStoryScreen: React.FC<Props> = ({ navigation }) => {
         ) : (
           // Empty state - profile + prompt
           <View style={styles.emptyPreview}>
-            {profile?.avatarUrl ? (
+            {authorAvatar ? (
               <FastImage
-                source={{ uri: profile.avatarUrl }}
+                source={{ uri: authorAvatar }}
                 style={styles.profileAvatar}
               />
             ) : (
               <View style={[styles.profileAvatar, styles.profileAvatarFall]}>
                 <Text style={styles.profileAvatarChr}>
-                  {(profile?.displayName ?? 'Y').trim().charAt(0).toUpperCase()}
+                  {authorName.trim().charAt(0).toUpperCase()}
                 </Text>
               </View>
             )}
-            <Text style={styles.profileName}>
-              {profile?.displayName ?? 'Your story'}
+            <Text style={styles.profileName}>{authorName}</Text>
+            <Text style={styles.profileSub}>
+              {activePage ? 'Posting as this page' : 'Posting as yourself'}
             </Text>
             <Text style={styles.profilePrompt}>{t.get_started_hint}</Text>
           </View>
@@ -876,7 +935,7 @@ export default CreateStoryScreen;
 
 const stylesFunc = (colorss: AppColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colorss.white },
+    safe: { flex: 1, backgroundColor: colorss.background },
 
     header: {
       flexDirection: 'row',
@@ -1016,6 +1075,12 @@ const stylesFunc = (colorss: AppColors) =>
       fontSize: 17,
       fontWeight: '700',
       color: colorss.textPrimary,
+    },
+    profileSub: {
+      fontSize: 12,
+      color: colorss.textSecondary,
+      marginTop: 2,
+      marginBottom: 4,
     },
     profilePrompt: { fontSize: 13, color: colorss.textSecondary },
 

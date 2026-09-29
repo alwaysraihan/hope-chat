@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Alert,
   Linking,
   ScrollView,
   StyleSheet,
@@ -9,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   Ban,
@@ -19,23 +18,30 @@ import {
   Image as ImageIcon,
   LogOut,
   MessageCircle,
-  Moon,
   Shield,
   Timer,
   User,
+  Phone,
+  Lock,
 } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { colorss } from '../theme';
 import { IC_PROFILE } from '../assets';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { selectHopenityProfile } from '../redux/features/auth/authSlice';
+import {
+  selectActivePage,
+  selectAuthToken,
+  selectHopenityProfile,
+} from '../redux/features/auth/authSlice';
+import { fetchPageAllowCalls, setPageAllowCalls } from '../services/pageService';
+import { fetchAllowCalls, patchAllowCalls } from '../services/userSettingsService';
 import { useT } from '../hooks/useT';
 import { performLogout } from '../services/logout';
 import { useAppTheme } from '../context/ThemeContext';
 import { isE2eeEnabled, setE2eeEnabled } from '../services/chatPrefs';
+import ConfirmSheet from '../components/ConfirmSheet';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Settings'>;
 
@@ -49,131 +55,222 @@ type SettingRow = {
 };
 
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const t = useT();
   const dispatch = useAppDispatch();
   const profile = useAppSelector(selectHopenityProfile);
-  const { isDark, colors, toggleDarkMode } = useAppTheme();
+  const activePage = useAppSelector(selectActivePage);
+  const authToken = useAppSelector(selectAuthToken);
+
+  // Personal: whether anyone may call this user at all.
+  const [allowCalls, setAllowCalls] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    if (!authToken || activePage) {
+      setAllowCalls(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchAllowCalls(authToken).then(v => {
+      if (!cancelled) setAllowCalls(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, activePage]);
+
+  // Page-only: whether people may call this page. Loaded when the setting is
+  // actually visible, so personal mode makes no extra request.
+  const [pageCallsOn, setPageCallsOn] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    if (!activePage?.id || !authToken) {
+      setPageCallsOn(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchPageAllowCalls(authToken, String(activePage.id)).then(v => {
+      if (!cancelled) setPageCallsOn(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage?.id, authToken]);
+  const { colors } = useAppTheme();
   const [e2eeOn, setE2eeOn] = React.useState(() => isE2eeEnabled());
 
   const iconColor = colors.textPrimary;
 
+  const [logoutSheetVisible, setLogoutSheetVisible] = React.useState(false);
+
   const handleLogout = () => {
-    Alert.alert(t.logout_confirm_title, t.logout_confirm_message, [
-      { text: t.cancel, style: 'cancel' },
-      {
-        text: t.logout,
-        style: 'destructive',
-        onPress: () => {
-          if (navigation.canGoBack()) navigation.goBack();
-          setTimeout(() => performLogout(dispatch), 50);
-        },
-      },
-    ]);
+    setLogoutSheetVisible(true);
   };
 
-  const DarkSwitch = (
-    <Switch
-      value={isDark}
-      onValueChange={toggleDarkMode}
-      trackColor={{ false: colorss.border, true: colors.accent }}
-      thumbColor={colorss.white}
-      ios_backgroundColor={colorss.border}
-    />
-  );
+  const confirmLogout = () => {
+    setLogoutSheetVisible(false);
+    if (navigation.canGoBack()) navigation.goBack();
+    setTimeout(() => performLogout(dispatch), 50);
+  };
 
   const E2eeSwitch = (
     <Switch
       value={e2eeOn}
       onValueChange={v => { setE2eeOn(v); setE2eeEnabled(v); }}
-      trackColor={{ false: colorss.border, true: colors.accent }}
-      thumbColor={colorss.white}
-      ios_backgroundColor={colorss.border}
+      trackColor={{ false: colors.border, true: colors.accent }}
+      thumbColor={colors.white}
+      ios_backgroundColor={colors.border}
+    />
+  );
+
+  const AllowCallsSwitch = (
+    <Switch
+      value={allowCalls !== false}
+      onValueChange={v => {
+        if (!authToken) return;
+        const previous = allowCalls;
+        setAllowCalls(v); // optimistic
+        void patchAllowCalls(authToken, v).then(ok => {
+          if (!ok) setAllowCalls(previous ?? true);
+        });
+      }}
+      trackColor={{ false: colors.border, true: colors.accent }}
+      thumbColor={colors.white}
+      ios_backgroundColor={colors.border}
+    />
+  );
+
+  const PageCallsSwitch = (
+    <Switch
+      value={pageCallsOn !== false}
+      onValueChange={v => {
+        if (!activePage?.id || !authToken) return;
+        const previous = pageCallsOn;
+        setPageCallsOn(v); // optimistic
+        void setPageAllowCalls(authToken, String(activePage.id), v).then(ok => {
+          if (!ok) setPageCallsOn(previous ?? true);
+        });
+      }}
+      trackColor={{ false: colors.border, true: colors.accent }}
+      thumbColor={colors.white}
+      ios_backgroundColor={colors.border}
     />
   );
 
   const sections: { title: string; rows: SettingRow[] }[] = [
-    {
-      title: t.section_privacy,
-      rows: [
-        {
-          id: 'read-receipts',
-          icon: <Eye size={20} color={iconColor} />,
-          label: t.read_receipts,
-          sub: t.read_receipts_sub,
-          onPress: () => navigation.navigate('ReadReceipts'),
-        },
-        {
-          id: 'message-perms',
-          icon: <MessageCircle size={20} color={iconColor} />,
-          label: t.message_permissions,
-          sub: t.message_permissions_sub,
-          onPress: () => navigation.navigate('MessagePermissions'),
-        },
-        {
-          id: 'typing',
-          icon: <User size={20} color={iconColor} />,
-          label: t.typing_indicator,
-          sub: t.typing_indicator_sub,
-          onPress: () => navigation.navigate('TypingIndicator'),
-        },
-        {
-          id: 'disappearing',
-          icon: <Timer size={20} color={iconColor} />,
-          label: t.disappearing_messages,
-          sub: t.disappearing_messages_sub,
-          onPress: () => navigation.navigate('DisappearingMessages', {}),
-        },
-        {
-          id: 'e2ee',
-          icon: <Shield size={20} color={iconColor} />,
-          label: 'End-to-end encryption',
-          sub: e2eeOn ? 'Messages are encrypted on your device' : 'Encryption is off',
-          rightEl: E2eeSwitch,
-        },
-      ],
-    },
-    {
-      title: t.section_notifications,
-      rows: [
-        {
-          id: 'notif-sounds',
-          icon: <Bell size={20} color={iconColor} />,
-          label: t.notification_sounds,
-          sub: t.notification_sounds_sub,
-          onPress: () => navigation.navigate('NotificationsSounds'),
-        },
-      ],
-    },
-    {
-      title: t.section_appearance,
-      rows: [
-        {
-          id: 'dark-mode',
-          icon: <Moon size={20} color={iconColor} />,
-          label: isDark ? 'Dark mode' : 'Light mode',
-          sub: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-          onPress: toggleDarkMode,
-          rightEl: DarkSwitch,
-        },
-        // {
-        //   id: 'theme',
-        //   icon: <ImageIcon size={20} color={iconColor} />,
-        //   label: t.theme,
-        //   sub: t.theme_sub,
-        //   onPress: () => navigation.navigate('Theme'),
-        // },
-      ],
-    },
+    // Personal mode only — incoming-call privacy. Off means nobody can call you;
+    // the server refuses the invite, so it does not rely on the caller's build.
+    ...(!activePage && allowCalls !== null
+      ? [
+          {
+            title: 'Calls',
+            rows: [
+              {
+                id: 'allow-calls',
+                icon: <Phone size={20} color={iconColor} />,
+                label: 'Allow incoming calls',
+                sub: allowCalls
+                  ? 'People you can message can call you'
+                  : 'Calling is off — no one can call you',
+                rightEl: AllowCallsSwitch,
+              } as SettingRow,
+            ],
+          },
+        ]
+      : []),
+    // Page mode only — a page that does text-only support can switch calling off
+    // for everyone. The server enforces the same rule on the invite endpoint.
+    ...(activePage && pageCallsOn !== null
+      ? [
+          {
+            title: 'Page',
+            rows: [
+              {
+                id: 'page-calls',
+                icon: <Phone size={20} color={iconColor} />,
+                label: 'Allow calls to this page',
+                sub: pageCallsOn
+                  ? 'People can call this page from chat'
+                  : 'Calling is off — the call buttons are hidden for visitors',
+                rightEl: PageCallsSwitch,
+              } as SettingRow,
+            ],
+          },
+        ]
+      : []),
+    // {
+    //   title: t.section_privacy,
+    //   rows: [
+    //     {
+    //       id: 'read-receipts',
+    //       icon: <Eye size={20} color={iconColor} />,
+    //       label: t.read_receipts,
+    //       sub: t.read_receipts_sub,
+    //       onPress: () => navigation.navigate('ReadReceipts'),
+    //     },
+    //     {
+    //       id: 'message-perms',
+    //       icon: <MessageCircle size={20} color={iconColor} />,
+    //       label: t.message_permissions,
+    //       sub: t.message_permissions_sub,
+    //       onPress: () => navigation.navigate('MessagePermissions'),
+    //     },
+    //     {
+    //       id: 'typing',
+    //       icon: <User size={20} color={iconColor} />,
+    //       label: t.typing_indicator,
+    //       sub: t.typing_indicator_sub,
+    //       onPress: () => navigation.navigate('TypingIndicator'),
+    //     },
+    //     {
+    //       id: 'disappearing',
+    //       icon: <Timer size={20} color={iconColor} />,
+    //       label: t.disappearing_messages,
+    //       sub: t.disappearing_messages_sub,
+    //       onPress: () => navigation.navigate('DisappearingMessages', {}),
+    //     },
+    //     {
+    //       id: 'e2ee',
+    //       icon: <Shield size={20} color={iconColor} />,
+    //       label: 'End-to-end encryption',
+    //       sub: e2eeOn ? 'Messages are encrypted on your device' : 'Encryption is off',
+    //       rightEl: E2eeSwitch,
+    //     },
+    //   ],
+    // },
+    // {
+    //   title: t.section_notifications,
+    //   rows: [
+    //     {
+    //       id: 'notif-sounds',
+    //       icon: <Bell size={20} color={iconColor} />,
+    //       label: t.notification_sounds,
+    //       sub: t.notification_sounds_sub,
+    //       onPress: () => navigation.navigate('NotificationsSounds'),
+    //     },
+    //   ],
+    // },
     {
       title: t.section_security,
       rows: [
-        {
-          id: 'blocked',
-          icon: <Ban size={20} color={iconColor} />,
-          label: t.blocked_people,
-          sub: t.blocked_people_sub,
-          onPress: () => navigation.navigate('BlockedPeople'),
-        },
+        // Personal-only. The blocked list belongs to the operator's own account,
+        // so surfacing it while acting as a page invites editing the wrong one.
+        ...(activePage
+          ? []
+          : [
+              {
+                id: 'blocked',
+                icon: <Ban size={20} color={iconColor} />,
+                label: t.blocked_people,
+                sub: t.blocked_people_sub,
+                onPress: () => navigation.navigate('BlockedPeople'),
+              } as SettingRow,
+            ]),
+        // {
+        //   id: 'encryption',
+        //   icon: <Lock size={20} color={iconColor} />,
+        //   label: 'Encryption passphrase',
+        //   sub: 'Needed to read your messages after signing in on a new device',
+        //   onPress: () => navigation.navigate('EncryptionSetup'),
+        // },
         {
           id: 'report',
           icon: <Shield size={20} color={iconColor} />,
@@ -198,11 +295,11 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   ];
 
   return (
-    <SafeAreaView
+    <View
       style={[styles.safe, { backgroundColor: colors.background }]}
-      edges={['top', 'left', 'right']}
+      
     >
-      <View style={[styles.header, { backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, {paddingTop: insets.top, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={24} color={colors.textPrimary} />
         </TouchableOpacity>
@@ -211,17 +308,33 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
+        {/*
+          Identity header. In page mode this MUST show the page, not the
+          operator: Settings is where you confirm who you are acting as, and
+          showing the personal profile while every setting below applies to the
+          page is how someone changes the wrong account's settings.
+        */}
         <View style={[styles.profileCard, { backgroundColor: colors.cardBg }]}>
           <FastImage
-            source={profile?.avatarUrl ? { uri: profile.avatarUrl } : IC_PROFILE}
+            source={
+              activePage
+                ? activePage.image
+                  ? { uri: activePage.image }
+                  : IC_PROFILE
+                : profile?.avatarUrl
+                  ? { uri: profile.avatarUrl }
+                  : IC_PROFILE
+            }
             style={styles.avatar}
           />
           <View style={styles.profileInfo}>
             <Text style={[styles.profileName, { color: colors.textPrimary }]} numberOfLines={1}>
-              {profile?.displayName ?? 'HopeChat User'}
+              {activePage
+                ? activePage.name || 'Page'
+                : profile?.displayName ?? 'HopeChat User'}
             </Text>
             <Text style={[styles.profileSub, { color: colors.textSecondary }]} numberOfLines={1}>
-              {t.hopenity_account}
+              {activePage ? 'Page · you are acting as this page' : t.hopenity_account}
             </Text>
           </View>
         </View>
@@ -268,10 +381,10 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           <View style={[styles.sectionCard, { backgroundColor: colors.cardBg }]}>
             <TouchableOpacity style={styles.row} onPress={handleLogout} activeOpacity={0.7}>
               <View style={styles.rowIcon}>
-                <LogOut size={20} color={colorss.error} />
+                <LogOut size={20} color={colors.error} />
               </View>
               <View style={styles.rowContent}>
-                <Text style={[styles.rowLabel, { color: colorss.error }]}>{t.logout}</Text>
+                <Text style={[styles.rowLabel, { color: colors.error }]}>{t.logout}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -279,7 +392,18 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={{ height: 40 }} />
       </ScrollView>
-    </SafeAreaView>
+
+      <ConfirmSheet
+        visible={logoutSheetVisible}
+        title={t.logout_confirm_title}
+        message={t.logout_confirm_message}
+        confirmLabel={t.logout}
+        cancelLabel={t.cancel}
+        destructive
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutSheetVisible(false)}
+      />
+    </View>
   );
 };
 

@@ -15,8 +15,49 @@ const SOCKET_URL = API_BASE_URL.replace(/\/+$/, '');
 type CallSocketListener = (data: Record<string, string>) => void;
 
 type MessageDeletedListener = (data: { messageId: number; chatId: number }) => void;
-type NewMessageListener = (data: { chatId: number }) => void;
+/**
+ * The server emits the whole message row on `new_message`, not just an id.
+ * Carrying it through lets the inbox render the message straight away instead
+ * of firing a second REST round-trip to fetch what it was already handed.
+ */
+type NewMessageListener = (data: {
+  chatId: number;
+  message?: Record<string, unknown>;
+}) => void;
 type TypingListener = (data: { chatId: number; userId: string }) => void;
+/** A group has one live call; this keeps every member's "Join call" banner in sync. */
+type GroupCallStateListener = (data: {
+  threadId: string;
+  active: boolean;
+  liveKitRoom: string;
+  callKind: string;
+  startedByUserId: string;
+  startedByName: string;
+  participantCount: number;
+}) => void;
+/** Word effects animate on BOTH devices, so the emoji travels with the event. */
+type WordEffectListener = (data: {
+  chatId: string;
+  emoji: string;
+  word: string;
+  fromUserId: string;
+}) => void;
+/** The chat theme is shared by every participant, so a change has to reach the other end live. */
+type ChatThemeUpdatedListener = (data: {
+  chatId: string;
+  theme: string | null;
+}) => void;
+/** Nicknames are shared by every participant of a chat, so a change has to reach the other end live. */
+type NicknamesUpdatedListener = (data: {
+  chatId: string;
+  nicknames: Record<string, string>;
+}) => void;
+/** Server pushes this to everyone currently `watch_presence`-ing this userId. */
+type PresenceListener = (data: {
+  userId: string;
+  isOnline: boolean;
+  lastSeenAt?: string | null;
+}) => void;
 
 class CallSocketService {
   private socket: any = null;
@@ -29,9 +70,36 @@ class CallSocketService {
   private newMessageListeners: Set<NewMessageListener> = new Set();
   private userTypingListeners: Set<TypingListener> = new Set();
   private userStoppedTypingListeners: Set<TypingListener> = new Set();
+  private nicknamesUpdatedListeners: Set<NicknamesUpdatedListener> = new Set();
+  private chatThemeUpdatedListeners: Set<ChatThemeUpdatedListener> = new Set();
+  private wordEffectListeners: Set<WordEffectListener> = new Set();
+  private groupCallStateListeners: Set<GroupCallStateListener> = new Set();
+  private presenceListeners: Set<PresenceListener> = new Set();
+  /** Re-asserted on reconnect — a silent server restart drops room membership. */
+  private watchedPresenceIds: Set<string> = new Set();
+  /**
+   * Chat rooms this device has asked to join (usually just the one thread
+   * currently open). Tracked separately from the emit itself because a
+   * reconnect drops room membership server-side even though the client still
+   * holds "the same" socket — without re-asserting these on 'connect', a
+   * network blip while a chat was open silently and permanently lost message
+   * notifications for that chat (the backend treats room membership as "user
+   * is watching live" and suppresses the push).
+   */
+  private joinedChatIds: Set<string> = new Set();
 
   connect(authToken: string, userId?: string): void {
-    if (this.socket?.connected && this.token === authToken) return;
+    if (this.socket && this.token === authToken) {
+      // Same credentials: reuse the existing socket. If it is merely offline
+      // (network blip, or the app was backgrounded past the reconnect budget)
+      // kick it instead of tearing down — rebuilding drops the reconnect state
+      // machine and was leaving the app deaf to incoming calls until restart.
+      if (this.userId == null && userId) this.userId = userId;
+      if (!this.socket.connected) {
+        try { this.socket.connect(); } catch { /* */ }
+      }
+      return;
+    }
     this.disconnect();
     this.token = authToken;
     this.userId = userId ?? null;
@@ -56,7 +124,12 @@ class CallSocketService {
         transports: ['websocket'],
         reconnection: true,
         reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
+        // Never stop trying. A finite budget (was 5 attempts / ~5s) meant any
+        // outage longer than a few seconds — exactly what happens when a call
+        // drops — permanently killed call signaling for the whole session.
+        reconnectionAttempts: Infinity,
+        reconnectionDelayMax: 10_000,
+        randomizationFactor: 0.5,
         timeout: 10_000,
       });
 
@@ -67,9 +140,28 @@ class CallSocketService {
         if (this.userId) {
           try { this.socket?.emit('join_user', this.userId); } catch { /* */ }
         }
+        // Re-assert presence subscriptions: a reconnect drops room membership
+        // server-side even though the client still holds the same socket.
+        this.watchedPresenceIds.forEach(id => {
+          try { this.socket?.emit('watch_presence', id); } catch { /* */ }
+        });
+        // Same reasoning for chat rooms — see joinedChatIds' doc comment above.
+        this.joinedChatIds.forEach(id => {
+          try { this.socket?.emit('join_chat', id); } catch { /* */ }
+        });
       });
       this.socket.on('disconnect', (reason: string) => {
         if (__DEV__) console.log('[CallSocket] disconnected', reason);
+        // socket.io does not auto-reconnect when the server closed the socket
+        // deliberately; without this the client stays offline forever.
+        if (reason === 'io server disconnect') {
+          setTimeout(() => {
+            try { this.socket?.connect(); } catch { /* */ }
+          }, 1000);
+        }
+      });
+      this.socket.on('connect_error', (e: unknown) => {
+        if (__DEV__) console.log('[CallSocket] connect_error', e);
       });
       this.socket.on('incoming_call', (data: unknown) => {
         const normalized = normalizeSocketData(data);
@@ -95,8 +187,74 @@ class CallSocketService {
       this.socket.on('new_message', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
         const d = data as Record<string, unknown>;
-        const payload = { chatId: Number(d.chatId) };
+        // chatId lives on the message row itself; older emitters sent only it.
+        const chatId = Number(d.chatId ?? d.chat_id);
+        if (!Number.isFinite(chatId)) return;
+        const payload = { chatId, message: d };
         this.newMessageListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
+      this.socket.on('nicknames_updated', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const chatId = String(d.chatId ?? d.chat_id ?? '');
+        const nicknames = (d.nicknames ?? {}) as Record<string, string>;
+        if (!chatId || typeof nicknames !== 'object') return;
+        this.nicknamesUpdatedListeners.forEach(l => {
+          try { l({ chatId, nicknames }); } catch { /* */ }
+        });
+      });
+      this.socket.on('group_call_state', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const threadId = String(d.threadId ?? d.chatId ?? '');
+        if (!threadId) return;
+        const payload = {
+          threadId,
+          active: d.active === true || d.active === 'true',
+          liveKitRoom: String(d.liveKitRoom ?? ''),
+          callKind: String(d.callKind ?? ''),
+          startedByUserId: String(d.startedByUserId ?? ''),
+          startedByName: String(d.startedByName ?? ''),
+          participantCount: Number(d.participantCount ?? 0),
+        };
+        this.groupCallStateListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
+      this.socket.on('word_effect', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const emoji = String(d.emoji ?? '');
+        const chatId = String(d.chatId ?? d.chat_id ?? '');
+        if (!emoji || !chatId) return;
+        const payload = {
+          chatId,
+          emoji,
+          word: String(d.word ?? ''),
+          fromUserId: String(d.fromUserId ?? ''),
+        };
+        this.wordEffectListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
+      this.socket.on('chat_theme_updated', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const chatId = String(d.chatId ?? d.chat_id ?? '');
+        if (!chatId) return;
+        const theme = d.theme == null ? null : String(d.theme);
+        this.chatThemeUpdatedListeners.forEach(l => {
+          try { l({ chatId, theme }); } catch { /* */ }
+        });
+      });
+      this.socket.on('presence_changed', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const presenceUserId = String(d.userId ?? d.user_id ?? '');
+        if (!presenceUserId) return;
+        const payload = {
+          userId: presenceUserId,
+          isOnline: d.isOnline === true || d.isOnline === 'true',
+          lastSeenAt:
+            d.lastSeenAt != null ? String(d.lastSeenAt) : (d.last_active_at != null ? String(d.last_active_at) : null),
+        };
+        this.presenceListeners.forEach(l => { try { l(payload); } catch { /* */ } });
       });
       this.socket.on('user_typing', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
@@ -116,6 +274,28 @@ class CallSocketService {
     }
   }
 
+  /**
+   * Cheap liveness kick — safe to call on every network regain / app foreground.
+   * Reconnects the existing socket, or builds one if we were never connected.
+   */
+  ensureConnected(authToken?: string | null, userId?: string | null): void {
+    const token = authToken ?? this.token;
+    if (!token) return;
+    if (!this.socket) {
+      this.connect(token, userId ?? undefined);
+      return;
+    }
+    if (this.socket.connected) {
+      // Re-assert room membership: a silent server restart drops rooms while
+      // the client still believes it is connected.
+      if (this.userId) {
+        try { this.socket.emit('join_user', this.userId); } catch { /* */ }
+      }
+      return;
+    }
+    try { this.socket.connect(); } catch { /* */ }
+  }
+
   disconnect(): void {
     if (this.socket) {
       try { this.socket.removeAllListeners(); } catch { /* */ }
@@ -124,6 +304,7 @@ class CallSocketService {
     }
     this.token = null;
     this.userId = null;
+    this.watchedPresenceIds.clear();
   }
 
   onIncomingCall(listener: CallSocketListener): () => void {
@@ -154,13 +335,40 @@ class CallSocketService {
   }
 
   joinChatRoom(chatId: string | number): void {
+    const id = String(chatId);
+    // Tracked even if the socket is mid-reconnect right now — the 'connect'
+    // handler below re-asserts every tracked id, so this still joins as soon
+    // as the connection comes back instead of being silently dropped forever.
+    this.joinedChatIds.add(id);
     if (!this.socket?.connected) return;
-    try { this.socket.emit('join_chat', String(chatId)); } catch { /* */ }
+    try { this.socket.emit('join_chat', id); } catch { /* */ }
   }
 
   leaveChatRoom(chatId: string | number): void {
+    const id = String(chatId);
+    this.joinedChatIds.delete(id);
     if (!this.socket?.connected) return;
-    try { this.socket.emit('leave_chat', String(chatId)); } catch { /* */ }
+    try { this.socket.emit('leave_chat', id); } catch { /* */ }
+  }
+
+  /** Subscribe to live online/offline updates for one friend. */
+  watchPresence(userId: string): void {
+    if (!userId) return;
+    this.watchedPresenceIds.add(userId);
+    if (!this.socket?.connected) return;
+    try { this.socket.emit('watch_presence', userId); } catch { /* */ }
+  }
+
+  unwatchPresence(userId: string): void {
+    if (!userId) return;
+    this.watchedPresenceIds.delete(userId);
+    if (!this.socket?.connected) return;
+    try { this.socket.emit('unwatch_presence', userId); } catch { /* */ }
+  }
+
+  onPresenceChanged(listener: PresenceListener): () => void {
+    this.presenceListeners.add(listener);
+    return () => this.presenceListeners.delete(listener);
   }
 
   onMessageDeleted(listener: MessageDeletedListener): () => void {
@@ -186,6 +394,34 @@ class CallSocketService {
   onUserTyping(listener: TypingListener): () => void {
     this.userTypingListeners.add(listener);
     return () => this.userTypingListeners.delete(listener);
+  }
+
+  onNicknamesUpdated(listener: NicknamesUpdatedListener): () => void {
+    this.nicknamesUpdatedListeners.add(listener);
+    return () => this.nicknamesUpdatedListeners.delete(listener);
+  }
+
+  /** Tell the other end to play a word effect we just matched locally. */
+  emitWordEffect(chatId: string | number, emoji: string, word: string): void {
+    if (!this.socket?.connected || !emoji) return;
+    try {
+      this.socket.emit('word_effect', { chatId: Number(chatId), emoji, word });
+    } catch { /* */ }
+  }
+
+  onGroupCallState(listener: GroupCallStateListener): () => void {
+    this.groupCallStateListeners.add(listener);
+    return () => this.groupCallStateListeners.delete(listener);
+  }
+
+  onWordEffect(listener: WordEffectListener): () => void {
+    this.wordEffectListeners.add(listener);
+    return () => this.wordEffectListeners.delete(listener);
+  }
+
+  onChatThemeUpdated(listener: ChatThemeUpdatedListener): () => void {
+    this.chatThemeUpdatedListeners.add(listener);
+    return () => this.chatThemeUpdatedListeners.delete(listener);
   }
 
   onUserStoppedTyping(listener: TypingListener): () => void {

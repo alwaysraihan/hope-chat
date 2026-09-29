@@ -13,6 +13,7 @@ import React, {
 import {
   Alert,
   Animated,
+  AppState,
   DeviceEventEmitter,
   useWindowDimensions,
   View,
@@ -20,6 +21,21 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IMessage } from 'react-native-gifted-chat';
+import { Toast } from '../components/Toast';
+import {
+  decryptIncoming,
+  encryptOutgoing,
+  encryptGroupOutgoing,
+  encryptOutgoingMultiDevice,
+  isV2Envelope,
+  rememberOwnMessage,
+} from '../services/e2ee/secureMessaging';
+import { isSenderKeyEnvelope } from '../services/e2ee/senderKey';
+import {
+  cachedPeerBundles,
+  cachedPeerDeviceId,
+  resolvePeerKeys,
+} from '../services/e2ee/peerSession';
 import {
   launchCamera,
   launchImageLibrary,
@@ -36,6 +52,7 @@ import {
   fetchHopenityChatMessages,
   formatChatTime,
   markHopenityChatRead,
+  reactToMessage,
   sendHopenityChatMessage,
   uploadChatMedia,
 } from '../services/chatService';
@@ -45,6 +62,11 @@ import {
   selectActivePage,
 } from '../redux/features/auth/authSlice';
 import { normalizeChatUserId } from '../utils/chatUserId';
+import {
+  readCachedGroupMembers,
+  sameMembers,
+  writeCachedGroupMembers,
+} from '../services/e2ee/groupMemberCache';
 import {
   mergeLocalCallLogsFromCache,
   readThreadMessagesCache,
@@ -83,6 +105,7 @@ import {
   getEffectiveDisappearingTtlSec,
   getEffectiveReactionPalette,
   isE2eeEnabled,
+  matchWordEffect,
 } from '../services/chatPrefs';
 
 import { CHAT_SCREEN_WIDTH } from '../data/chatTemplates';
@@ -120,6 +143,8 @@ interface InboxContextValue {
   replyTo: ExtendedMessage | null;
   /** True while the other participant is actively typing in this conversation. */
   peerIsTyping: boolean;
+  /** Emoji to animate for a word effect, and a counter so repeats replay. */
+  wordEffect: { emoji: string | null; burstId: number };
 
   // ── Message CRUD
   onSend: (msgs: ExtendedMessage[]) => void;
@@ -332,6 +357,7 @@ export function InboxProvider({
   const { width } = useWindowDimensions();
   const wrapRef = useRef<View>(null);
   const swipeRef = useRef<any>(null);
+  const token = useAppSelector(selectAuthToken);
 
   // ── Auth / user
   const gifted = useAppSelector(state => state.auth.giftedChatUser);
@@ -369,28 +395,77 @@ export function InboxProvider({
   }, [isGroup, _conversationId, peerUserId, localUserIdStr]);
 
   /** Symmetric group key — derived once after fetching group members. */
-  const [groupCryptoKey, setGroupCryptoKey] = useState<Uint8Array | null>(null);
+  /**
+   * Derive the group key from cached membership on the very first render, so
+   * the thread never paints raw ciphertext while a round-trip is in flight.
+   */
+  const [groupCryptoKey, setGroupCryptoKey] = useState<Uint8Array | null>(() => {
+    if (!isGroup || !_conversationId || !isE2eeEnabled()) return null;
+    const cached = readCachedGroupMembers(_conversationId);
+    if (!cached) return null;
+    try {
+      return deriveGroupMessageKey(_conversationId, cached);
+    } catch {
+      return null;
+    }
+  });
+
+  // Resolves once the key is known (or known to be unavailable). The send path
+  // awaits this so a message composed before the key lands is still encrypted
+  // rather than silently downgraded to plaintext.
+  const groupKeyReadyRef = useRef<Promise<Uint8Array | null> | null>(null);
 
   useEffect(() => {
     if (!isGroup || !_conversationId || !token || !isE2eeEnabled()) {
       setGroupCryptoKey(null);
+      groupKeyReadyRef.current = null;
       return;
     }
+
     let cancelled = false;
-    fetchGroupInfo(_conversationId, token).then(info => {
-      if (cancelled || !info || info.members.length === 0) return;
-      try {
-        const key = deriveGroupMessageKey(
-          _conversationId,
-          info.members.map(m => m.userId),
-        );
-        setGroupCryptoKey(key);
-      } catch {
-        // leave null — group will send/receive plaintext
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    const cachedMembers = readCachedGroupMembers(_conversationId);
+
+    // Always refresh: membership changes invalidate the key, and a stale key
+    // would decrypt nothing once someone joins or leaves.
+    const pending = fetchGroupInfo(_conversationId, token)
+      .then(info => {
+        if (!info || info.members.length === 0) return null;
+        const memberIds = info.members.map(m => m.userId);
+        try {
+          const key = deriveGroupMessageKey(_conversationId, memberIds);
+          if (!cancelled) {
+            if (!sameMembers(cachedMembers, memberIds)) {
+              writeCachedGroupMembers(_conversationId, memberIds);
+            }
+            setGroupCryptoKey(key);
+          }
+          return key;
+        } catch {
+          return null;
+        }
+      })
+      .catch(() => null);
+
+    groupKeyReadyRef.current = pending;
+    return () => {
+      cancelled = true;
+    };
   }, [isGroup, _conversationId, token]);
+
+  /**
+   * Await the group key before deciding whether to encrypt. Without this, a
+   * message sent in the first moments after opening a group went out in
+   * plaintext into an otherwise-encrypted thread.
+   */
+  const resolveGroupKey = useCallback(async (): Promise<Uint8Array | null> => {
+    if (groupCryptoKey) return groupCryptoKey;
+    if (!groupKeyReadyRef.current) return null;
+    try {
+      return await groupKeyReadyRef.current;
+    } catch {
+      return null;
+    }
+  }, [groupCryptoKey]);
 
   const shouldEncryptOutgoing = isE2eeEnabled() && (isGroup ? !!groupCryptoKey : !!dmCryptoKey);
 
@@ -430,6 +505,18 @@ export function InboxProvider({
 
   // ── Typing indicator
   const [peerIsTyping, setPeerIsTyping] = useState(false);
+  const [wordEffect, setWordEffect] = useState<{
+    emoji: string | null;
+    burstId: number;
+  }>({ emoji: null, burstId: 0 });
+
+  /** Play the burst locally; `burstId` bumps so the same word replays. */
+  const playWordEffect = useCallback((emoji: string) => {
+    if (!emoji) return;
+    setWordEffect(prev => ({ emoji, burstId: prev.burstId + 1 }));
+  }, []);
+  /** Last "typing" ping sent, for throttling. 0 = free to ping immediately. */
+  const lastTypingPingRef = useRef(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -441,7 +528,6 @@ export function InboxProvider({
   const bumpRefresh = useCallback(() => setRefreshTrigger(n => n + 1), []);
 
   const { setConversations } = useChats();
-  const token = useAppSelector(selectAuthToken);
 
   const reactionEmojiRow =
     remoteReactionPalette && remoteReactionPalette.length > 0
@@ -491,15 +577,85 @@ export function InboxProvider({
 
       const rawObj = { ...(raw as Record<string, unknown>) };
       const rawContent = String(rawObj.content ?? rawObj.text ?? '').trimStart();
-      if (dmCryptoKey && rawContent.startsWith('HC1:')) {
+      // Set only when a group envelope fails to decrypt with the key we
+      // currently hold — carried onto the parsed message so the retro-decrypt
+      // sweep below can retry it once our member-list cache (and therefore
+      // our derived key) catches up, without ever rendering the raw envelope.
+      let pendingCipherText: string | undefined;
+      if (isV2Envelope(rawContent) || isSenderKeyEnvelope(rawContent)) {
+        // New scheme. decryptIncoming reads the plaintext cache first, so this
+        // is a cache hit for every message after the first — which is what
+        // keeps a long thread instant instead of re-walking the ratchet.
+        rawObj.content = decryptIncoming(
+          id,
+          _conversationId ?? '',
+          cachedPeerDeviceId(peerUserId ?? '') ?? '',
+          rawContent,
+          { dm: dmCryptoKey, group: groupCryptoKey },
+        );
+      } else if (dmCryptoKey && rawContent.startsWith('HC1:')) {
         rawObj.content = maybeDecryptContent(rawContent, dmCryptoKey);
       } else if (groupCryptoKey && rawContent.startsWith('HCG1:')) {
-        rawObj.content = maybeDecryptGroupContent(rawContent, groupCryptoKey);
+        const attempt = maybeDecryptGroupContent(rawContent, groupCryptoKey);
+        if (attempt === rawContent) {
+          // Our key didn't open this — almost always because this device's
+          // cached member list is stale relative to whatever the sender used
+          // (the legacy group key is derived from the member list, so ANY
+          // membership change instantly changes it for everyone, and each
+          // device only catches up whenever its own fetchGroupInfo refresh
+          // lands). That is the "some people see plaintext, some see raw
+          // ciphertext" report — never show the envelope itself; wait for the
+          // sweep below to retry with a fresher key.
+          rawObj.content = '🔒 Decrypting…';
+          pendingCipherText = rawContent;
+        } else {
+          rawObj.content = attempt;
+        }
+      } else if (rawContent.startsWith('HC1:') || rawContent.startsWith('HCG1:')) {
+        // Envelope with no key available YET.
+        //
+        // Group keys are derived from the member list, which needs a network
+        // round trip (fetchGroupInfo), so on first open groupCryptoKey is null
+        // for a moment. The raw envelope used to go straight into message state
+        // and render — that is the "HCG1:…" flash before the text appears.
+        // WhatsApp/Telegram never show this because their keys are local and
+        // decryption happens before the message reaches the UI.
+        //
+        // We cannot make the key local, but we can refuse to render internals:
+        // show a neutral placeholder and let the re-map swap in the real text
+        // when the key lands.
+        rawObj.content = '🔒 Decrypting…';
+        if (rawContent.startsWith('HCG1:')) pendingCipherText = rawContent;
       }
 
       const parsed = mapApiMessageToTimeline(rawObj);
 
       let media = parsed.media;
+      // HC2 media, decrypted through the same path (and the same cache) as text.
+      if (media?.remoteUri && (isV2Envelope(media.remoteUri) || isSenderKeyEnvelope(media.remoteUri))) {
+        media = {
+          ...media,
+          remoteUri: decryptIncoming(
+            `${id}:remote`,
+            _conversationId ?? '',
+            cachedPeerDeviceId(peerUserId ?? '') ?? '',
+            media.remoteUri,
+            { dm: dmCryptoKey, group: groupCryptoKey },
+          ),
+        };
+      }
+      if (media?.url && (isV2Envelope(media.url) || isSenderKeyEnvelope(media.url))) {
+        media = {
+          ...media,
+          url: decryptIncoming(
+            `${id}:url`,
+            _conversationId ?? '',
+            cachedPeerDeviceId(peerUserId ?? '') ?? '',
+            media.url,
+            { dm: dmCryptoKey, group: groupCryptoKey },
+          ),
+        };
+      }
       if (dmCryptoKey && media?.remoteUri?.startsWith('HC1:')) {
         media = {
           ...media,
@@ -513,16 +669,15 @@ export function InboxProvider({
         };
       }
       if (groupCryptoKey && media?.remoteUri?.startsWith('HCG1:')) {
-        media = {
-          ...media,
-          remoteUri: maybeDecryptGroupContent(media.remoteUri, groupCryptoKey),
-        };
+        const attempt = maybeDecryptGroupContent(media.remoteUri, groupCryptoKey);
+        // A stale key leaves this unchanged — never hand a raw envelope to an
+        // <Image>/<Video> source as if it were a real URL; drop it instead so
+        // this render falls back to no-media rather than a broken fetch.
+        media = { ...media, remoteUri: attempt === media.remoteUri ? undefined : attempt };
       }
       if (groupCryptoKey && media?.url?.startsWith('HCG1:')) {
-        media = {
-          ...media,
-          url: maybeDecryptGroupContent(media.url!, groupCryptoKey),
-        };
+        const attempt = maybeDecryptGroupContent(media.url!, groupCryptoKey);
+        media = { ...media, url: attempt === media.url ? undefined : attempt };
       }
 
       const hint = extractOutgoingHint(rawDict);
@@ -595,11 +750,50 @@ export function InboxProvider({
       const rawReplyTo = raw.replyTo ?? raw.reply_to;
       const replyToSenderPage: Record<string, unknown> | null =
         rawReplyTo?.senderPage ?? rawReplyTo?.sender_page ?? null;
+      // The quoted message needs the SAME treatment as the message itself:
+      // decrypted, and with its media mapped.
+      //
+      //  - text was used raw, so replying to an encrypted message quoted the
+      //    literal "HC1:…" ciphertext.
+      //  - media was hardcoded `undefined`, so a reply to a photo/video/voice
+      //    had nothing to render a thumbnail or a "🎤 Voice message" label from
+      //    and fell through to the text field — which for a media message is
+      //    the raw file URL. That is the "voice shows a link" report.
+      const rawReplyContent = String(
+        rawReplyTo?.content ?? rawReplyTo?.text ?? '',
+      ).trimStart();
+      let replyText = rawReplyContent;
+      if (dmCryptoKey && rawReplyContent.startsWith('HC1:')) {
+        replyText = maybeDecryptContent(rawReplyContent, dmCryptoKey);
+      } else if (groupCryptoKey && rawReplyContent.startsWith('HCG1:')) {
+        const attempt = maybeDecryptGroupContent(rawReplyContent, groupCryptoKey);
+        // Same stale-key case as the main message above — never show the
+        // quoted message's raw envelope.
+        replyText = attempt === rawReplyContent ? '🔒 Decrypting…' : attempt;
+      } else if (rawReplyContent.startsWith('HCG1:')) {
+        replyText = '🔒 Decrypting…';
+      }
+
+      let replyMedia = rawReplyTo
+        ? mapApiMessageToTimeline({ ...rawReplyTo, content: replyText }).media
+        : undefined;
+      if (dmCryptoKey && replyMedia?.url?.startsWith('HC1:')) {
+        replyMedia = { ...replyMedia, url: maybeDecryptContent(replyMedia.url, dmCryptoKey) };
+      }
+      if (dmCryptoKey && replyMedia?.remoteUri?.startsWith('HC1:')) {
+        replyMedia = {
+          ...replyMedia,
+          remoteUri: maybeDecryptContent(replyMedia.remoteUri, dmCryptoKey),
+        };
+      }
+
       const replyToMapped = rawReplyTo
         ? {
             _id: String(rawReplyTo.id ?? rawReplyTo._id ?? ''),
-            text: String(rawReplyTo.content ?? rawReplyTo.text ?? ''),
-            media: undefined,
+            // Media messages carry a URL as their content — showing that as the
+            // quote is meaningless, so let ReplyPreview use its media label.
+            text: replyMedia ? '' : replyText,
+            media: replyMedia,
             user: (() => {
               const uid = String(
                 rawReplyTo.sender?.user_id ?? rawReplyTo.senderUserId ?? rawReplyTo.senderId ?? '',
@@ -631,9 +825,12 @@ export function InboxProvider({
         media,
         messageKind: parsed.messageKind,
         donationRequest: parsed.donationRequest,
+        bookingCard: parsed.bookingCard,
+        storyReply: parsed.storyReply,
         delivery: parsed.delivery,
         outgoingHint: hint,
         replyTo: replyToMapped,
+        pendingCipherText,
         ...(raw.editedAt ?? raw.edited_at
           ? { editedAt: String(raw.editedAt ?? raw.edited_at) }
           : {}),
@@ -658,6 +855,15 @@ export function InboxProvider({
   const mapHopenityMessageRef = useRef(mapHopenityMessage);
   mapHopenityMessageRef.current = mapHopenityMessage;
 
+  // seedMessages gets a new array reference on almost every inbox poll (the
+  // whole `conversations` list re-renders for unrelated previews/unread
+  // counts), not just when this thread's own messages change. Reading it via
+  // ref keeps the initial-load effect below off that churn — without this it
+  // was in the effect's deps and re-ran on every poll, resetting pageRef to 1
+  // and discarding any older messages "load earlier" had just prepended.
+  const seedMessagesRef = useRef(seedMessages);
+  seedMessagesRef.current = seedMessages;
+
   const messagesForUi = useMemo(() => {
     if (disappearingTtlSec <= 0) return messages;
     const now = Date.now();
@@ -671,7 +877,6 @@ export function InboxProvider({
       return now - t <= ttlMs;
     });
   }, [messages, disappearingTtlSec, disappearPulse]);
-
   const updateConversationPreview = useCallback(
     (content: string, timestamp: string | Date | number) => {
       if (!_conversationId) return;
@@ -690,6 +895,10 @@ export function InboxProvider({
           preview: content,
           time: timeStr,
           unreadCount: 0,
+          // Keep the sort key in step with the visual bump, or the row returns
+          // to its old position the next time the list is sorted or restored
+          // from cache.
+          sortAt: new Date(iso).getTime() || Date.now(),
         };
         const next = [row, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
         // Persist new order so cold-start cache reflects the latest message.
@@ -737,7 +946,7 @@ export function InboxProvider({
       _conversationId && token
         ? readThreadMessagesCache(_conversationId)
         : null;
-    const fromSeed = seedMessages?.length ? seedMessages : [];
+    const fromSeed = seedMessagesRef.current?.length ? seedMessagesRef.current : [];
     const base = fromSeed.length
       ? fromSeed
       : cached?.length
@@ -819,17 +1028,12 @@ export function InboxProvider({
     };
 
     load();
-    // mapHopenityMessage is intentionally NOT a dependency — see
-    // mapHopenityMessageRef above. This effect should only run on a genuine
-    // conversation switch / reconnect, not every time the group crypto key
-    // resolves (that's handled by the retro-decrypt pass + fresh polls).
-  }, [
-    _conversationId,
-    seedMessages,
-    token,
-    threadIntroPeer,
-    mergeLocalCallLogsFromCache,
-  ]);
+    // mapHopenityMessage and seedMessages are intentionally NOT dependencies —
+    // see mapHopenityMessageRef / seedMessagesRef above. This effect should
+    // only run on a genuine conversation switch / reconnect, not every time
+    // the group crypto key resolves or the inbox list re-renders (those are
+    // handled by the retro-decrypt pass + fresh polls / loadEarlier).
+  }, [_conversationId, token, threadIntroPeer, useV2Messages, isGroup]);
 
   // ─── Live poll: fetch new messages, on-demand (socket push) and every 15 s
   // as a fallback while this chat is open ────────────────────────────────────
@@ -883,12 +1087,26 @@ export function InboxProvider({
         const oldestIdRaw = page > 1 ? allMessages[0]?._id : undefined;
         const before =
           oldestIdRaw !== undefined ? String(oldestIdRaw) : undefined;
+        if (__DEV__) {
+          console.log('[HopeChat DEBUG][inbox] fetchMessages request', {
+            page, before, allMessagesLen: allMessages.length, isGroup: useV2Messages,
+          });
+        }
         const res = await fetchHopenityChatMessages(_conversationId, token, {
           limit: PAGE_SIZE,
           before,
           isGroup: useV2Messages,
         });
         const chunk = res.messages ?? [];
+        if (__DEV__) {
+          console.log('[HopeChat DEBUG][inbox] fetchMessages response', {
+            page,
+            chunkLen: chunk.length,
+            pagination: res.pagination,
+            firstId: chunk[0] ? (chunk[0] as Record<string, unknown>).id : undefined,
+            lastId: chunk[chunk.length - 1] ? (chunk[chunk.length - 1] as Record<string, unknown>).id : undefined,
+          });
+        }
         const mapped = chunk.map(mapHopenityMessage);
         // Normalise to ascending (oldest first) regardless of API version order.
         mapped.sort((a, b) => {
@@ -924,13 +1142,19 @@ export function InboxProvider({
         setLoadingMore(false);
       }
     },
-    [_conversationId, token, allMessages, mapHopenityMessage, threadIntroPeer],
+    [_conversationId, token, allMessages, useV2Messages, mapHopenityMessage, threadIntroPeer],
   );
 
   // ─── Pagination ────────────────────────────────────────────────────────────
 
   const loadEarlier = useCallback(() => {
-    if (loadingMore || !hasMore) return;
+    if (__DEV__) {
+      console.log('[HopeChat DEBUG][inbox] loadEarlier called', { loadingMore, hasMore, nextPage: pageRef.current + 1 });
+    }
+    if (loadingMore || !hasMore) {
+      if (__DEV__) console.log('[HopeChat DEBUG][inbox] loadEarlier BLOCKED', { loadingMore, hasMore });
+      return;
+    }
     const next = pageRef.current + 1;
     pageRef.current = next;
     fetchMessages(next);
@@ -944,6 +1168,26 @@ export function InboxProvider({
         mergeIntroDesc([msg, ...stripIntro(prev)], threadIntroPeer),
       );
       setAllMessages(prev => [...prev, msg]);
+    },
+    [threadIntroPeer],
+  );
+
+  /**
+   * Append unless the id is already present. The socket push and the 15s poll
+   * can both deliver the same row, and GiftedChat renders duplicate keys as
+   * duplicate bubbles.
+   */
+  const appendMessageIfNew = useCallback(
+    (msg: ExtendedMessage) => {
+      setMessages(prev => {
+        if (stripIntro(prev).some(m => String(m._id) === String(msg._id))) {
+          return prev;
+        }
+        return mergeIntroDesc([msg, ...stripIntro(prev)], threadIntroPeer);
+      });
+      setAllMessages(prev =>
+        prev.some(m => String(m._id) === String(msg._id)) ? prev : [...prev, msg],
+      );
     },
     [threadIntroPeer],
   );
@@ -1032,32 +1276,95 @@ export function InboxProvider({
     // Fetch the new message immediately when the socket event arrives, instead
     // of waiting for the 15s poll — this is what made incoming messages feel
     // slower than the sender's own optimistic echo.
-    const unsubNew = callSocket.onNewMessage(({ chatId }) => {
+    const unsubNew = callSocket.onNewMessage(({ chatId, message }) => {
       if (String(chatId) !== String(_conversationId)) return;
+
+      // The server pushes the whole message row. Render it immediately — the
+      // old path threw the payload away and refetched the thread over REST,
+      // which added a full round-trip to every incoming message and is what
+      // made chatting feel laggy even with both people online.
+      if (message) {
+        try {
+          const mapped = mapHopenityMessage(message);
+          // Skip our own echo: the optimistic bubble is already on screen.
+          if (String(mapped.user._id) !== String(localUserIdStr)) {
+            appendMessageIfNew(mapped);
+            // A word I configured, arriving from them, animates on my side too.
+            const incomingEffect = matchWordEffect(mapped.text ?? '');
+            if (incomingEffect) playWordEffect(incomingEffect.emoji);
+            DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+            return;
+          }
+          DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+          return;
+        } catch {
+          // Malformed or an encrypted shape we can't map yet — fall back.
+        }
+      }
+
       pollMessagesNow();
       DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
     });
 
+    // The peer matched a word effect on their side. The emoji rides along with
+    // the event, so it plays here even if this device has no such word saved.
+    const unsubWordEffect = callSocket.onWordEffect(({ chatId, emoji, fromUserId }) => {
+      if (String(chatId) !== String(_conversationId)) return;
+      if (fromUserId && String(fromUserId) === String(localUserIdStr)) return;
+      playWordEffect(emoji);
+    });
+
+    // The backend suppresses the push banner for a message whenever the recipient's
+    // socket is joined to this chat's room (it assumes that means they're already
+    // looking at it live). That's correct while the app is foregrounded, but this
+    // effect only re-runs on navigation/unmount — backgrounding the app (or just
+    // switching to another app) does NOT unmount this screen, so the join lingered
+    // forever and every message to this chat silently stopped pushing a notification
+    // until the socket eventually dropped. Leave the room the moment the app leaves
+    // the foreground, and rejoin if the user comes back to this same screen.
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        callSocket.joinChatRoom(_conversationId);
+      } else {
+        callSocket.leaveChatRoom(_conversationId);
+      }
+    });
+
     return () => {
       callSocket.leaveChatRoom(_conversationId);
+      appStateSub.remove();
       unsubDeleted();
       unsubNew();
+      unsubWordEffect();
     };
-  }, [_conversationId, deleteMessage, pollMessagesNow]);
+  }, [
+    _conversationId,
+    appendMessageIfNew,
+    deleteMessage,
+    localUserIdStr,
+    mapHopenityMessage,
+    playWordEffect,
+    pollMessagesNow,
+  ]);
 
   // ─── Retro-decrypt: groupCryptoKey is derived asynchronously (after an
-  // extra fetchGroupInfo round-trip), so any group message mapped before it
-  // resolved was stored with its raw "HCG1:…" ciphertext still in `.text` and
-  // never re-processed. Once the key becomes available, sweep the messages
-  // already in state and decrypt anything still ciphertext-shaped.
+  // extra fetchGroupInfo round-trip, or a member-list cache that just caught
+  // up with a recent membership change), so a group message can be mapped
+  // before the RIGHT key is available. `pendingCipherText` is where the real
+  // ciphertext for a still-placeholder message lives (see the mapping above —
+  // `.text` itself is only ever the "🔒 Decrypting…" placeholder, never the raw
+  // envelope). Retry every such message whenever the key changes.
   useEffect(() => {
     if (!isGroup || !groupCryptoKey) return;
     const decryptPass = (list: ExtendedMessage[]) =>
       list.map(m => {
-        const t = String(m.text ?? '');
-        if (!t.startsWith('HCG1:')) return m;
-        const plain = maybeDecryptGroupContent(t, groupCryptoKey);
-        return plain === t ? m : { ...m, text: plain };
+        // Backward-compat: a message stored before this field existed could
+        // still have raw ciphertext sitting directly in `.text`.
+        const cipher = m.pendingCipherText ?? (String(m.text ?? '').startsWith('HCG1:') ? m.text : undefined);
+        if (!cipher) return m;
+        const plain = maybeDecryptGroupContent(cipher, groupCryptoKey);
+        if (plain === cipher) return m; // still doesn't open — keep waiting
+        return { ...m, text: plain, pendingCipherText: undefined };
       });
     setAllMessages(prev => decryptPass(prev));
     setMessages(prev => mergeIntroDesc(decryptPass(stripIntro(prev)), threadIntroPeer));
@@ -1091,17 +1398,33 @@ export function InboxProvider({
     };
   }, [_conversationId, localUserIdStr]);
 
+  /** Throttle window for "still typing" pings — see setText. */
+  const TYPING_PING_MS = 2500;
+  /** Silence after which the peer's indicator should clear. */
+  const TYPING_STOP_MS = 2000;
+
   const setText = useCallback(
     (t: string) => {
       setTextRaw(t);
       if (!_conversationId || !localUserIdStr) return;
 
-      callSocket.emitTyping(_conversationId, localUserIdStr);
+      // Throttled: this fired a socket emit on EVERY keystroke, so a normal
+      // sentence sent 40+ messages, each of which the server answered with two
+      // database queries to resolve participants. One ping every 2.5s conveys
+      // exactly the same thing — the peer's indicator is refreshed well inside
+      // its own 5s safety timeout.
+      const now = Date.now();
+      if (now - lastTypingPingRef.current > TYPING_PING_MS) {
+        lastTypingPingRef.current = now;
+        callSocket.emitTyping(_conversationId, localUserIdStr);
+      }
 
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
+        // Allow the next keystroke after the pause to ping immediately.
+        lastTypingPingRef.current = 0;
         callSocket.emitStopTyping(_conversationId, localUserIdStr);
-      }, 1000);
+      }, TYPING_STOP_MS);
     },
     [_conversationId, localUserIdStr],
   );
@@ -1109,8 +1432,14 @@ export function InboxProvider({
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      // Leaving the thread mid-word used to leave the peer's indicator running
+      // until their 5s fallback — tell them explicitly.
+      if (_conversationId && localUserIdStr && lastTypingPingRef.current > 0) {
+        lastTypingPingRef.current = 0;
+        callSocket.emitStopTyping(_conversationId, localUserIdStr);
+      }
     };
-  }, []);
+  }, [_conversationId, localUserIdStr]);
 
   // ─── Edit text ─────────────────────────────────────────────────────────────
 
@@ -1184,6 +1513,18 @@ export function InboxProvider({
           }
         : undefined;
 
+      // Word effects: match on what I typed, animate here, and relay the emoji so
+      // the other person sees the same burst without configuring the word.
+      outgoing.forEach(msg => {
+        const effect = matchWordEffect(msg.text ?? '');
+        if (effect) {
+          playWordEffect(effect.emoji);
+          if (_conversationId) {
+            callSocket.emitWordEffect(_conversationId, effect.emoji, effect.word);
+          }
+        }
+      });
+
       outgoing.forEach(msg => {
         const uid =
           normalizeChatUserId(msg.user?._id ?? user._id) || user._id;
@@ -1218,11 +1559,62 @@ export function InboxProvider({
 
         if (_conversationId && token) {
           const plain = String(stamped.text ?? '');
+          void (async () => {
           let wire = plain;
-          if (shouldEncryptOutgoing && plain.length > 0) {
-            wire = isGroup
-              ? encryptGroupMessage(plain, groupCryptoKey!)
-              : encryptMessagePayload(plain, dmCryptoKey!);
+          if (isE2eeEnabled() && plain.length > 0) {
+            if (isGroup) {
+              // Sender keys (HCG2) — one ciphertext for the whole group, and a
+              // key the server never sees. The legacy group key derived from the
+              // group id + member list, both of which the server knows, so it
+              // could read every group message; it stays only as a fallback for
+              // members who have not updated yet.
+              const sealed = _conversationId && localUserIdStr
+                ? encryptGroupOutgoing(_conversationId, localUserIdStr, plain)
+                : null;
+              if (sealed) {
+                wire = sealed;
+                rememberOwnMessage(String(stamped._id), plain);
+              } else {
+                const gk = await resolveGroupKey();
+                if (gk) wire = encryptGroupMessage(plain, gk);
+              }
+            } else if (peerUserId && token) {
+              // Real end-to-end (HC2) when the peer has published keys.
+              const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
+              if (keys.mode === 'blocked') {
+                // This conversation has been encrypted before and the peer's
+                // keys have vanished. That is what a downgrade attack looks
+                // like, so refuse to send rather than fall back to the weaker
+                // scheme behind the user's back.
+                updateMessage(stamped._id, { pending: false, failed: true });
+                Toast.error('Could not send securely. Try again in a moment.');
+                return;
+              }
+              if (keys.mode === 'e2ee') {
+                // Seal for EVERY device the peer has published, not just the
+                // newest: a session is between two devices, so a copy sealed for
+                // their phone is unreadable on their tablet.
+                const all = cachedPeerBundles(peerUserId);
+                const sealed =
+                  all.length > 1
+                    ? encryptOutgoingMultiDevice(_conversationId, all, plain)
+                    : encryptOutgoing(_conversationId, keys.bundle, plain);
+                // Remember our own plaintext: the ratchet key for a message we
+                // sent is consumed, so this is the only way to render it back.
+                if (sealed) {
+                  wire = sealed;
+                  rememberOwnMessage(String(stamped._id), plain);
+                } else if (dmCryptoKey) {
+                  wire = encryptMessagePayload(plain, dmCryptoKey);
+                }
+              } else if (dmCryptoKey) {
+                // Peer has not updated yet — legacy scheme keeps the
+                // conversation working instead of breaking it on day one.
+                wire = encryptMessagePayload(plain, dmCryptoKey);
+              }
+            } else if (dmCryptoKey) {
+              wire = encryptMessagePayload(plain, dmCryptoKey);
+            }
           }
           sendHopenityChatMessage(_conversationId, wire, token, activePage?.id ?? null, useV2Messages, currentReplyTo?._id ?? null)
             .then(res => {
@@ -1260,6 +1652,7 @@ export function InboxProvider({
               console.error('[InboxProvider] send message error:', err);
               updateMessage(stamped._id, { pending: false, failed: true });
             });
+          })();
         } else {
           setTimeout(() => updateMessage(stamped._id, { pending: false }), 800);
         }
@@ -1281,10 +1674,11 @@ export function InboxProvider({
       token,
       updateConversationPreview,
       localUserIdStr,
-      shouldEncryptOutgoing,
+      resolveGroupKey,
       dmCryptoKey,
       groupCryptoKey,
       isGroup,
+      playWordEffect,
     ],
   );
 
@@ -1334,9 +1728,28 @@ export function InboxProvider({
             });
             let wire = remoteUri;
             if (shouldEncryptOutgoing) {
-              wire = isGroup
-                ? encryptGroupMessage(remoteUri, groupCryptoKey!)
-                : encryptMessagePayload(remoteUri, dmCryptoKey!);
+              // Media URLs go through the SAME scheme as text. Leaving them on
+              // the old key meant an upgraded conversation protected what was
+              // said and leaked every photo, video and voice note in it — worse
+              // than not claiming protection at all.
+              let sealedMedia: string | null = null;
+              if (isGroup && _conversationId && localUserIdStr) {
+                sealedMedia = encryptGroupOutgoing(_conversationId, localUserIdStr, remoteUri);
+              } else if (peerUserId && token && _conversationId) {
+                const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
+                if (keys.mode === 'e2ee') {
+                  const all = cachedPeerBundles(peerUserId);
+                  sealedMedia =
+                    all.length > 1
+                      ? encryptOutgoingMultiDevice(_conversationId, all, remoteUri)
+                      : encryptOutgoing(_conversationId, keys.bundle, remoteUri);
+                }
+              }
+              wire = sealedMedia
+                ? sealedMedia
+                : isGroup
+                  ? encryptGroupMessage(remoteUri, groupCryptoKey!)
+                  : encryptMessagePayload(remoteUri, dmCryptoKey!);
             }
             const sent = await sendHopenityChatMessage(
               _conversationId,
@@ -1444,9 +1857,28 @@ export function InboxProvider({
             });
             let wire = remoteUri;
             if (shouldEncryptOutgoing) {
-              wire = isGroup
-                ? encryptGroupMessage(remoteUri, groupCryptoKey!)
-                : encryptMessagePayload(remoteUri, dmCryptoKey!);
+              // Media URLs go through the SAME scheme as text. Leaving them on
+              // the old key meant an upgraded conversation protected what was
+              // said and leaked every photo, video and voice note in it — worse
+              // than not claiming protection at all.
+              let sealedMedia: string | null = null;
+              if (isGroup && _conversationId && localUserIdStr) {
+                sealedMedia = encryptGroupOutgoing(_conversationId, localUserIdStr, remoteUri);
+              } else if (peerUserId && token && _conversationId) {
+                const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
+                if (keys.mode === 'e2ee') {
+                  const all = cachedPeerBundles(peerUserId);
+                  sealedMedia =
+                    all.length > 1
+                      ? encryptOutgoingMultiDevice(_conversationId, all, remoteUri)
+                      : encryptOutgoing(_conversationId, keys.bundle, remoteUri);
+                }
+              }
+              wire = sealedMedia
+                ? sealedMedia
+                : isGroup
+                  ? encryptGroupMessage(remoteUri, groupCryptoKey!)
+                  : encryptMessagePayload(remoteUri, dmCryptoKey!);
             }
             const sent = await sendHopenityChatMessage(
               _conversationId,
@@ -1532,11 +1964,19 @@ export function InboxProvider({
             },
           ];
 
+      // Optimistic, then persist. Without the server call the reaction lived
+      // only in local state: it vanished on reload and the other person never
+      // saw it.
       updateMessage(msg._id, { reactions: updated });
 
-      // TODO: api.reactToMessage(msg._id, emoji, alreadyReacted ? 'remove' : 'add');
+      if (!token) return;
+      void reactToMessage(msg._id, emoji, token).then(ok => {
+        if (ok) return;
+        // Roll back so the UI doesn't claim a reaction the server rejected.
+        updateMessage(msg._id, { reactions: existing });
+      });
     },
-    [user._id, user.name, updateMessage],
+    [user._id, user.name, updateMessage, token],
   );
 
   // ─── Reply ─────────────────────────────────────────────────────────────────
@@ -1554,8 +1994,9 @@ export function InboxProvider({
       let text = msg.text ?? '';
       if (text.startsWith('HC1:') && dmCryptoKey) {
         text = maybeDecryptContent(text, dmCryptoKey);
-      } else if (text.startsWith('HCG1:') && groupCryptoKey) {
-        text = maybeDecryptGroupContent(text, groupCryptoKey);
+      } else if (text.startsWith('HCG1:')) {
+        const attempt = groupCryptoKey ? maybeDecryptGroupContent(text, groupCryptoKey) : text;
+        text = attempt === text ? '🔒 Decrypting…' : attempt;
       }
       setEditingMessage(null);
       dispatch(
@@ -1672,20 +2113,80 @@ export function InboxProvider({
 
   // ─── Camera ────────────────────────────────────────────────────────────────
 
+/**
+ * Gallery videos are NOT compressed.
+ *
+ * react-native-image-picker's `quality` / `maxWidth` / `maxHeight` apply to
+ * images only, and `videoQuality` only affects what the CAMERA records — a video
+ * chosen from the gallery is handed over at its original size. A phone-shot clip
+ * is easily 100 MB+, and pushing that through one multipart POST on a mobile
+ * uplink is what made "video won't send" look like a silent failure.
+ *
+ * Until a real transcode step exists, refuse oversized clips with a message the
+ * user can act on instead of letting them stall.
+ */
+const MAX_VIDEO_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+function videoTooLarge(sizeBytes?: number | null): boolean {
+  return typeof sizeBytes === 'number' && sizeBytes > MAX_VIDEO_UPLOAD_BYTES;
+}
+
+const VIDEO_EXTENSIONS =
+  /\.(mp4|mov|m4v|3gp|3g2|mkv|webm|avi|wmv|flv|mpeg|mpg|ts|ogv|qt)(\?|$)/i;
+
+/**
+ * Is this picked asset a video?
+ *
+ * `asset.type` alone is NOT reliable and relying on it is what broke video
+ * sending. react-native-image-picker copies a picked video to app storage and
+ * then derives its `type` via Android's `getMimeTypeFromExtension`, which
+ * returns null for plenty of ordinary paths (unrecognised or upper-case
+ * extension, characters that trip `getFileExtensionFromUrl`). With `type` null,
+ * `type?.startsWith('video')` is false, so the clip took the IMAGE branch and
+ * was uploaded as `image/jpeg` named `.jpg` — the server stored a "photo" that
+ * was really an MP4, and the bubble rendered as a broken image.
+ *
+ * So we corroborate with two things the picker fills in independently:
+ * the file extension, and `duration` — which is present ONLY on
+ * `getVideoResponseMap`, never on an image asset.
+ */
+function isVideoAsset(asset: {
+  type?: string | null;
+  uri?: string | null;
+  fileName?: string | null;
+  duration?: number | null;
+}): boolean {
+  if (asset.type?.toLowerCase().startsWith('video')) return true;
+  if (typeof asset.duration === 'number' && asset.duration > 0) return true;
+  const name = asset.fileName ?? asset.uri ?? '';
+  return VIDEO_EXTENSIONS.test(name);
+}
+
   const handleCameraPress = useCallback(async () => {
     const ok = await checkCameraPermission();
     if (!ok) return;
 
     launchCamera(
-      { mediaType: 'mixed' as MediaType, videoQuality: 'low', quality: 0.8 },
+      {
+        mediaType: 'mixed' as MediaType,
+        videoQuality: 'low',
+        quality: 0.8,
+        // Downscale before upload. Without a cap a 12MP camera photo goes up at
+        // full resolution (4–8 MB), which is why sending an image felt slow;
+        // the picker resizes natively, so this costs nothing on-device.
+        maxWidth: 1600,
+        maxHeight: 1600,
+      },
       response => {
         if (response.didCancel || response.errorCode) return;
         const asset = response.assets?.[0];
         if (!asset?.uri) return;
-        sendMediaMessage(
-          asset.uri,
-          asset.type?.startsWith('video') ? 'video' : 'image',
-        );
+        const isVideo = isVideoAsset(asset);
+        if (isVideo && videoTooLarge(asset.fileSize)) {
+          Toast.error('That video is too large to send. Try a shorter clip.');
+          return;
+        }
+        void sendMediaMessage(asset.uri, isVideo ? 'video' : 'image');
       },
     );
   }, [sendMediaMessage]);
@@ -1699,19 +2200,38 @@ export function InboxProvider({
         selectionLimit: 10,   // up to 10 at once (WhatsApp-style)
         quality: 0.8,
         videoQuality: 'low',  // hardware-compress videos before upload
+        // Same cap as the camera path — gallery originals are just as large.
+        maxWidth: 1600,
+        maxHeight: 1600,
       },
       response => {
         if (response.didCancel || response.errorCode) return;
         const assets = response.assets ?? [];
         if (assets.length === 0) return;
-        // Send each asset sequentially so the order is preserved
-        assets.forEach(asset => {
-          if (!asset?.uri) return;
-          sendMediaMessage(
-            asset.uri,
-            asset.type?.startsWith('video') ? 'video' : 'image',
-          );
-        });
+        // Genuinely sequential. `assets.forEach(sendMediaMessage)` fired all ten
+        // uploads at once despite the comment claiming otherwise: on a mobile
+        // uplink that makes every one of them slower, and a burst of parallel
+        // multipart POSTs is what tips a large batch into timeouts. One at a
+        // time is faster end-to-end and actually preserves order.
+        void (async () => {
+          let skipped = 0;
+          for (const asset of assets) {
+            if (!asset?.uri) continue;
+            const isVideo = isVideoAsset(asset);
+            if (isVideo && videoTooLarge(asset.fileSize)) {
+              skipped += 1;
+              continue;
+            }
+            await sendMediaMessage(asset.uri, isVideo ? 'video' : 'image');
+          }
+          if (skipped > 0) {
+            Toast.error(
+              skipped === 1
+                ? 'One video was too large to send.'
+                : `${skipped} videos were too large to send.`,
+            );
+          }
+        })();
       },
     );
   }, [sendMediaMessage]);
@@ -1781,6 +2301,7 @@ export function InboxProvider({
     hasMore,
     replyTo,
     peerIsTyping,
+    wordEffect,
 
     // Message CRUD
     onSend,

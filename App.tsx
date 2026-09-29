@@ -16,6 +16,8 @@ import { ThemeProvider, useAppTheme } from './src/context/ThemeContext';
 import { LanguageProvider } from './src/context/LanguageContext';
 import AuthBootstrap from './src/components/AuthBootstrap';
 import IncomingCallListener from './src/components/IncomingCallListener';
+import CallWaitingBanner from './src/components/CallWaitingBanner';
+import CallStatusBanner from './src/components/CallStatusBanner';
 import AppErrorBoundary from './src/components/AppErrorBoundary';
 import { ToastContainer } from './src/components/Toast';
 import { refreshExchangeRates } from './src/utils/currency';
@@ -57,6 +59,10 @@ const PEER_DEEP_LINK_RE = /^hopechat:\/\/peer\/([^/?#]+)(?:\?(.*))?/i;
 const PEER_PATH_RE        = /^peer\/([^/?#]+)(?:\?(.*))?/i;
 // Same paths as top-level regexes but without the scheme prefix — used when
 // the path arrives as the `redirect` value inside a hopechat://auth link.
+// hopechat://thread/{conversationId} — Hopenity's "Message" CTAs and the share
+// sheet both hand off with this. It had NO handler, so every one of them opened
+// HopeChat on the inbox instead of the conversation.
+const THREAD_PATH_RE      = /^thread\/([^/?#]+)(?:\?(.*))?/i;
 const BOOK_CALL_PATH_RE   = /^book-call\/([^/?#]+)(?:\?(.*))?/i;
 const HOPE_WISH_PATH_RE   = /^hope-wish\/([^/?#]+)(?:\?(.*))?/i;
 const PREMIUM_SETUP_PATH_RE = /^premium-calls\/setup/i;
@@ -140,6 +146,32 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
       }
 
       // ── book-call/{userId} redirect → open BookCall screen ───────────────
+      const tm = redirect.match(THREAD_PATH_RE);
+      if (tm?.[1]) {
+        const qs = tm[2];
+        const shareUrl = parseQs(qs, 'shareUrl');
+        setPendingPeerLink({
+          // Thread links identify the conversation directly; peerId is unknown
+          // and unnecessary because chatId short-circuits the peer lookup.
+          peerId: '',
+          chatId: decodeURIComponent(tm[1]),
+          displayName: parseQs(qs, 'name'),
+          avatarUrl: parseQs(qs, 'avatar') ?? null,
+          senderPageId: parseQs(qs, 'senderPageId') ?? null,
+          senderPageName: parseQs(qs, 'senderPageName') ?? null,
+          senderPageImage: parseQs(qs, 'senderPageImage') ?? null,
+          share: shareUrl
+            ? {
+                url: shareUrl,
+                postId: parseQs(qs, 'sharePostId') ?? null,
+                text: parseQs(qs, 'shareText') ?? null,
+                image: parseQs(qs, 'shareImage') ?? null,
+              }
+            : null,
+        });
+        return;
+      }
+
       const bcPath = redirect.match(BOOK_CALL_PATH_RE);
       if (bcPath?.[1]) {
         const userId = decodeURIComponent(bcPath[1]);
@@ -308,6 +340,9 @@ const AppInner = () => {
     <ChatsProvider>
       <IncomingCallListener />
       <RootNavigator />
+      {/* Overlays the call screens, so it must render AFTER the navigator. */}
+      <CallStatusBanner />
+      <CallWaitingBanner />
     </ChatsProvider>
   ) : (
     <PublicStackNavigator />

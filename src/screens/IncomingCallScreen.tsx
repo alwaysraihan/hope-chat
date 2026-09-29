@@ -30,8 +30,16 @@ import {
   getActiveCall,
 } from '../services/livekit/activeCallRegistry';
 import { beginCallTransition } from '../services/callTransitionGuard';
-import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
+import {
+  notifyCallEndedByRoom,
+  notifyPeerCallRejected,
+} from '../services/invitePeerToHopeChatCall';
+import {
+  isCallCancelled,
+  markCallCancelled,
+} from '../services/incomingCall/navigateIncomingCall';
 import { store } from '../redux/store';
+import { ensureCallPermissions } from '../utils/permissions';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'IncomingCall'>;
 
@@ -56,8 +64,15 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
   const pulse = useRef(new Animated.Value(1)).current;
   const acceptedRef = useRef(false);
 
+  /** Ring for at most this long. Protects against a cancel signal that never
+   *  arrives (caller lost network / was force-quit) leaving the phone ringing. */
+  const RING_TIMEOUT_MS = 60_000;
+
   const decline = useCallback(() => {
     acceptedRef.current = true;
+    // Any late re-delivery of this invite (socket + FCM both fire) must not
+    // start the ring again after the user declined.
+    if (liveKitRoom) markCallCancelled(liveKitRoom);
     stopIncomingCallRingtone();
     Vibration.cancel();
     void cancelAndroidIncomingCallNotification();
@@ -75,12 +90,23 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     // Group calls: one member declining must NOT cancel the call — other members
     // can still answer, so only dismiss locally.
     const token = store.getState().auth.token;
-    if (token && conversationId?.trim() && liveKitRoom && !isGroupRing) {
-      void notifyPeerCallRejected({
-        token,
-        conversationId: conversationId.trim(),
-        liveKitRoom,
-      });
+    // Room-keyed, so a decline still reaches the caller when the invite carried
+    // no conversationId. It previously required one, and a payload without it
+    // silently skipped this call entirely — the caller then rang for the full
+    // 60s no-answer timeout with no idea they had been declined.
+    if (token && liveKitRoom && !isGroupRing) {
+      void notifyCallEndedByRoom({ token, liveKitRoom });
+      // notifyCallEndedByRoom alone doesn't reliably trigger the caller's
+      // call_cancelled signal — notifyPeerCallRejected is the endpoint built
+      // specifically for that, so the caller's ring stops immediately instead
+      // of running the full 60s no-answer timeout.
+      if (conversationId?.trim()) {
+        void notifyPeerCallRejected({
+          token,
+          conversationId: conversationId.trim(),
+          liveKitRoom,
+        });
+      }
     }
     navigation.goBack();
   }, [
@@ -110,6 +136,13 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     };
     const targetRoute = callKind === 'video' ? 'VideoCall' : 'AudioCall';
 
+    // The caller hung up between the ring and this tap — joining now would
+    // drop the user into an empty room that only ends on the 60s timeout.
+    if (liveKitRoom && isCallCancelled(liveKitRoom)) {
+      try { navigation.goBack(); } catch { /* already popped */ }
+      return;
+    }
+
     /**
      * Concurrent-call handover: if there's already a LiveKit call alive in another screen, tear
      * it down before joining the new room. Two simultaneous LiveKit rooms on the same client
@@ -118,6 +151,17 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     const active = getActiveCall();
 
     void (async () => {
+      // Prompt before joining. Denying here should return the user to where
+      // they were rather than dropping them into a room they can't publish to.
+      if (!(await ensureCallPermissions(callKind === 'video' ? 'video' : 'audio'))) {
+        acceptedRef.current = false;
+        try {
+          navigation.goBack();
+        } catch {
+          /* already popped */
+        }
+        return;
+      }
       try {
         if (active && active.liveKitRoom !== liveKitRoom) {
           beginCallTransition(800);
@@ -168,6 +212,29 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     if (autoAccept) accept();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Cancel arrived before this screen mounted (cold start races the cancel push).
+  useEffect(() => {
+    if (!liveKitRoom || !isCallCancelled(liveKitRoom)) return;
+    stopIncomingCallRingtone();
+    Vibration.cancel();
+    void cancelAndroidIncomingCallNotification();
+    try { navigation.goBack(); } catch { /* */ }
+  }, [liveKitRoom, navigation]);
+
+  // Stop ringing on our own schedule if no cancel signal ever lands.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (acceptedRef.current) return;
+      stopIncomingCallRingtone();
+      Vibration.cancel();
+      void cancelAndroidIncomingCallNotification();
+      // `beforeRemove` records the missed-call row, so just leave the screen.
+      try { navigation.goBack(); } catch { /* */ }
+    }, RING_TIMEOUT_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation]);
 
   useEffect(() => {
     const startRing = () => {
@@ -263,7 +330,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
           accessibilityRole="button"
           accessibilityLabel={t.decline_call}
         >
-          <PhoneOff color={colorss.white} size={30} />
+          <PhoneOff color={'white'} size={30} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.circle, styles.accept]}
@@ -271,7 +338,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
           accessibilityRole="button"
           accessibilityLabel={t.accept_call}
         >
-          <Phone color={colorss.white} size={30} />
+          <Phone color={'white'} size={30} />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -294,7 +361,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   name: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 28,
     fontWeight: '800',
     textAlign: 'center',

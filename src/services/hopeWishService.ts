@@ -12,7 +12,11 @@
  */
 
 import { createBooking, fetchUserPremiumProfile } from './premiumCallService';
-export { createWalletTopupCheckout } from './premiumCallService';
+export {
+  createWalletTopupCheckout,
+  fetchWalletBalanceUSD,
+  waitForWalletTopup,
+} from './premiumCallService';
 export type { BookingResult } from './premiumCallService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

@@ -1,7 +1,13 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "types": ["jest"]
+    "types": ["jest"],
+    // Hermes provides TextEncoder/TextDecoder (via the fast-text-encoding
+    // polyfill loaded in index.js) and btoa/atob, but the RN base config does
+    // not include the DOM lib, so every use of them was a type error. The e2ee
+    // modules are built on exactly these, so declaring the lib here removes a
+    // class of false positives rather than suppressing them one by one.
+    "lib": ["ESNext", "DOM"]
   },
   "include": ["**/*.ts", "**/*.tsx", "src/screens/ProfileScreen.tsxx"],
   "exclude": ["**/node_modules", "**/Pods"]

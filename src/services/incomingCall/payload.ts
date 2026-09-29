@@ -20,6 +20,12 @@ export type IncomingCallPayload = {
   isGroupCall?: boolean;
   groupName?: string;
   groupPhotoUrl?: string;
+  /**
+   * Server send-time (ms). The LiveKit room name is DETERMINISTIC per pair, so
+   * "this room was cancelled" can only mean "that attempt was cancelled" — the
+   * timestamp is what separates a dead invite from the next call in the same room.
+   */
+  sentAtMs?: number;
 };
 
 export const TYPE_KEY = 'type';
@@ -100,15 +106,14 @@ export function parseIncomingCallPayload(
     'livekitRoom',
   );
 
+  // Only CALL-specific keys. The chain used to end in `name` and `title`, which
+  // are generic and carried by other push types — a group name, a page name from
+  // a chat push, anything the payload happened to include. That is how an
+  // incoming call ended up announcing a page instead of the caller. If the call
+  // push genuinely has no caller name, "Incoming call" is honest; a wrong name
+  // is not.
   const displayName =
-    pickString(
-      data,
-      'displayName',
-      'callerName',
-      'caller',
-      'name',
-      'title',
-    ) ?? 'Incoming call';
+    pickString(data, 'displayName', 'callerName', 'caller') ?? 'Incoming call';
 
   if (!liveKitRoom || !isCallIntent) return null;
 
@@ -168,9 +173,18 @@ export function parseIncomingCallPayload(
   // Group-call fields — backend sends isGroupCall: "true" + groupName/groupPhotoUrl
   // so the ring screen can show "{caller} started a call in {group}".
   const groupFlag = pickString(data, 'isGroupCall', 'is_group_call')?.toLowerCase();
-  const isGroupCall = groupFlag === '1' || groupFlag === 'true' || groupFlag === 'yes';
   const groupName = pickString(data, 'groupName', 'group_name');
+  // A group ring REQUIRES a group name, because IncomingCallScreen renders
+  // `isGroupRing ? groupName : displayName` — a stale or truthy flag with no
+  // name showed an empty title, and a leftover name from an unrelated payload
+  // showed the wrong one. Treat it as a 1:1 call unless both agree.
+  const isGroupCall =
+    (groupFlag === '1' || groupFlag === 'true' || groupFlag === 'yes') &&
+    !!groupName?.trim();
   const groupPhotoUrl = pickString(data, 'groupPhotoUrl', 'group_photo_url');
+
+  const tsRaw = pickString(data, 'ts', 'sentAt', 'timestamp');
+  const sentAtMs = tsRaw ? Number(tsRaw) : NaN;
 
   return {
     callKind,
@@ -182,5 +196,16 @@ export function parseIncomingCallPayload(
     isGroupCall: isGroupCall || undefined,
     groupName,
     groupPhotoUrl,
+    sentAtMs: Number.isFinite(sentAtMs) && sentAtMs > 0 ? sentAtMs : undefined,
   };
+}
+
+/** Server send-time of any call payload (invite or cancel), when present. */
+export function callPayloadSentAtMs(
+  data: Record<string, string> | undefined | null,
+): number | undefined {
+  if (!data) return undefined;
+  const raw = pickString(data, 'ts', 'sentAt', 'timestamp');
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }

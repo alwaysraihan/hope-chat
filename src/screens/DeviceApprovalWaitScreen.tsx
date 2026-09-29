@@ -207,7 +207,7 @@ export default DeviceApprovalWaitScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
   },
   content: {
     flex: 1,

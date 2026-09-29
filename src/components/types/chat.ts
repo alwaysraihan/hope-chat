@@ -31,6 +31,44 @@ export interface DonationRequestPayload {
   requestType?: DonationRequestType;
 }
 
+/** Premium-call / Hope Wish booking confirmation card. */
+export interface BookingCardPayload {
+  bookingId: number;
+  isHopeWish: boolean;
+  peerName: string;
+  /** Delivery deadline (wish) or call start (call), ISO or display string. */
+  whenLabel: string;
+  timeLabel?: string;
+  durationMinutes?: number;
+  amount?: number;
+  /** Status baked into the message at send time; refreshed live where possible. */
+  status: BookingCardStatus;
+}
+
+/** A reply sent from the story viewer — mirrors the `story` object Hopenity web's
+ * Messages.tsx renders inline on the message row (`m.story`). */
+export interface StoryReplyPayload {
+  storyId: string;
+  type: string;
+  mediaUrl?: string | null;
+  thumbnailUrl?: string | null;
+  content?: string | null;
+  /** ISO timestamp — past this the story can no longer be opened. */
+  expiresAt?: string | null;
+  authorName?: string;
+  authorAvatarUrl?: string | null;
+}
+
+export type BookingCardStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'IN_CALL'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'NO_SHOW'
+  /** Ended by a participant — read-only history. */
+  | 'CLOSED';
+
 export interface ExtendedMessage extends IMessage {
   /** Synthetic full-width welcome card at top of thread (Hopenity UX). */
   threadIntro?: {
@@ -39,8 +77,17 @@ export interface ExtendedMessage extends IMessage {
     avatarUrl?: string | null;
   };
   /** Server-originated category — drives timeline styling for calls / voice / donation. */
-  messageKind?: 'call_log' | 'voice_note' | 'text' | 'donation_request' | 'system';
+  messageKind?:
+    | 'call_log'
+    | 'voice_note'
+    | 'text'
+    | 'donation_request'
+    | 'booking_card'
+    | 'story_reply'
+    | 'system';
   donationRequest?: DonationRequestPayload;
+  bookingCard?: BookingCardPayload;
+  storyReply?: StoryReplyPayload;
   /** When the API returns receipts (outgoing messages). */
   delivery?: {
     state: 'sent' | 'delivered' | 'read';
@@ -49,6 +96,15 @@ export interface ExtendedMessage extends IMessage {
   /** When API provides direction flags (`isOutgoing`, `direction`, …) for bubble alignment. */
   outgoingHint?: boolean;
   media?: MediaPayload;
+  /**
+   * A group message whose sender-key/legacy key we don't currently hold (or
+   * whose cached member list is stale relative to the sender's, deriving a
+   * different key). `.text` is the neutral "🔒 Decrypting…" placeholder shown
+   * meanwhile; this keeps the real ciphertext around so the retro-decrypt
+   * sweep can retry once our key catches up, without ever having rendered the
+   * raw envelope in the meantime.
+   */
+  pendingCipherText?: string;
   pending?: boolean;
   failed?: boolean;
   /** ISO timestamp set by the server once the sender edits the text. */

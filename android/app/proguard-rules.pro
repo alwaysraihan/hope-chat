@@ -29,3 +29,43 @@
 -keep public class * extends android.app.Service
 -keep public class * extends android.content.ContentProvider
 -keep public class * extends android.content.BroadcastReceiver
+
+# ── LiveKit / WebRTC (calls) ──────────────────────────────────────────────────
+# JNI and reflection-based bridging to the native WebRTC engine — renaming
+# anything here breaks call connect/media silently at runtime, not at build time.
+-keep class org.webrtc.** { *; }
+-keep class io.livekit.** { *; }
+-keep class livekit.** { *; }
+-dontwarn org.webrtc.**
+-dontwarn io.livekit.**
+
+# ── Firebase Messaging (push notifications) ───────────────────────────────────
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+
+# ── Notifee ────────────────────────────────────────────────────────────────────
+-keep class app.notifee.** { *; }
+
+# ── socket.io-client / okhttp (real-time signaling) ────────────────────────────
+# socket.io-client parses server payloads via reflection into these; obfuscated
+# field/class names desync the client from what the server actually sent.
+-keep class io.socket.** { *; }
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
+-dontwarn io.socket.**
+-dontwarn okhttp3.**
+-dontwarn okio.**
+
+# ── react-native-video / ExoPlayer ─────────────────────────────────────────────
+-keep class com.google.android.exoplayer2.** { *; }
+-dontwarn com.google.android.exoplayer2.**
+
+# ── Gson / JSON models used across the above (reflection-based (de)serialization) ─
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class com.google.gson.** { *; }
+-keepclassmembers,allowobfuscation class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}

@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colorss } from '../theme';
+import { AppColors } from '../context/ThemeContext';
 import { useColors } from '../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 import { Search } from 'lucide-react-native';
@@ -34,6 +34,7 @@ type Props = NativeStackScreenProps<
 
 const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
   const colorss = useColors();
+  const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const { groupId, conversationId, existingMemberIds } = route.params;
   const { conversations } = useChats();
   const token = useAppSelector(selectAuthToken);
@@ -199,10 +200,10 @@ const AddGroupMembersScreen: React.FC<Props> = ({ navigation, route }) => {
 
 export default AddGroupMembersScreen;
 
-const styles = StyleSheet.create({
+const stylesFunc = (colorss: AppColors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colorss.white,
+    backgroundColor: colorss.background,
   },
   container: {
     flex: 1,

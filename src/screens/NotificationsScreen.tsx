@@ -23,7 +23,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import FastImage from '@d11/react-native-fast-image';
 
-import { colorss } from '../theme';
 import { IC_PROFILE } from '../assets';
 import type {
   BottomTabNavigatorParamList,
@@ -76,6 +75,7 @@ function SkeletonBox({
   borderRadius?: number;
   style?: object;
 }) {
+  const { colors } = useAppTheme();
   const opacity = useRef(new Animated.Value(0.4)).current;
   useEffect(() => {
     const a = Animated.loop(
@@ -102,7 +102,7 @@ function SkeletonBox({
           width,
           height,
           borderRadius,
-          backgroundColor: colorss.backgroundDeep,
+          backgroundColor: colors.backgroundDeep,
         },
         { opacity },
         style,
@@ -375,7 +375,7 @@ const NotificationsScreen: React.FC<Props> = () => {
 
       {items.length === 0 ? (
         <View style={styles.empty}>
-          <BellOff size={44} color={colorss.placeholder} />
+          <BellOff size={44} color={colors.placeholder} />
           <Text style={styles.emptyText}>{t.no_notifications}</Text>
         </View>
       ) : (
@@ -388,7 +388,7 @@ const NotificationsScreen: React.FC<Props> = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => void load(true)}
-              tintColor={colorss.primary}
+              tintColor={colors.primary}
             />
           }
           renderItem={({ item: group }) => (
@@ -411,7 +411,9 @@ const stylesFunc = (colorss: AppColors) =>
   StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colorss.white,
+      // `white` resolves to #0A0A0A in dark mode (near-black, not true
+      // black) — use the actual background token for a fully black page.
+      backgroundColor: colorss.background,
     },
     header: {
       flexDirection: 'row',

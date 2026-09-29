@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -8,6 +7,7 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -26,6 +26,7 @@ import {
   LucideMessageCircleMore,
   LucideSettings,
   LucideUsers,
+  Moon,
   Phone,
 } from 'lucide-react-native';
 import FastImage from '@d11/react-native-fast-image';
@@ -43,6 +44,7 @@ import { performLogout } from '../services/logout';
 import { fetchMyPages, type OwnedPage } from '../services/pageService';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import { useAppTheme } from '../context/ThemeContext';
+import ConfirmSheet from '../components/ConfirmSheet';
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabNavigatorParamList, 'Menu'>,
   NativeStackScreenProps<RootStackNavigatorParamList>
@@ -56,7 +58,7 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
   const activePage = useAppSelector(selectActivePage);
   const isVerified = !!profile?.isVerified;
   const { lang, setLang } = useLanguage();
-  const { colors } = useAppTheme();
+  const { colors, isDark, toggleDarkMode } = useAppTheme();
   const [pages, setPages] = useState<OwnedPage[]>([]);
   const [pagesLoading, setPagesLoading] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
@@ -79,15 +81,15 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
     activePage?.name ?? profile?.displayName ?? 'HopeChat User';
   const currentImage = activePage?.image ?? profile?.avatarUrl ?? null;
 
+  const [logoutSheetVisible, setLogoutSheetVisible] = useState(false);
+
   const handleLogout = () => {
-    Alert.alert(t.logout_confirm_title, t.logout_confirm_message, [
-      { text: t.cancel, style: 'cancel' },
-      {
-        text: t.logout,
-        style: 'destructive',
-        onPress: () => performLogout(dispatch),
-      },
-    ]);
+    setLogoutSheetVisible(true);
+  };
+
+  const confirmLogout = () => {
+    setLogoutSheetVisible(false);
+    performLogout(dispatch);
   };
 
   const menuItems = [
@@ -384,6 +386,29 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={styles.divider} />
 
+        {/* Dark mode toggle */}
+        <TouchableOpacity
+          style={styles.row}
+          onPress={toggleDarkMode}
+          activeOpacity={0.65}
+        >
+          <View style={styles.iconWrap}>
+            <Moon size={20} color={colors.textPrimary} />
+          </View>
+          <Text style={styles.rowLabel}>
+            {isDark ? 'Dark mode' : 'Light mode'}
+          </Text>
+          <Switch
+            value={isDark}
+            onValueChange={toggleDarkMode}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor="#FFFFFF"
+            ios_backgroundColor={colors.border}
+          />
+        </TouchableOpacity>
+
+        <View style={styles.divider} />
+
         {/* Language toggle */}
         <View style={styles.row}>
           <View style={styles.iconWrap}>
@@ -430,6 +455,17 @@ const MenuScreen: React.FC<Props> = ({ navigation }) => {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <ConfirmSheet
+        visible={logoutSheetVisible}
+        title={t.logout_confirm_title}
+        message={t.logout_confirm_message}
+        confirmLabel={t.logout}
+        cancelLabel={t.cancel}
+        destructive
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutSheetVisible(false)}
+      />
     </SafeAreaView>
   );
 };

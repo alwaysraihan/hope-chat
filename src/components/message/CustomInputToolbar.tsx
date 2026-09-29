@@ -143,6 +143,11 @@ const EmojiPicker: React.FC<{ onSelect: (emoji: string) => void }> = ({
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.emojiScroll}
+      // Without this the FIRST tap after typing is consumed by dismissing the
+      // keyboard instead of selecting the emoji — the "emoji doesn't work the
+      // first time once you've typed something" report. The keyboard is only
+      // focused after typing, which is exactly when it was reproducible.
+      keyboardShouldPersistTaps="handled"
     >
       {COMMON_EMOJIS.map(emoji => (
         <TouchableOpacity
@@ -195,6 +200,7 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const {
     isRecording,
     replyTo,
+    text: contextText,
     handleCameraPress,
     handleGalleryPress,
     handleVoiceRecordingStart,
@@ -216,7 +222,11 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const replyHeight = useRef(new Animated.Value(0)).current;
 
   const appendEmoji = (emoji: string) => {
-    const current = props.text ?? '';
+    // Same two sources as `hasText` below, and for the same reason: props.text
+    // can be undefined depending on how the toolbar is rendered. Trusting it
+    // alone meant an emoji tap REPLACED everything already typed with just the
+    // emoji, because `current` fell back to ''.
+    const current = props.text ?? contextText ?? '';
     props.textInputProps?.onChangeText?.(current + emoji);
   };
 
@@ -267,7 +277,12 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
     );
   }
 
-  const hasText = Boolean(props.text?.trim());
+  // props.text comes from GiftedChat's internal composer state. It can be
+  // undefined depending on how the toolbar is rendered, and when it was the ONLY
+  // source the Send button silently turned back into the thumbs-up while the
+  // user had text on screen. The context value is updated by
+  // onInputTextChanged, so it is a reliable second source.
+  const hasText = Boolean((props.text ?? contextText ?? '').trim());
   const bottomPadding = isKeyboardVisible ? 10 : bottom;
 
   return (
@@ -319,6 +334,7 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
             {
               backgroundColor: colors.surface,
               minHeight: composerHeight + 16,
+              alignItems:'center'
             },
           ]}
         >

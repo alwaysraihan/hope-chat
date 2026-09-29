@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import VerifiedBadge from '../VerifiedBadge';
 import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import {
   LucideVideo,
@@ -7,7 +8,7 @@ import {
   MoreVertical,
   Lock,
 } from 'lucide-react-native';
-import { colorss } from '../../theme';
+import { useColors } from '../../hooks/useColors';
 import FastImage from '@d11/react-native-fast-image';
 
 interface MessageHeaderProps {
@@ -24,6 +25,8 @@ interface MessageHeaderProps {
   avatarUri?: string | null;
   /** Show a lock badge when E2EE is active for this conversation. */
   isEncrypted?: boolean;
+  /** Verified Hopenity account — renders the badge right after the name. */
+  isVerified?: boolean;
 }
 
 function initialsFromName(name: string): string {
@@ -45,10 +48,14 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
   onVideoCall,
   onMorePress,
   name,
+  isVerified,
   status,
   avatarUri,
   isEncrypted = false,
 }) => {
+  const colors = useColors();
+  const styles = useMemo(() => stylesFor(colors), [colors]);
+
   // Both call actions are hidden when undefined (REQUESTED / unaccepted chats)
   const callActions = [
     ...(onAudioCall
@@ -58,7 +65,6 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
       ? [{ Icon: LucideVideo, label: 'Video Call', onPress: onVideoCall }]
       : []),
   ];
-  const white = '#fff';
 
   return (
     <View style={styles.container}>
@@ -66,7 +72,7 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
         onPress={onBackPress}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <ChevronLeft color={white} size={22} />
+        <ChevronLeft color={colors.textPrimary} size={22} />
       </TouchableOpacity>
 
       <TouchableOpacity onPress={onProfilePress} style={styles.profile}>
@@ -74,18 +80,19 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
           <FastImage source={{ uri: avatarUri }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarPlaceholder}>
-            <Text style={[styles.avatarInitials, { color: white }]}>
+            <Text style={styles.avatarInitials}>
               {initialsFromName(name)}
             </Text>
           </View>
         )}
         <View style={styles.nameBlock}>
           <View style={styles.nameRow}>
-            <Text style={[styles.name, { color: white }]} numberOfLines={1}>
+            <Text style={[styles.name, styles.nameText]} numberOfLines={1}>
               {name || 'Chat'}
             </Text>
-            {isEncrypted ? (
-              <Lock size={11} color="rgba(255,255,255,0.85)" style={styles.lockIcon} />
+            {isVerified ? <VerifiedBadge size={14} /> : null}
+            {isEncrypted && !isVerified ? (
+              <Lock size={11} color={colors.textSecondary} style={styles.lockIcon} />
             ) : null}
           </View>
           {status ? (
@@ -103,12 +110,12 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
             onPress={onPress}
             style={styles.actionBtn}
           >
-            <Icon size={18} color={white} />
+            <Icon size={18} color={colors.textPrimary} />
           </TouchableOpacity>
         ))}
         {onMorePress && (
           <TouchableOpacity onPress={onMorePress} style={styles.actionBtn}>
-            <MoreVertical size={18} color={white} />
+            <MoreVertical size={18} color={colors.textPrimary} />
           </TouchableOpacity>
         )}
       </View>
@@ -118,71 +125,80 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
 
 export default React.memo(MessageHeader);
 
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colorss.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  profile: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  avatar: {
-    height: 38,
-    width: 38,
-    borderRadius: 19,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.5)',
-  },
-  avatarPlaceholder: {
-    height: 38,
-    width: 38,
-    borderRadius: 19,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.5)',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  nameBlock: {
-    gap: 1,
-    flex: 1,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  lockIcon: {
-    marginTop: 1,
-  },
-  name: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 0.1,
-  },
-  status: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 12,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  actionBtn: {
-    padding: 7,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 20,
-  },
-});
+const stylesFor = (colors: ReturnType<typeof useColors>) =>
+  StyleSheet.create({
+    container: {
+      backgroundColor: colors.surface,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    profile: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    avatar: {
+      height: 38,
+      width: 38,
+      borderRadius: 19,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+    },
+    avatarPlaceholder: {
+      height: 38,
+      width: 38,
+      borderRadius: 19,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      backgroundColor: colors.primaryLight,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarInitials: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: colors.white,
+    },
+    nameBlock: {
+      gap: 1,
+      flex: 1,
+    },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    lockIcon: {
+      marginTop: 1,
+    },
+    name: {
+      fontSize: 15,
+      fontWeight: '700',
+      letterSpacing: 0.1,
+      color: colors.textPrimary,
+    },
+    // Long names shrink around the badge rather than pushing it out of the row.
+    nameText: {
+      flexShrink: 1,
+    },
+    status: {
+      color: colors.textSecondary,
+      fontSize: 12,
+    },
+    actions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    actionBtn: {
+      padding: 7,
+      backgroundColor: colors.border,
+      borderRadius: 20,
+    },
+  });

@@ -316,10 +316,18 @@ export async function fetchHopenityChatDirectory(
       // Enrich v2 chats that lack `updatedAt` with the v1 value so the sort below
       // can use a real timestamp instead of falling back to 0.
       const enrichedBase = base.chats.map(c => {
-        if ((c as any).updatedAt) return c;
         const v1 = v1ById.get(String(c.id ?? ''));
-        const v1Updated = v1 ? (v1 as any).updatedAt ?? (v1 as any).updated_at : undefined;
-        return v1Updated ? { ...c, updatedAt: v1Updated } : c;
+        if (!v1) return c;
+        const patch: Record<string, unknown> = {};
+        // lastMessageAt is what the sort keys on, so fill it first.
+        if ((c as any).lastMessageAt == null && (v1 as any).lastMessageAt != null) {
+          patch.lastMessageAt = (v1 as any).lastMessageAt;
+        }
+        if ((c as any).updatedAt == null) {
+          const v1Updated = (v1 as any).updatedAt ?? (v1 as any).updated_at;
+          if (v1Updated) patch.updatedAt = v1Updated;
+        }
+        return Object.keys(patch).length > 0 ? { ...c, ...patch } : c;
       });
 
       const localUid = params?.localUserId ? String(params.localUserId) : null;
@@ -368,15 +376,27 @@ export async function fetchHopenityChatDirectory(
         ? [...enrichedBase, ...v1Only]
         : enrichedBase;
 
-      merged.sort((a, b) => {
-        const ta = new Date(
-          (a as any).updatedAt ?? (a as any).updated_at ?? (a.lastMessage as any)?.createdAt ?? 0,
-        ).getTime();
-        const tb = new Date(
-          (b as any).updatedAt ?? (b as any).updated_at ?? (b.lastMessage as any)?.createdAt ?? 0,
-        ).getTime();
-        return tb - ta;
-      });
+      // Sort by REAL activity, in the same priority the server uses.
+      //
+      // This used to read `updatedAt` first — which is the server's @updatedAt
+      // column, bumped by any write to the row (a status heal, a block toggle, a
+      // bulk migration). So a chat whose last message was weeks ago floated to
+      // the top, and this client-side sort silently overrode the server's
+      // correct ordering after it was fixed. `lastMessageAt` is the authoritative
+      // last-activity timestamp; updatedAt stays only as a last resort for rows
+      // that have neither (e.g. a group with no messages yet).
+      const activityAt = (row: any): number => {
+        const raw =
+          row?.lastMessageAt ??
+          row?.last_message_at ??
+          row?.lastMessage?.createdAt ??
+          row?.updatedAt ??
+          row?.updated_at ??
+          0;
+        const ms = new Date(raw).getTime();
+        return Number.isFinite(ms) ? ms : 0;
+      };
+      merged.sort((a, b) => activityAt(b) - activityAt(a));
       base = { ...base, chats: merged };
     } catch {
       // v1 merge is best-effort — never block the main response
@@ -520,6 +540,42 @@ export async function getOrCreatePeerChat(
     const raw = json?.responseObject ?? json?.data ?? json;
     const id = raw?.id ?? raw?.chatId ?? raw?.conversation_id;
     return id != null ? String(id) : null;
+  } catch {
+    return null;
+  }
+}
+
+export type PeerChatVersion = {
+  chatId: string;
+  /** Mirrors ChatsContext's `isV1Chat: !!chat.conversationKey` — callers need
+   * this to pick v1 vs v2 message endpoints; guessing wrong writes the message
+   * to a version InboxContext never reads back from that thread. */
+  isV1Chat: boolean;
+};
+
+/**
+ * Same as getOrCreatePeerChat but also reports which message-API generation
+ * this chat is, so a caller outside InboxContext (e.g. a story reply) can
+ * send the message through the endpoint that will actually be read back.
+ */
+export async function getOrCreatePeerChatWithVersion(
+  targetUserId: string,
+  token: string,
+): Promise<PeerChatVersion | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/chats`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ targetUserId }),
+    });
+    const json = await response.json().catch(() => null);
+    const raw = json?.responseObject ?? json?.data ?? json;
+    const id = raw?.id ?? raw?.chatId ?? raw?.conversation_id;
+    if (id == null) return null;
+    return { chatId: String(id), isV1Chat: !!raw?.conversationKey };
   } catch {
     return null;
   }
@@ -798,6 +854,8 @@ export async function sendHopenityChatMessage(
   senderPageId?: string | null,
   isGroup?: boolean,
   replyToId?: string | number | null,
+  /** Attaches this message to a story as a reply — same `storyId` field the web app sends. */
+  storyId?: string | number | null,
 ): Promise<HopenityChatMessage | null> {
   if (!content || !token) return null;
 
@@ -811,6 +869,14 @@ export async function sendHopenityChatMessage(
   const body: Record<string, unknown> = { content };
   if (senderPageId) body.senderPageId = senderPageId;
   if (replyToId != null) body.replyToId = replyToId;
+  // Backend validates storyId as a number ("Expected number, received
+  // string") — StorySlide.id is a string, so passing it through unconverted
+  // made every story-reply send fail with a 400 the caller never surfaced,
+  // silently dropping the message while the composer cleared as if it sent.
+  if (storyId != null) {
+    const n = typeof storyId === 'number' ? storyId : Number(storyId);
+    if (Number.isFinite(n)) body.storyId = n;
+  }
 
   const response = await fetch(url, {
     method: 'POST',
@@ -824,14 +890,81 @@ export async function sendHopenityChatMessage(
   return typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
 }
 
-function getUploadMimeType(mediaType: 'image' | 'video' | 'voice'): string {
+/**
+ * The server cross-checks the declared MIME against the file EXTENSION and
+ * rejects the upload when they disagree, so the MIME must follow the actual
+ * file rather than the broad media category.
+ *
+ * Sending every video as `video/mp4` was exactly that disagreement: `video/mp4`
+ * is only valid for `.mp4`/`.m4v`, so a `.mov` from the iOS camera roll — or a
+ * `.3gp`/`.mkv`/`.webm` from an Android gallery — was refused with 415 and the
+ * bubble just failed. Same class of bug as the voice `audio/mpeg` one already
+ * fixed below; this generalises the fix instead of hardcoding one more default.
+ */
+const EXTENSION_MIME_TYPES: Record<string, string> = {
+  // Video — pairs mirror MIME_ALLOWED_EXTENSIONS in the backend's uploadMiddleware.
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/x-m4v',
+  '.mov': 'video/quicktime',
+  '.qt': 'video/quicktime',
+  '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska',
+  '.webm': 'video/webm',
+  '.3gp': 'video/3gpp',
+  '.3g2': 'video/3gpp2',
+  '.mpeg': 'video/mpeg',
+  '.mpg': 'video/mpeg',
+  '.wmv': 'video/x-ms-wmv',
+  '.ts': 'video/mp2t',
+  '.ogv': 'video/ogg',
+  '.flv': 'video/x-flv',
+  // Image
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
+  '.avif': 'image/avif',
+  // Audio
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.wav': 'audio/wav',
+  '.amr': 'audio/amr',
+  '.caf': 'audio/x-caf',
+  '.flac': 'audio/flac',
+};
+
+function extensionOf(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  if (dot < 0) return '';
+  // Strip any query string a content:// or https:// URI may carry.
+  return fileName.slice(dot).split(/[?#]/)[0]!.toLowerCase();
+}
+
+function getUploadMimeType(
+  mediaType: 'image' | 'video' | 'voice',
+  fileName?: string,
+): string {
+  // Prefer the extension the file actually has — that is what the server
+  // validates against.
+  const byExtension = fileName ? EXTENSION_MIME_TYPES[extensionOf(fileName)] : undefined;
+  if (byExtension) return byExtension;
+
   switch (mediaType) {
     case 'image':
       return 'image/jpeg';
     case 'video':
       return 'video/mp4';
     case 'voice':
-      return 'audio/mpeg';
+      // Recorders here produce AAC in an MP4 container (.m4a), not MP3. Claiming
+      // audio/mpeg made the server's MIME/extension check disagree with itself.
+      return 'audio/mp4';
     default:
       return 'application/octet-stream';
   }
@@ -839,11 +972,87 @@ function getUploadMimeType(mediaType: 'image' | 'video' | 'voice'): string {
 
 function getUploadFileName(uri: string, mediaType: 'image' | 'video' | 'voice'): string {
   const parts = uri.split('/');
-  const candidate = parts.pop() ?? '';
-  if (candidate.includes('.')) return candidate;
+  const candidate = (parts.pop() ?? '').split(/[?#]/)[0]!;
+  // Only keep the original name when its extension is one the server actually
+  // recognises. An unknown extension (or a bare `content://` id that merely
+  // happens to contain a dot) would be rejected on the filename alone, so fall
+  // through to a safe default rather than sending something we know fails.
+  if (candidate.includes('.') && EXTENSION_MIME_TYPES[extensionOf(candidate)]) {
+    return candidate;
+  }
   if (mediaType === 'image') return `upload-${Date.now()}.jpg`;
   if (mediaType === 'video') return `upload-${Date.now()}.mp4`;
+  // ".dat" matched no allowed extension, so a recording whose URI had no
+  // extension was rejected on filename alone.
+  if (mediaType === 'voice') return `upload-${Date.now()}.m4a`;
   return `upload-${Date.now()}.dat`;
+}
+
+/**
+ * Toggle a reaction. Same emoji twice removes it, a different emoji replaces —
+ * the server enforces one reaction per person per message.
+ *
+ * Reactions were previously local-only state with a TODO where this call
+ * belonged, so they vanished on reload and nobody ever saw anyone else's.
+ */
+export async function reactToMessage(
+  messageId: string | number,
+  emoji: string,
+  token: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/chats/messages/${encodeURIComponent(String(messageId))}/react`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ emoji }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export type RemoteReaction = {
+  emoji: string;
+  userId: string;
+  userName: string;
+  avatar?: string | null;
+};
+
+export async function fetchMessageReactions(
+  chatId: string | number,
+  messageId: string | number,
+  token: string,
+): Promise<RemoteReaction[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v2/messaging/${encodeURIComponent(String(chatId))}/messages/${encodeURIComponent(String(messageId))}/reactions`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return [];
+    const json = await res.json().catch(() => null);
+    const rows: unknown = json?.responseObject ?? [];
+    if (!Array.isArray(rows)) return [];
+
+    return rows.map(r => {
+      const row = r as Record<string, unknown>;
+      const u = (row.user ?? {}) as Record<string, unknown>;
+      return {
+        emoji: String(row.emoji ?? ''),
+        userId: String(u.user_id ?? row.userId ?? ''),
+        userName: String(u.name ?? '') || 'Unknown',
+        avatar: typeof u.image === 'string' ? u.image : null,
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 export async function uploadChatMedia(
@@ -855,7 +1064,9 @@ export async function uploadChatMedia(
 
   const url = `${API_BASE_URL}/api/v1/upload`;
   const fileName = getUploadFileName(localUri, mediaType);
-  const mimeType = getUploadMimeType(mediaType);
+  // Derived from the RESOLVED filename, so the pair the server receives is
+  // always self-consistent.
+  const mimeType = getUploadMimeType(mediaType, fileName);
 
   const formData = new FormData();
   formData.append('file', {
@@ -868,16 +1079,53 @@ export async function uploadChatMedia(
     Authorization: `Bearer ${token}`,
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: formData,
-  });
+  // Without a timeout an upload that stalls (dead spot, captive portal, server
+  // wedged mid-request) never settles, so the bubble spins forever with no way
+  // to retry. Video gets a longer budget than a photo because it is legitimately
+  // bigger, not because it is expected to be slow.
+  const timeoutMs = mediaType === 'video' ? 180_000 : 60_000;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+      signal: abort.signal,
+    });
+  } catch (e) {
+    const aborted = (e as Error)?.name === 'AbortError';
+    console.warn(
+      `[upload] ${mediaType} ${aborted ? `timed out after ${timeoutMs}ms` : 'network error'}`,
+      aborted ? '' : e,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const json = await response.json().catch(() => null);
+
+  // Every failure used to collapse into `null`, indistinguishable from success —
+  // so a rejected upload (415 wrong type, 413 too large, 401 stale token) looked
+  // to the user like the message simply never sent, with nothing logged anywhere.
+  if (!response.ok) {
+    console.warn(
+      `[upload] ${mediaType} failed HTTP ${response.status}:`,
+      String(json?.message ?? '').slice(0, 200),
+    );
+    return null;
+  }
+
   const raw = json?.responseObject ?? json?.data ?? json;
   const urlValue = raw?.url ?? raw?.responseObject?.url ?? raw?.data?.url;
-  return typeof urlValue === 'string' ? urlValue : null;
+  if (typeof urlValue !== 'string') {
+    console.warn(`[upload] ${mediaType} succeeded but returned no url`, json);
+    return null;
+  }
+  return urlValue;
 }
 
 export async function blockHopeChatUser(

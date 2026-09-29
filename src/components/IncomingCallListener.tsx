@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
 import { AppState, DeviceEventEmitter, Platform } from 'react-native';
+import RNCallKeep from 'react-native-callkeep';
+import RNVoipPushNotification from 'react-native-voip-push-notification';
 import { RELOAD_CHAT_LIST_EVENT } from '../context/ChatsContext';
 import NetInfo from '@react-native-community/netinfo';
 import { getApp } from '@react-native-firebase/app';
@@ -16,11 +18,12 @@ import {
 import notifee, { AuthorizationStatus, EventType } from '@notifee/react-native';
 
 import { useAppSelector } from '../hooks/redux';
-import { selectHopeChatLoggedIn } from '../redux/features/auth/authSlice';
+import { selectHopeChatLoggedIn, setActivePage } from '../redux/features/auth/authSlice';
 import { store } from '../redux/store';
 import {
   CALL_CANCELLED_MESSAGE_TYPE,
   INCOMING_CALL_MESSAGE_TYPE,
+  callPayloadSentAtMs,
   normalizeFcmData,
   parseIncomingCallPayload,
 } from '../services/incomingCall/payload';
@@ -43,16 +46,43 @@ import {
 } from '../services/incomingCall/callRingtone';
 import { ensureCallReliability } from '../services/incomingCall/callReliability';
 import { navigationRef } from '../navigation/navigationRef';
+import {
+  emitCallWaiting,
+  emitCallWaitingCleared,
+} from '../services/incomingCall/callWaitingBus';
 import { postFcmTokenToHopenity } from '../services/registerFcmDeviceToken';
+import { postVoipTokenToHopenity, rememberVoipToken } from '../services/registerVoipDeviceToken';
+import { publishKeys } from '../services/e2ee/keyDirectory';
+import { scheduleArchiveSync } from '../services/e2ee/archive';
 import {
   getActiveCall,
   endActiveCallForReplacement,
+  endActiveCallForRemoteHangup,
+  readPersistedActiveCall,
 } from '../services/livekit/activeCallRegistry';
-import { ONGOING_NOTIFICATION_ID } from '../services/livekit/liveKitCallForeground';
+import {
+  HANGUP_ACTION_ID,
+  ONGOING_NOTIFICATION_ID,
+  stopLiveKitCallForeground,
+} from '../services/livekit/liveKitCallForeground';
+import {
+  consumePendingOpenActiveCall,
+  consumePendingOpenActiveCallData,
+  OPEN_ACTIVE_CALL_EVENT,
+  type PendingCallScreenData,
+} from '../services/livekit/pendingCallScreenOpen';
 import { StackActions, CommonActions } from '@react-navigation/native';
 import { emitCallOutcome } from '../services/callOutcomeBus';
-import { notifyPeerCallRejected } from '../services/invitePeerToHopeChatCall';
+import {
+  notifyCallEndedByRoom,
+  notifyPeerCallRejected,
+} from '../services/invitePeerToHopeChatCall';
 import { callSocket } from '../services/callSocket';
+import {
+  displayMessagingNotification,
+  notificationChatId,
+  notificationTargetPage,
+} from '../services/notifications/messageNotification';
 import CallReliabilityPrompt from './CallReliabilityPrompt';
 
 /**
@@ -70,19 +100,56 @@ function dismissIncomingCallIfShowing(liveKitRoom?: string): void {
   navigationRef.goBack();
 }
 
+/**
+ * The peer hung up / declined. This has to END the call screen, not just drop the
+ * LiveKit connection — `leave()` is the silent variant used for call replacement,
+ * and calling it here is what left the caller's phone showing "Calling…" forever
+ * after the other side declined.
+ */
+/**
+ * Every notification surface a call can own, cleared in one place.
+ *
+ * The cancel paths used to clear only the *incoming* notification and the
+ * ringtone, leaving the ongoing-call notification (and its foreground service)
+ * alive after the other side hung up — the tray kept showing a call that no
+ * longer existed, and its Hang up button acted on a dead room.
+ */
+function clearAllCallNotifications(): void {
+  stopIncomingCallRingtone();
+  void cancelAndroidIncomingCallNotification();
+  void stopLiveKitCallForeground().catch(() => undefined);
+}
+
 function endActiveCallIfMatchesRoom(liveKitRoom?: string): void {
   if (!liveKitRoom) return;
   const active = getActiveCall();
   if (!active || active.liveKitRoom !== liveKitRoom) return;
-  void active.leave();
+  void endActiveCallForRemoteHangup(liveKitRoom);
 }
+
+/**
+ * iOS only: a VoIP push's `uuid` is the same one handed to CallKit natively
+ * (`RNCallKeep.reportNewIncomingCall`), so this maps that uuid back to the raw
+ * call payload — `answerCall`/`endCall` only give us the uuid, not the call
+ * data, since those fire from the native CallKit UI (lock screen, Recents).
+ */
+const pendingVoipCalls = new Map<string, Record<string, string>>();
 
 /**
  * Accept a call directly — skips IncomingCallScreen entirely so the user lands
  * straight on the call screen with no intermediate flash.
  */
 async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPayload>): Promise<void> {
-  if (!parsed || !navigationRef.isReady()) return;
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] acceptCallDirectly', {
+      parsed,
+      navReady: navigationRef.isReady(),
+    });
+  }
+  if (!parsed || !navigationRef.isReady()) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] acceptCallDirectly ABORTED — no parsed payload or nav not ready');
+    return;
+  }
   stopIncomingCallRingtone();
   void cancelAndroidIncomingCallNotification();
 
@@ -101,6 +168,7 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
 
   const active = getActiveCall();
   if (active && active.liveKitRoom !== parsed.liveKitRoom) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] acceptCallDirectly — replacing existing active call', active.liveKitRoom);
     await endActiveCallForReplacement(parsed.liveKitRoom);
     // Give native WebRTC teardown a moment to settle before joining the new room.
     await new Promise(resolve => setTimeout(resolve, 150));
@@ -108,7 +176,12 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
       CommonActions.reset({ index: 1, routes: [{ name: 'BottomTab' }, { name: targetRoute, params }] }),
     );
   } else {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] acceptCallDirectly — pushing', targetRoute, params);
     navigationRef.dispatch(StackActions.push(targetRoute, params));
+  }
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] acceptCallDirectly — nav dispatched, current route now',
+      navigationRef.getCurrentRoute()?.name);
   }
 }
 
@@ -118,25 +191,242 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
  * we find the call screen in the stack and pop back to it.
  */
 function navigateToActiveCallScreen(): void {
-  if (!navigationRef.isReady()) return;
+  if (!navigationRef.isReady()) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] navigateToActiveCallScreen — nav not ready');
+    return;
+  }
   const active = getActiveCall();
+  if (__DEV__) console.log('[HopeChat DEBUG][fg] navigateToActiveCallScreen', { active });
   if (!active) return;
   const targetRoute = active.kind === 'video' ? 'VideoCall' : 'AudioCall';
   try {
     const state = navigationRef.getRootState();
     const routes = (state?.routes ?? []) as Array<{ name: string }>;
-    const callIdx = routes.findIndex(r => r.name === targetRoute);
+    // Search from the top: minimising pushes a BottomTab above the call screen,
+    // and repeated minimise/return cycles can leave more than one call route in
+    // the stack. The *last* one is the live screen.
+    let callIdx = -1;
+    for (let i = routes.length - 1; i >= 0; i -= 1) {
+      if (routes[i]?.name === targetRoute) {
+        callIdx = i;
+        break;
+      }
+    }
     if (callIdx === -1) {
-      // Call screen isn't in the stack (shouldn't happen, but fall back to pushing it).
-      navigationRef.dispatch(StackActions.push(targetRoute));
+      // The user backed out of the call screen while the call kept running, so
+      // the route is gone. Re-create it from the params the screen registered —
+      // pushing it bare gave a screen with no room to join, which is why the
+      // ongoing "connected" notification looked dead when tapped.
+      const params = active.screenParams;
+      if (__DEV__) {
+        console.log('[HopeChat DEBUG][fg] navigateToActiveCallScreen — route not in stack, restoring', {
+          targetRoute,
+          params,
+          routes: routes.map(r => r.name),
+        });
+      }
+      if (params) {
+        navigationRef.dispatch({
+          ...StackActions.push(targetRoute, params),
+          target: state?.key,
+        });
+      } else if (__DEV__) {
+        console.warn('[HopeChat] active call has no screenParams — cannot restore screen');
+      }
       return;
+    }
+    if (__DEV__) {
+      console.log('[HopeChat DEBUG][fg] navigateToActiveCallScreen — popping back to existing route', {
+        targetRoute, callIdx, popCount: routes.length - 1 - callIdx,
+      });
     }
     const popCount = routes.length - 1 - callIdx;
     if (popCount > 0) {
-      navigationRef.dispatch(StackActions.pop(popCount));
+      // Target the ROOT navigator explicitly. An untargeted StackActions.pop is
+      // delivered to the focused navigator, which after backing out of the call
+      // is a stack nested inside BottomTab — popping there would shuffle the
+      // chat list and leave the call screen exactly where it was.
+      navigationRef.dispatch({
+        ...StackActions.pop(popCount),
+        target: state?.key,
+      });
     }
   } catch (e) {
     if (__DEV__) console.warn('[HopeChat] navigateToActiveCallScreen', e);
+  }
+}
+
+/**
+ * The tap may have been handled in the background JS context (app backgrounded)
+ * or land as a cold-start initial notification — in both cases navigation only
+ * becomes possible once we are foregrounded and mounted.
+ */
+const OPEN_CALL_MAX_ATTEMPTS = 20;
+
+function openActiveCallScreenWhenReady(
+  attempt = 0,
+  notifData?: Record<string, string>,
+): void {
+  if (__DEV__ && attempt === 0) {
+    console.log('[HopeChat DEBUG][fg] openActiveCallScreenWhenReady START', { notifData });
+  }
+  if (!navigationRef.isReady()) {
+    if (attempt >= OPEN_CALL_MAX_ATTEMPTS) {
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] openActiveCallScreenWhenReady — gave up, nav never became ready');
+      return;
+    }
+    setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
+    return;
+  }
+
+  if (getActiveCall()) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] openActiveCallScreenWhenReady — registry has active call, using fast path');
+    navigateToActiveCallScreen();
+    return;
+  }
+
+  /**
+   * No registry entry. Two reasons, and BOTH must be handled or the tap does
+   * nothing at all:
+   *   1. the call is still connecting and hasn't registered yet — wait briefly;
+   *   2. the call screen was unmounted (backed out of, or the process was
+   *      restarted) and will never register — rebuild the screen from the room
+   *      the notification carries.
+   *
+   * The previous version returned on `attempt > 20` at the top of the function,
+   * which made the case-2 fallback below unreachable: after ~3 s of retries the
+   * tap was silently dropped. That is exactly the "notification does nothing"
+   * report — it only ever worked while the screen happened to still be mounted.
+   */
+  // When the notification names the room we do not need the full wait: a short
+  // grace for a still-connecting call, then rebuild from the payload.
+  const maxAttempts = notifData?.liveKitRoom ? 4 : OPEN_CALL_MAX_ATTEMPTS;
+  if (attempt < maxAttempts) {
+    setTimeout(() => openActiveCallScreenWhenReady(attempt + 1, notifData), 150);
+    return;
+  }
+  /**
+   * Last resort: the process was restarted, so nothing is registered and the
+   * notification may not have carried the room either (older builds). The
+   * on-disk mirror of the live call still has the params to re-enter it.
+   */
+  const persisted = readPersistedActiveCall();
+  const fallbackData = notifData?.liveKitRoom
+    ? notifData
+    : persisted
+      ? {
+          liveKitRoom: persisted.liveKitRoom,
+          callKind: persisted.kind,
+          displayName: String(
+            (persisted.screenParams?.displayName as string) ?? '',
+          ),
+        }
+      : undefined;
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] openActiveCallScreenWhenReady — retries exhausted, last-resort reconstruct', {
+      notifData, persisted, fallbackData,
+    });
+  }
+  navigateToCallFromNotificationData(fallbackData);
+}
+
+/**
+ * Last-resort navigation when no call is registered: rebuild the call route
+ * from what the ongoing notification carries.
+ */
+function navigateToCallFromNotificationData(
+  data?: Record<string, string>,
+): void {
+  const liveKitRoom = String(data?.liveKitRoom ?? '').trim();
+  if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] navigateToCallFromNotificationData', {
+      data, liveKitRoom, navReady: navigationRef.isReady(),
+    });
+  }
+  if (!liveKitRoom || !navigationRef.isReady()) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] navigateToCallFromNotificationData ABORTED — no liveKitRoom or nav not ready');
+    return;
+  }
+  const targetRoute =
+    String(data?.callKind ?? '') === 'video' ? 'VideoCall' : 'AudioCall';
+  try {
+    const state = navigationRef.getRootState();
+    const routes = (state?.routes ?? []) as Array<{ name: string }>;
+    // The press can be delivered to BOTH the foreground and background handler.
+    // Without this, the two would push two call screens onto the stack.
+    if (routes.some(r => r.name === targetRoute)) {
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] navigateToCallFromNotificationData — route already in stack, delegating');
+      navigateToActiveCallScreen();
+      return;
+    }
+    // Prefer the exact params the screen was mounted with — they carry the
+    // conversation id, avatar and group flag that a bare push payload lacks.
+    const persisted = readPersistedActiveCall();
+    const savedParams =
+      persisted?.liveKitRoom === liveKitRoom ? persisted.screenParams : undefined;
+    if (__DEV__) {
+      console.log('[HopeChat DEBUG][fg] navigateToCallFromNotificationData — pushing', {
+        targetRoute, savedParams, routes: routes.map(r => r.name),
+      });
+    }
+    navigationRef.dispatch({
+      ...StackActions.push(targetRoute, {
+        ...(savedParams ?? {}),
+        displayName:
+          String(savedParams?.displayName ?? data?.displayName ?? ''),
+        liveKitRoom,
+        avatarUrl: (savedParams?.avatarUrl as string | null) ?? null,
+        // NOT 'outgoing': this is a re-entry into a call already in progress.
+        // Marking it outgoing restarts the ringback, the 60 s no-answer timer
+        // and the "not connected" call-log row.
+        callDirection: 'incoming' as const,
+      }),
+      target: state?.key,
+    });
+  } catch (e) {
+    if (__DEV__) console.warn('[HopeChat] restore call from notification', e);
+  }
+}
+
+/**
+ * Hang up from the ongoing notification.
+ *
+ * Tears the call down locally AND tells the server, so the peer's phone stops
+ * ringing / leaves the call. The server signal is the part that must always
+ * run: when the call screen is unmounted there is no registry entry and no
+ * LiveKit teardown to signal the peer, so without this the other end stayed in
+ * the call indefinitely.
+ */
+async function hangUpOngoingCall(liveKitRoom: string): Promise<void> {
+  if (__DEV__) console.log('[HopeChat DEBUG][fg] hangUpOngoingCall start', { liveKitRoom, hasActive: !!getActiveCall() });
+  const active = getActiveCall();
+  if (active && (!liveKitRoom || active.liveKitRoom === liveKitRoom)) {
+    try {
+      await endActiveCallForRemoteHangup(active.liveKitRoom);
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] endActiveCallForRemoteHangup OK');
+    } catch (e) {
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] endActiveCallForRemoteHangup FAILED', e);
+      /* the notification and server signal below still have to run */
+    }
+  } else if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] hangUpOngoingCall — no matching active registry entry', {
+      liveKitRoom,
+      activeRoom: active?.liveKitRoom,
+    });
+  }
+  try {
+    await stopLiveKitCallForeground();
+  } catch (e) { if (__DEV__) console.log('[HopeChat DEBUG][fg] stopLiveKitCallForeground FAILED', e); }
+  const token = store.getState().auth.token;
+  if (liveKitRoom && token) {
+    try {
+      await notifyCallEndedByRoom({ token, liveKitRoom, reason: 'hangup' });
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] notifyCallEndedByRoom OK');
+    } catch (e) {
+      if (__DEV__) console.log('[HopeChat DEBUG][fg] notifyCallEndedByRoom FAILED', e);
+    }
+  } else if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] hangUpOngoingCall skipped server notify — missing room or token', { liveKitRoom, hasToken: !!token });
   }
 }
 
@@ -145,45 +435,140 @@ function navigateToActiveCallScreen(): void {
  * notified and sends a cancel FCM to the caller.
  */
 function processRejectPayload(raw: Record<string, string>): void {
+  if (__DEV__) console.log('[HopeChat DEBUG][fg] processRejectPayload', raw);
   const parsed = parseIncomingCallPayload(raw);
-  if (!parsed?.conversationId || !parsed?.callerId) return;
-  emitCallOutcome({
-    conversationId: parsed.conversationId,
-    callKind: parsed.callKind,
-    variant: 'incoming_missed',
-    peerUserId: parsed.callerId,
-    peerDisplayName: parsed.displayName,
-  });
-  // Signal the backend so it sends a call_cancelled FCM to the caller, stopping
-  // their outgoing ring immediately instead of waiting up to 60s for the timeout.
-  // Group calls: one member declining must NOT cancel the call for everyone —
-  // other members can still answer, so only dismiss locally.
+  if (!parsed) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] processRejectPayload — parseIncomingCallPayload returned null, aborting');
+    return;
+  }
+
+  // NOTE: this used to bail out entirely when conversationId or callerId was
+  // missing — `if (!parsed?.conversationId || !parsed?.callerId) return;` — so a
+  // push without those fields dropped the WHOLE decline, server signal included,
+  // and the caller kept ringing until the 60s timeout. Telling the server is the
+  // part that must never be skipped, so it now runs off the room alone.
   const token = store.getState().auth.token;
   if (token && parsed.liveKitRoom && !parsed.isGroupCall) {
-    void notifyPeerCallRejected({
-      token,
-      conversationId: parsed.conversationId,
+    // Room-keyed: the server resolves the peer from the room it recorded at
+    // invite time, so no conversationId is required.
+    void notifyCallEndedByRoom({ token, liveKitRoom: parsed.liveKitRoom })
+      .then(() => { if (__DEV__) console.log('[HopeChat DEBUG][fg] processRejectPayload notifyCallEndedByRoom OK'); })
+      .catch(e => { if (__DEV__) console.log('[HopeChat DEBUG][fg] processRejectPayload notifyCallEndedByRoom FAILED', e); });
+  } else if (__DEV__) {
+    console.log('[HopeChat DEBUG][fg] processRejectPayload — server notify skipped', {
+      hasToken: !!token,
       liveKitRoom: parsed.liveKitRoom,
+      isGroupCall: parsed.isGroupCall,
+    });
+  }
+
+  // The missed-call row is best-effort and genuinely does need these ids.
+  if (parsed.conversationId && parsed.callerId) {
+    emitCallOutcome({
+      conversationId: parsed.conversationId,
+      callKind: parsed.callKind,
+      variant: 'incoming_missed',
+      peerUserId: parsed.callerId,
+      peerDisplayName: parsed.displayName,
     });
   }
   dismissIncomingCallIfShowing(parsed.liveKitRoom);
+}
+
+/**
+ * Tapping a message banner should land in that conversation, the way Messenger
+ * does — not just open the app on whatever screen it left off.
+ */
+function openChatFromNotification(raw: Record<string, string>): boolean {
+  if ((raw.type ?? '').toUpperCase() !== 'MESSAGE') return false;
+  const chatId = notificationChatId(raw);
+  if (!chatId) return false;
+
+  // A message addressed to one of this user's pages belongs to that page's
+  // inbox. Switch identity BEFORE navigating, or the thread opens in the
+  // operator's personal context and replies go out as the wrong sender.
+  const targetPage = notificationTargetPage(raw);
+  if (targetPage?.id) {
+    const current = store.getState().auth.activePage;
+    if (String(current?.id ?? '') !== targetPage.id) {
+      store.dispatch(
+        setActivePage({
+          id: targetPage.id,
+          name: targetPage.name || current?.name || '',
+          image: null,
+        }),
+      );
+    }
+  }
+  const open = (attempt = 0) => {
+    if (!navigationRef.isReady()) {
+      if (attempt > 20) return;
+      setTimeout(() => open(attempt + 1), 150);
+      return;
+    }
+    if (isViewingChat(chatId)) return;
+    try {
+      navigationRef.dispatch(
+        StackActions.push('Inbox', {
+          conversationId: chatId,
+          displayName: raw.sender_name ?? raw.senderName,
+          avatarUrl: raw.sender_image ?? raw.senderImage ?? null,
+        }),
+      );
+    } catch (e) {
+      if (__DEV__) console.warn('[HopeChat] openChatFromNotification', e);
+    }
+  };
+  open();
+  return true;
 }
 
 function openFromNotificationData(
   raw: Record<string, string>,
   autoAccept = false,
 ): void {
+  if (__DEV__) console.log('[HopeChat DEBUG][fg] openFromNotificationData', { raw, autoAccept });
   let parsed = parseIncomingCallPayload(raw);
   if (!parsed && raw.liveKitRoom) {
     parsed = parseIncomingCallPayload({ ...raw, type: INCOMING_CALL_MESSAGE_TYPE });
   }
-  if (!parsed) return;
+  if (!parsed) {
+    if (__DEV__) console.log('[HopeChat DEBUG][fg] openFromNotificationData — not a call payload, falling back to chat open');
+    openChatFromNotification(raw);
+    return;
+  }
   if (autoAccept) {
     void acceptCallDirectly(parsed);
   } else {
     navigateIncomingCall(parsed);
   }
 }
+
+/**
+ * True when the user is already reading the chat the notification belongs to —
+ * banner-ing a message that is visible on screen would be noise.
+ */
+function isViewingChat(chatId: string): boolean {
+  if (!chatId || !navigationRef.isReady()) return false;
+  const current = navigationRef.getCurrentRoute();
+  if (current?.name !== 'Inbox') return false;
+  const params = current.params as { conversationId?: string } | undefined;
+  return String(params?.conversationId ?? '') === String(chatId);
+}
+
+/**
+ * Guards the notifee foreground-event subscription so at most one is ever
+ * live, no matter how many times the effect below re-runs (a remount, a
+ * second listener mounted before the first unmounted, or — in a dev build —
+ * a Fast Refresh that re-executes the effect without the native side
+ * releasing the previous subscription). Without this, two live subscriptions
+ * both fire for a single notification tap, so a "Hang up" or "Accept" press
+ * runs `room.disconnect()` / the accept navigation TWICE concurrently — two
+ * overlapping LiveKit/WebRTC teardown-or-join calls racing on the same
+ * native room is consistent with the native SIGSEGV crash seen when an
+ * incoming call arrived while the app was already busy.
+ */
+let releasePreviousForegroundSubscription: (() => void) | undefined;
 
 /**
  * Registers FCM + Notifee listeners while the user is signed in.
@@ -219,20 +604,28 @@ const IncomingCallListener = () => {
       // Socket path: tear down any existing call BEFORE navigating so the user
       // never sees two call screens simultaneously. await ensures the old room
       // is disconnected and its audio session released before the ringing UI appears.
-      void (async () => {
-        const active = getActiveCall();
-        if (active && active.liveKitRoom !== parsed.liveKitRoom) {
-          await endActiveCallForReplacement(parsed.liveKitRoom);
-        }
-        navigateIncomingCall(parsed);
-      })();
+      const active = getActiveCall();
+      // GLARE: both sides dialled each other at the same moment. Room names are
+      // derived from the sorted user-id pair, so both computed the SAME room and
+      // are already joining each other — this "incoming call" is our own call
+      // seen from the other side. Ignore it; ringing here would throw the user
+      // out of the call they are already in.
+      if (active && active.liveKitRoom === parsed.liveKitRoom) return;
+      // A DIFFERENT call while on one: offer it as call waiting rather than
+      // tearing the live conversation down without asking.
+      if (active) {
+        emitCallWaiting(parsed);
+        return;
+      }
+      navigateIncomingCall(parsed);
     });
 
     const unsubCancelled = callSocket.onCallCancelled(data => {
       const cancelledRoom = data.liveKitRoom || data.room;
-      if (cancelledRoom) markCallCancelled(cancelledRoom);
-      stopIncomingCallRingtone();
-      void cancelAndroidIncomingCallNotification();
+      // Withdraw a call-waiting offer if that caller gave up before we answered.
+      if (cancelledRoom) emitCallWaitingCleared(cancelledRoom);
+      if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
+      clearAllCallNotifications();
       dismissIncomingCallIfShowing(cancelledRoom);
       endActiveCallIfMatchesRoom(cancelledRoom);
       clearPendingIncomingCall(cancelledRoom);
@@ -251,28 +644,56 @@ const IncomingCallListener = () => {
     const messaging = getMessaging(getApp());
 
     let unsubTokenRefresh: (() => void) | undefined;
+    const registerRetryTimers: ReturnType<typeof setTimeout>[] = [];
 
-    const syncFcmToBackend = async () => {
+    /**
+     * Registering the device token is what puts it in `hopechat_fcm_tokens`
+     * server-side. Until that succeeds the backend has no HopeChat token for this
+     * user and every call push falls back to the legacy (Hopenity) pool — the
+     * call then surfaces as a notification in the wrong app. A single silent
+     * attempt was not enough: the first try can 401 while auth is still settling,
+     * or fail on a cold network, and nothing retried until the next foreground.
+     */
+    const REGISTER_RETRY_DELAYS_MS = [2_000, 8_000, 30_000];
+
+    const syncFcmToBackend = async (attempt = 0): Promise<void> => {
       const apiToken = store.getState().auth.token;
       if (!apiToken) return;
+      let ok = false;
       try {
         const fcm = await getToken(messaging);
         if (fcm) {
           const r = await postFcmTokenToHopenity(apiToken, fcm);
-          if (__DEV__ && !r.ok) {
+          ok = r.ok;
+          if (!r.ok) {
             console.warn('[HopeChat] FCM token registration failed HTTP', r.status);
           }
         }
       } catch (e) {
-        if (__DEV__) {
-          console.warn('[HopeChat] FCM getToken / register', e);
-        }
+        console.warn('[HopeChat] FCM getToken / register', e);
       }
+
+      if (ok) return;
+      const delay = REGISTER_RETRY_DELAYS_MS[attempt];
+      if (delay == null) return; // give up until the next foreground / network regain
+      registerRetryTimers.push(
+        setTimeout(() => {
+          void syncFcmToBackend(attempt + 1);
+        }, delay),
+      );
     };
 
     const unsubNet = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable !== false) {
         consumePendingIncomingCall();
+        // Network came back (very often right after a dropped call) — make sure
+        // the signaling socket is alive again, otherwise the next incoming call
+        // only arrives via the slower FCM path, or not at all.
+        const auth = store.getState().auth;
+        callSocket.ensureConnected(
+          auth.token,
+          auth.profile?.userId || String(auth.giftedChatUser?._id ?? ''),
+        );
         void syncFcmToBackend();
       }
     });
@@ -280,6 +701,7 @@ const IncomingCallListener = () => {
     const consumePending = () => {
       consumePendingIncomingCall();
       void consumePendingAutoAcceptData().then(json => {
+        if (__DEV__) console.log('[HopeChat DEBUG][fg] consumePendingAutoAcceptData ->', json);
         if (!json) return;
         try {
           const parsed = parseIncomingCallPayload(
@@ -287,9 +709,12 @@ const IncomingCallListener = () => {
           );
           // Guard: if a call_cancelled FCM already arrived in-process, don't
           // join a dead LiveKit room.
-          if (!parsed || isCallCancelled(parsed.liveKitRoom)) return;
+          if (!parsed || isCallCancelled(parsed.liveKitRoom)) {
+            if (__DEV__) console.log('[HopeChat DEBUG][fg] pending auto-accept dropped', { parsed, cancelled: parsed && isCallCancelled(parsed.liveKitRoom) });
+            return;
+          }
           void acceptCallDirectly(parsed);
-        } catch { /* */ }
+        } catch (e) { if (__DEV__) console.log('[HopeChat DEBUG][fg] pending auto-accept parse FAILED', e); }
       });
       void consumePendingRejectData().then(json => {
         if (!json) return;
@@ -297,9 +722,35 @@ const IncomingCallListener = () => {
       });
     };
 
+    // The ongoing-call notification was tapped. This fires whichever context
+    // received the press, and — unlike the AppState listener below — it does not
+    // require the app to have been backgrounded first. Backing out of the call
+    // screen leaves the app 'active', so this is the path that actually runs in
+    // the "I'm still in the app, tap the notification to get back" case.
+    const unsubOpenCall = DeviceEventEmitter.addListener(
+      OPEN_ACTIVE_CALL_EVENT,
+      (pending?: PendingCallScreenData) => {
+        // Clear the flag so the AppState/mount paths do not fire a second time.
+        consumePendingOpenActiveCall();
+        const data = consumePendingOpenActiveCallData() ?? pending;
+        openActiveCallScreenWhenReady(0, data ?? undefined);
+      },
+    );
+
     const unsubAppState = AppState.addEventListener('change', next => {
       if (next === 'active') {
         consumePending();
+        // Ongoing-call notification was tapped while backgrounded.
+        if (consumePendingOpenActiveCall()) {
+        // Pass the recorded call through, so a screen that is no longer in the
+        // stack can still be rebuilt rather than the tap doing nothing.
+        openActiveCallScreenWhenReady(0, consumePendingOpenActiveCallData() ?? undefined);
+      }
+        const auth = store.getState().auth;
+        callSocket.ensureConnected(
+          auth.token,
+          auth.profile?.userId || String(auth.giftedChatUser?._id ?? ''),
+        );
         void syncFcmToBackend();
       }
     });
@@ -338,6 +789,19 @@ const IncomingCallListener = () => {
 
       await syncFcmToBackend();
 
+      // Publish this device's PUBLIC encryption keys so peers can start a
+      // session with us while we are offline. Runs alongside FCM registration
+      // because both answer the same question — "how do I reach this install?"
+      // Cheap after the first launch: the bundle upserts and one-time prekeys
+      // are only topped up when they run low.
+      {
+        const apiToken = store.getState().auth.token;
+        if (apiToken) void publishKeys(apiToken);
+        // Keep the encrypted history archive current. No-ops unless the vault is
+        // unlocked AND something actually changed, so this is nearly free.
+        if (apiToken) scheduleArchiveSync(apiToken);
+      }
+
       unsubTokenRefresh = onTokenRefresh(messaging, async newToken => {
         const apiToken = store.getState().auth.token;
         if (apiToken && newToken) {
@@ -356,10 +820,10 @@ const IncomingCallListener = () => {
           data.cancelled === 'true';
         if (isCancelled) {
           const cancelledRoom = data.liveKitRoom || data.room;
-          if (cancelledRoom) markCallCancelled(cancelledRoom);
-          // Stop any in-process ringtone immediately before anything else.
-          stopIncomingCallRingtone();
-          void cancelAndroidIncomingCallNotification();
+          if (cancelledRoom) emitCallWaitingCleared(cancelledRoom);
+          if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
+          // Stop every ringing/ongoing surface immediately before anything else.
+          clearAllCallNotifications();
           dismissIncomingCallIfShowing(cancelledRoom);
           endActiveCallIfMatchesRoom(cancelledRoom);
           // Kill any buffered pending navigation that hasn't fired yet — prevents
@@ -372,17 +836,28 @@ const IncomingCallListener = () => {
         if (parsed) {
           // Tear down any existing call before navigating so the user never sees
           // two call screens at once (mirrors the socket path above).
-          void (async () => {
-            const active = getActiveCall();
-            if (active && active.liveKitRoom !== parsed.liveKitRoom) {
-              await endActiveCallForReplacement(parsed.liveKitRoom);
-            }
+          const active = getActiveCall();
+          // Same glare rule as the socket path above.
+          if (active && active.liveKitRoom === parsed.liveKitRoom) {
+            /* our own call, seen from the other side — ignore */
+          } else if (active) {
+            emitCallWaiting(parsed);
+          } else {
             navigateIncomingCall(parsed);
-          })();
+          }
         } else {
           // Non-call notification (new chat message, request, etc.) — refresh inbox.
           if (Object.keys(data).length > 0) {
             DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+          }
+          // Foreground messages used to be silent: FCM only auto-displays while
+          // backgrounded, so an incoming chat produced no banner at all. Render
+          // the same Messenger-style notification here, unless the user is
+          // already looking at that conversation.
+          if (!isViewingChat(notificationChatId(data))) {
+            void displayMessagingNotification(data).catch(e =>
+              console.error('[HopeChat FG] displayMessagingNotification failed — message notification dropped:', e),
+            );
           }
           if (__DEV__ && Object.keys(data).length > 0) {
             console.log(
@@ -406,7 +881,12 @@ const IncomingCallListener = () => {
       }
 
       const notInitial = await notifee.getInitialNotification();
-      if (notInitial?.notification?.data) {
+      if (notInitial?.notification?.id === ONGOING_NOTIFICATION_ID) {
+        openActiveCallScreenWhenReady(
+          0,
+          notInitial.notification.data as Record<string, string> | undefined,
+        );
+      } else if (notInitial?.notification?.data) {
         const wasAcceptButton = notInitial.pressAction?.id === 'accept';
         openFromNotificationData(
           notInitial.notification.data as Record<string, string>,
@@ -414,12 +894,52 @@ const IncomingCallListener = () => {
         );
       }
 
+      // Release any subscription a previous mount/effect-run left behind
+      // BEFORE creating a new one — see releasePreviousForegroundSubscription
+      // above. This is what actually enforces the single-listener invariant;
+      // registering first and releasing on cleanup still leaves a window
+      // where two are simultaneously live.
+      releasePreviousForegroundSubscription?.();
       unsubNotifee = notifee.onForegroundEvent(({ type, detail }) => {
-        if (type !== EventType.PRESS) return;
+        if (__DEV__) {
+          console.log('[HopeChat DEBUG][fg] notifee.onForegroundEvent', {
+            type,
+            actionId: detail.pressAction?.id,
+            notifId: detail.notification?.id,
+          });
+        }
+        // Action buttons (Hang up / Accept / Reject) can fire as ACTION_PRESS
+        // instead of being folded into PRESS. Only handling PRESS silently
+        // dropped every button tap — the plain body tap (PRESS) kept working,
+        // which is why the buttons looked dead while tapping the notification
+        // body did nothing either (it hits the ONGOING/default branch below).
+        if (type !== EventType.PRESS && type !== EventType.ACTION_PRESS) return;
+
+        // "Hang up" on the in-progress call notification.
+        if (detail.pressAction?.id === HANGUP_ACTION_ID) {
+          // Ends the room AND leaves the call screen, and the registry's
+          // teardown signals the peer over both channels.
+          //
+          // The registry is the preferred source, but it is EMPTY whenever the
+          // call screen is not mounted — during connect, and after the user
+          // backs out of a running call. Falling back to the room the
+          // notification carries is what makes Hang up work in exactly those
+          // cases, where previously it silently did nothing on both ends.
+          const notifRoom = String(
+            (detail.notification?.data as Record<string, string> | undefined)
+              ?.liveKitRoom ?? '',
+          ).trim();
+          const room = getActiveCall()?.liveKitRoom || notifRoom;
+          void hangUpOngoingCall(room);
+          return;
+        }
 
         // Ongoing call notification tapped — bring the active call screen back into view.
         if (detail.notification?.id === ONGOING_NOTIFICATION_ID) {
-          navigateToActiveCallScreen();
+          openActiveCallScreenWhenReady(
+            0,
+            detail.notification?.data as Record<string, string> | undefined,
+          );
           return;
         }
 
@@ -437,19 +957,116 @@ const IncomingCallListener = () => {
 
         openFromNotificationData(data, actionId === 'accept');
       });
+      releasePreviousForegroundSubscription = unsubNotifee;
 
       // Also consume on initial mount — the AppState 'change' listener doesn't fire
       // if the app launches directly into the 'active' state (cold-start via notification tap).
       consumePending();
+      if (consumePendingOpenActiveCall()) {
+        // Pass the recorded call through, so a screen that is no longer in the
+        // stack can still be rebuilt rather than the tap doing nothing.
+        openActiveCallScreenWhenReady(0, consumePendingOpenActiveCallData() ?? undefined);
+      }
     })().catch(() => undefined);
 
     return () => {
+      registerRetryTimers.forEach(clearTimeout);
       unsubTokenRefresh?.();
       unsubNet();
       unsubAppState.remove();
+      unsubOpenCall.remove();
       unsubMessage?.();
       unsubOpenedApp?.();
       unsubNotifee?.();
+      // Only clear the module-level slot if it's still ours — a newer
+      // mount may already have replaced it (e.g. Fast Refresh running this
+      // cleanup after the next effect already registered).
+      if (releasePreviousForegroundSubscription === unsubNotifee) {
+        releasePreviousForegroundSubscription = undefined;
+      }
+    };
+  }, [loggedIn]);
+
+  // ── iOS VoIP (PushKit) + CallKit ────────────────────────────────────────────
+  // Regular FCM/APNs pushes are throttled by iOS whenever the app is
+  // backgrounded and are NOT delivered at all once the app has been force-quit
+  // — a VoIP push is the only kind Apple guarantees near-instant delivery for
+  // in that state, in exchange for immediately reporting the call to CallKit
+  // (done natively in AppDelegate.swift, before JS is even guaranteed to be
+  // running). This effect handles everything JS-side needs: registering the
+  // VoIP token with the backend, and answering/declining from the native
+  // CallKit UI (lock screen, Recents) by driving the exact same
+  // acceptCallDirectly / processRejectPayload paths the FCM flow uses.
+  useEffect(() => {
+    if (!loggedIn || Platform.OS !== 'ios') return;
+
+    RNCallKeep.setup({
+      ios: {
+        appName: 'Hope Chat',
+        supportsVideo: true,
+        includesCallsInRecents: true,
+      },
+      android: {
+        alertTitle: '',
+        alertDescription: '',
+        cancelButton: '',
+        okButton: '',
+        additionalPermissions: [],
+      },
+    }).catch(() => undefined);
+
+    const syncVoipToken = (token: string) => {
+      rememberVoipToken(token);
+      const apiToken = store.getState().auth.token;
+      if (apiToken && token) {
+        void postVoipTokenToHopenity(apiToken, token);
+      }
+    };
+
+    RNVoipPushNotification.addEventListener('register', syncVoipToken);
+
+    RNVoipPushNotification.addEventListener('notification', (rawPayload: object) => {
+      // The payload is whatever the backend's direct-APNs VoIP send put in it —
+      // same shape as the FCM `incoming_call` data (see chatService's
+      // inviteHopeChatCall on the backend) so both flows can share every
+      // downstream handler.
+      const data: Record<string, string> = {};
+      for (const [k, v] of Object.entries(rawPayload as Record<string, unknown>)) {
+        data[k] = typeof v === 'string' ? v : JSON.stringify(v);
+      }
+      const uuid = String((rawPayload as Record<string, unknown>).uuid ?? '');
+      if (uuid) pendingVoipCalls.set(uuid, data);
+
+      // The native side already told CallKit about this call — this only
+      // needs to feed the app's own ring state (missed-call bookkeeping,
+      // duplicate-suppression) the same way an FCM `incoming_call` push does.
+      const parsed = parseIncomingCallPayload(data);
+      if (parsed && !isCallCancelled(parsed.liveKitRoom)) {
+        navigateIncomingCall(parsed);
+      }
+    });
+
+    const answerSub = RNCallKeep.addEventListener('answerCall', ({ callUUID }) => {
+      const raw = pendingVoipCalls.get(callUUID);
+      pendingVoipCalls.delete(callUUID);
+      if (!raw) return;
+      void acceptCallDirectly(parseIncomingCallPayload(raw));
+    });
+
+    const endSub = RNCallKeep.addEventListener('endCall', ({ callUUID }) => {
+      const raw = pendingVoipCalls.get(callUUID);
+      pendingVoipCalls.delete(callUUID);
+      // Only meaningful here if the call was declined before being answered —
+      // an end after answering is already handled by the normal in-call hangup
+      // flow once the user is on the AudioCall/VideoCall screen.
+      if (raw) processRejectPayload(raw);
+    });
+
+    return () => {
+      RNVoipPushNotification.removeEventListener('register');
+      RNVoipPushNotification.removeEventListener('notification');
+      answerSub?.remove();
+      endSub?.remove();
     };
   }, [loggedIn]);
 

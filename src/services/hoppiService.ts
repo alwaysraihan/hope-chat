@@ -111,17 +111,40 @@ export async function fetchSellerProducts(
   }
 }
 
+/**
+ * Resolve the trailing segment of a `hoppi.live/product/<ref>` URL.
+ *
+ * That segment is usually a Mongo ObjectId (24 hex chars), which only
+ * `/add-product/:id` serves — `/add-product/by-slug/:slug` 404s for it. Human
+ * readable slugs still exist for older links, so try the shape that matches and
+ * fall back to the other before giving up.
+ */
 export async function fetchProductBySlug(
-  slug: string,
+  ref: string,
 ): Promise<HoppiProduct | null> {
-  try {
-    const res = await fetch(`${HOPPI_API_URL}/add-product/by-slug/${slug}`);
-    const data = await res.json();
-    const p = data?.product ?? data?.data ?? data;
-    return p?._id || p?.title ? p : null;
-  } catch {
-    return null;
+  // The reference MUST be encoded: live slugs contain spaces (e.g.
+  // "Premium Combo Set"), and pasting one straight into the path produced a
+  // malformed request that always 404'd.
+  const encoded = encodeURIComponent(ref);
+
+  // `/add-product/by-slug/:ref` does not exist on the API — it 404s for every
+  // input, verified against production. Keeping it first meant every product
+  // preview paid a wasted round trip before the request that actually works.
+  // `/add-product/:ref` resolves BOTH an object id and a slug.
+  const paths = [`/add-product/${encoded}`];
+
+  for (const path of paths) {
+    try {
+      const res = await fetch(`${HOPPI_API_URL}${path}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const p = data?.data ?? data?.product ?? data;
+      if (p?._id || p?.title) return p as HoppiProduct;
+    } catch {
+      // try the next shape
+    }
   }
+  return null;
 }
 
 export function formatHoppiPrice(product: HoppiProduct): string | null {
@@ -150,10 +173,31 @@ export interface HoppiCartItem {
   variantLabel?: string;
 }
 
-export async function fetchMyCart(session: HoppiSession): Promise<HoppiCartItem[]> {
+/**
+ * hoppi.live's cart is keyed on a `userId` QUERY PARAM, not on the bearer token
+ * (unlike /orders, which reads the user from the JWT — which is exactly why
+ * "My Purchases" worked while "My Cart" came back empty).
+ *
+ * The Hopenity app writes the cart under the HOPENITY user id (`user.user_id`,
+ * the cuid). HopeChat was reading it back under `session.hoppiUserId`, which is
+ * hoppi's own Mongo `_id` issued by /auth/customer-token — a different
+ * identifier for the same person, so the lookup always missed and the cart
+ * looked empty.
+ *
+ * `hopenityUserId` must therefore be the same cuid the Hopenity app uses.
+ */
+export async function fetchMyCart(
+  session: HoppiSession,
+  hopenityUserId: string,
+): Promise<HoppiCartItem[]> {
+  const cartUserId = String(hopenityUserId ?? '').trim();
+  if (!cartUserId) {
+    if (__DEV__) console.warn('[hoppiService] fetchMyCart called without a Hopenity user id');
+    return [];
+  }
   try {
     const res = await fetch(
-      `${HOPPI_API_URL}/cart?userId=${encodeURIComponent(session.hoppiUserId)}`,
+      `${HOPPI_API_URL}/cart?userId=${encodeURIComponent(cartUserId)}`,
       { headers: { Authorization: `Bearer ${session.hoppiToken}` } },
     );
     const data = await res.json();
@@ -213,5 +257,9 @@ export async function fetchMyPurchases(
  * (legacy orders) — callers should render those rows as not shareable.
  */
 export function productIdShareUrl(productId: string | undefined): string | null {
-  return productId ? `${HOPPI_BASE_URL}/product/${productId}` : null;
+  if (!productId) return null;
+  // Encode: variant cart lines use composite references that can contain
+  // characters (":", "/", spaces) which would otherwise break the path and make
+  // the receiving card resolve the wrong product — or none at all.
+  return `${HOPPI_BASE_URL}/product/${encodeURIComponent(productId)}`;
 }

@@ -34,6 +34,8 @@ import AudioOutputPickerSheet from '../components/AudioOutputPickerSheet';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StackActions } from '@react-navigation/native';
 import { useAppSelector } from '../hooks/redux';
+import { store } from '../redux/store';
+import { notifyCallEndedByRoom } from '../services/invitePeerToHopeChatCall';
 import {
   AudioSession,
   AndroidAudioTypePresets,
@@ -69,6 +71,10 @@ import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForegroun
 // useOverlayPermissionPrompt removed — SYSTEM_ALERT_WINDOW dropped from manifest.
 // Re-add when the floating in-call bubble feature is shipped.
 import { registerActiveCall } from '../services/livekit/activeCallRegistry';
+import {
+  emitActiveCallStatus,
+  emitActiveCallEnded,
+} from '../services/livekit/activeCallStatusBus';
 import { useCallTimer } from '../hooks/useCallTimer';
 import {
   sendCallModeChange,
@@ -83,6 +89,7 @@ import {
   isCallTransitioning,
 } from '../services/callTransitionGuard';
 import { callSocket } from '../services/callSocket';
+import { leaveGroupCall, notifyGroupCall } from '../services/groupService';
 import { AddPeopleModal } from '../components/AddPeopleModal';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'AudioCall'>;
@@ -134,8 +141,15 @@ function AudioCallGate({
   const leaveRef = useRef(leaveCall);
   leaveRef.current = leaveCall;
 
-  /** Android: foreground service + ongoing notification so the call survives minimize. */
-  useLiveKitAndroidForeground(room, displayName, 'audio');
+  /**
+   * Android: foreground service + ongoing notification so the call survives minimize.
+   *
+   * `routeParams.liveKitRoom`, not `room.name` — the LiveKit SDK's Room object
+   * does not reliably populate `.name` at connect time, which left the
+   * notification's Hang up button and body-tap navigation with an empty room
+   * id for the whole call.
+   */
+  useLiveKitAndroidForeground(room, displayName, 'audio', routeParams?.liveKitRoom, peerAvatarUrl);
 
   /**
    * Register the current call so a second incoming call (concurrent-call handling) can tear this
@@ -146,11 +160,26 @@ function AudioCallGate({
    * reset and pop the wrong screen.
    */
   useEffect(() => {
-    if (!room?.name) return;
+    // `room.name` (the LiveKit SDK's own field), not `routeParams.liveKitRoom` — it
+    // does not reliably populate at connect time, which silently skipped this whole
+    // effect and meant the call was NEVER added to the active-call registry. That is
+    // why the ongoing notification's "return to call" and "hang up" both came up
+    // empty-handed: there was nothing registered to find.
+    const liveKitRoom = routeParams?.liveKitRoom;
+    if (!room || !liveKitRoom) return;
     const silentDisconnect = async () => {
       try {
         // Signal the peer before disconnecting so they end their side without the 30s wait.
         sendCallHangup(room);
+        // Also end it server-side. This path runs when the user accepts a SECOND
+        // incoming call: the peer of the call being replaced may never see the
+        // data-channel signal (their connection can already be gone), and they
+        // must not be left in a call whose other side has vanished.
+        void notifyCallEndedByRoom({
+          token: store.getState().auth.token,
+          liveKitRoom,
+          reason: room.state === ConnectionState.Connected ? 'hangup' : undefined,
+        });
         const lp = room?.localParticipant;
         if (lp) {
           await lp.setScreenShareEnabled(false).catch(() => undefined);
@@ -163,9 +192,14 @@ function AudioCallGate({
       }
     };
     const unregister = registerActiveCall({
-      liveKitRoom: room.name,
+      liveKitRoom,
       kind: 'audio',
       leave: silentDisconnect,
+      // Remote hang-up must also dismiss this screen, not just drop the room.
+      end: () => leaveRef.current(),
+      // Lets the ongoing-call notification rebuild this screen after the user
+      // backs out of it mid-call.
+      screenParams: { ...(routeParams ?? {}), callDirection: 'incoming' },
     });
     return unregister;
   }, [room]);
@@ -237,6 +271,34 @@ function AudioCallGate({
   const outgoing = outcomeOpts.callDirection === 'outgoing';
   const isGroupCallRoute = !!routeParams?.isGroupCall;
 
+  /**
+   * Group calls are tracked server-side so the thread can show a "Join call"
+   * banner and post the join/leave/ended rows. Leaving has to be reported, or
+   * the group keeps offering a call nobody is in.
+   */
+  const groupThreadId = routeParams?.conversationId;
+  useEffect(() => {
+    if (!isGroupCallRoute || !groupThreadId) return;
+    const token = store.getState().auth.token;
+    // Answering the ring joins the call too — without this only the people who
+    // pressed the call button counted as participants, so the banner's count was
+    // wrong and nobody saw "{name} joined the call" for someone who accepted.
+    if (token && routeParams?.callDirection !== 'outgoing') {
+      void notifyGroupCall({
+        groupId: groupThreadId,
+        liveKitRoom: routeParams?.liveKitRoom ?? '',
+        callKind: 'audio',
+        token,
+        displayName,
+      });
+    }
+    return () => {
+      const t = store.getState().auth.token;
+      if (t) void leaveGroupCall(groupThreadId, t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGroupCallRoute, groupThreadId]);
+
   // Track whether the callee's device acknowledged the ring — lets caller show
   // "Calling…" → "Ringing…" only when the callee is actually ringing.
   const [peerIsRinging, setPeerIsRinging] = useState(false);
@@ -248,6 +310,48 @@ function AudioCallGate({
     });
   }, [outgoing, liveKitRoomName]);
 
+  // Drive the in-app "return to call" banner (App.tsx's CallStatusBanner) so
+  // minimizing the call (or navigating elsewhere) still shows a WhatsApp-style
+  // bar with live status instead of the call silently vanishing from view.
+  const connectedAtMsRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!liveKitRoomName || cs === ConnectionState.Disconnected) return;
+    const hasRemote = remotes.length > 0;
+    if (hasRemote && cs === ConnectionState.Connected && !connectedAtMsRef.current) {
+      connectedAtMsRef.current = Date.now();
+    }
+    const status =
+      cs === ConnectionState.Reconnecting
+        ? 'reconnecting'
+        : hasRemote && cs === ConnectionState.Connected
+          ? 'connected'
+          : outgoing && !peerIsRinging
+            ? 'connecting'
+            : 'ringing';
+    emitActiveCallStatus({
+      liveKitRoom: liveKitRoomName,
+      kind: 'audio',
+      status,
+      peerName: routeParams?.displayName ?? displayName,
+      peerAvatarUrl: routeParams?.avatarUrl ?? peerAvatarUrl,
+      connectedAtMs: connectedAtMsRef.current,
+    });
+  }, [
+    liveKitRoomName,
+    cs,
+    remotes.length,
+    outgoing,
+    peerIsRinging,
+    routeParams?.displayName,
+    routeParams?.avatarUrl,
+    displayName,
+    peerAvatarUrl,
+  ]);
+  useEffect(() => {
+    if (!liveKitRoomName) return;
+    return () => emitActiveCallEnded(liveKitRoomName);
+  }, [liveKitRoomName]);
+
   // If the remote peer drops off mid-call (force-quit, network loss), give a grace
   // period before ending. 1:1 calls use 3 s (brief network hiccup is unlikely to last
   // longer). Group calls use 30 s so a participant can rejoin without dropping everyone.
@@ -256,11 +360,20 @@ function AudioCallGate({
     const wasConnected = prevRemoteCountRef.current > 0;
     const nowGone = remotes.length === 0;
     prevRemoteCountRef.current = remotes.length;
-    if (!wasConnected || !nowGone || cs !== ConnectionState.Connected) return;
+    // Also arm while Reconnecting: ICE often flickers to this state for a
+    // moment right as the peer drops, which previously skipped this effect
+    // entirely and left the local user stuck "in call" forever.
+    if (
+      !wasConnected ||
+      !nowGone ||
+      (cs !== ConnectionState.Connected && cs !== ConnectionState.Reconnecting)
+    )
+      return;
     const gracePeriodMs = isGroupCallRoute ? 30_000 : 3_000;
     const t = setTimeout(() => {
       if (countRef.current > 0) return;
-      try { Alert.alert('Call ended', 'The other person has left the call.'); } catch { /* */ }
+      // Peer left — just end. A modal over a call that is already over makes the
+      // user dismiss a dialog before they can do anything else.
       void leaveRef.current();
     }, gracePeriodMs);
     return () => clearTimeout(t);
@@ -283,14 +396,14 @@ function AudioCallGate({
       if (countRef.current > 0) return;
       const state = csRef.current;
       try {
-        if (state === ConnectionState.Connected) {
-          if (Platform.OS === 'android') {
-            ToastAndroid.show(displayName + " didn't receive your call", ToastAndroid.LONG);
-          } else {
-            Alert.alert('No answer', displayName + " didn't receive your call.");
-          }
-        } else {
-          Alert.alert('Call ended', 'Could not complete the call. Check your network and try again.');
+        // Outgoing call that was never answered. Worth telling the caller, but as a
+        // toast — never a modal that outlives the call screen.
+        const note =
+          state === ConnectionState.Connected
+            ? displayName + " didn't receive your call"
+            : 'Could not complete the call';
+        if (Platform.OS === 'android') {
+          ToastAndroid.show(note, ToastAndroid.LONG);
         }
       } catch { /* */ }
       void leaveRef.current();
@@ -298,11 +411,30 @@ function AudioCallGate({
     return () => clearTimeout(t);
   }, [outgoing]);
 
+  /**
+   * Stuck in CONNECTING — the signal handshake never completed (bad network,
+   * expired token, LiveKit unreachable). Without this the screen sits on
+   * "Calling…" forever for incoming calls, which have no 60 s answer timer.
+   */
+  useEffect(() => {
+    if (cs !== ConnectionState.Connecting) return;
+    const t = setTimeout(() => {
+      if (csRef.current !== ConnectionState.Connecting) return;
+      try {
+        if (Platform.OS === 'android') {
+          ToastAndroid.show('Could not connect', ToastAndroid.LONG);
+        }
+      } catch { /* */ }
+      void leaveRef.current();
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [cs]);
+
   // If stuck reconnecting for 25 s, give up and show a clear message.
   useEffect(() => {
     if (cs !== ConnectionState.Reconnecting) return;
     const t = setTimeout(() => {
-      try { Alert.alert('Call ended', 'Connection was lost and could not be restored.'); } catch { /* */ }
+      // Connection lost — end silently, same reasoning as above.
       void leaveRef.current();
     }, 25_000);
     return () => clearTimeout(t);
@@ -332,15 +464,24 @@ function AudioCallGate({
               resizeMode={FastImage.resizeMode.cover}
             />
           ) : null}
-          <ActivityIndicator color={colorss.white} size="large" />
+          <ActivityIndicator color={'white'} size="large" />
           <Text style={styles.connectOverlayText}>{label}</Text>
           <TouchableOpacity
             style={styles.endBtn}
             accessibilityRole="button"
             accessibilityLabel="End call"
-            onPress={() => void leaveCall()}
+            onPress={() => {
+              // The room may already be torn down (e.g. this is the post-remote-hangup
+              // "Call ended" screen), in which case leaveCall() is a guarded no-op —
+              // never let that leave the tap dead. Always attempt to leave the screen too.
+              if (cs === ConnectionState.Disconnected) {
+                safePop();
+              } else {
+                void leaveCall();
+              }
+            }}
           >
-            <PhoneOff size={26} color={colorss.white} />
+            <PhoneOff size={26} color={'white'} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -456,13 +597,13 @@ function AudioStage({
   const activeKind = audio.activeId;
   const activeIcon =
     activeKind === 'bluetooth' ? (
-      <Bluetooth size={22} color={colorss.white} />
+      <Bluetooth size={22} color={'white'} />
     ) : activeKind === 'wired' ? (
-      <Headphones size={22} color={colorss.white} />
+      <Headphones size={22} color={'white'} />
     ) : activeKind === 'speaker' ? (
-      <Volume2 size={22} color={colorss.white} />
+      <Volume2 size={22} color={'white'} />
     ) : (
-      <PhoneIcon size={22} color={colorss.white} />
+      <PhoneIcon size={22} color={'white'} />
     );
   const activeLabel =
     activeKind === 'bluetooth'
@@ -482,7 +623,7 @@ function AudioStage({
             accessibilityRole="button"
             accessibilityLabel="Go to chat list"
           >
-            <ChevronLeft size={28} color={colorss.white} />
+            <ChevronLeft size={28} color={'white'} />
           </TouchableOpacity>
         ) : (
           <View style={{ width: 28 }} />
@@ -578,7 +719,7 @@ function AudioStage({
           >
             <VideoIcon
               size={22}
-              color={isRinging ? 'rgba(255,255,255,0.4)' : colorss.white}
+              color={isRinging ? 'rgba(255,255,255,0.4)' : 'white'}
             />
           </TouchableOpacity>
           <Text style={styles.actionLabel}>Video</Text>
@@ -592,9 +733,9 @@ function AudioStage({
             onPress={toggleMic}
           >
             {isMicrophoneEnabled ? (
-              <Mic size={22} color={colorss.white} />
+              <Mic size={22} color={'white'} />
             ) : (
-              <MicOff size={22} color={colorss.white} />
+              <MicOff size={22} color={'white'} />
             )}
           </TouchableOpacity>
           <Text style={styles.actionLabel}>Mute</Text>
@@ -607,14 +748,14 @@ function AudioStage({
               accessibilityRole="button"
               accessibilityLabel="Add people to call"
             >
-              <UserPlus size={22} color={colorss.white} />
+              <UserPlus size={22} color={'white'} />
             </TouchableOpacity>
             <Text style={styles.actionLabel}>Add</Text>
           </View>
         )}
         <View style={styles.actionItem}>
           <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
-            <PhoneOff size={22} color={colorss.white} />
+            <PhoneOff size={22} color={'white'} />
           </TouchableOpacity>
           <Text style={styles.actionLabel}>End</Text>
         </View>
@@ -636,10 +777,16 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
   // and falsely show "Voice call error" to the user.
   const [addPeopleVisible, setAddPeopleVisible] = useState(false);
 
-  const rawSafePop = useSafeSingleNavigationPop(navigation as never);
+  const rawSafePop = useSafeSingleNavigationPop(navigation as never, route.key);
   // Suppress safePop when we're intentionally swapping call screens (mode switch / call handover).
   const safePop = useCallback(() => {
-    if (isCallTransitioning()) return;
+    // Never drop the pop outright: if it lands inside the transition-guard
+    // window, retry once after it clears instead of leaving the "Call ended"
+    // screen stuck forever with no automatic way off it.
+    if (isCallTransitioning()) {
+      setTimeout(() => rawSafePop(), 650);
+      return;
+    }
     rawSafePop();
   }, [rawSafePop]);
 
@@ -720,7 +867,7 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
       <View style={styles.container}>
         {loading ? (
           <View style={styles.centerWrap}>
-            <ActivityIndicator color={colorss.white} size="large" />
+            <ActivityIndicator color={'white'} size="large" />
             <Text style={styles.statusText}>Connecting voice…</Text>
           </View>
         ) : typeof serverUrl === 'string' &&
@@ -835,7 +982,7 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.primary,
   },
   name: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 24,
     fontWeight: '700',
     marginTop: 16,
@@ -903,7 +1050,7 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.primaryDark,
   },
   missingTitle: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 20,
     fontWeight: '800',
     marginBottom: 10,
@@ -922,7 +1069,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   backGhostText: {
-    color: colorss.white,
+    color: 'white',
     fontWeight: '700',
   },
   connectingFull: {
@@ -971,7 +1118,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.35)',
   },
   participantInitial: {
-    color: colorss.white,
+    color: 'white',
     fontSize: 20,
     fontWeight: '700',
   },
@@ -979,5 +1126,18 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontSize: 11,
     textAlign: 'center',
+  },
+  autoSwitchBanner: {
+    alignSelf: 'center',
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  autoSwitchBannerText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

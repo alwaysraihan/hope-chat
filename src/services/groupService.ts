@@ -308,6 +308,64 @@ export async function joinGroupByCode(
 }
 
 /** Fire-and-forget: tell all group members there's an incoming group call. */
+export type GroupCallState = {
+  active: boolean;
+  liveKitRoom: string | null;
+  callKind: 'audio' | 'video' | null;
+  startedByUserId: string | null;
+  startedByName: string | null;
+  participantCount: number;
+};
+
+/** Is a call already running in this group? Drives the "Join call" banner. */
+export async function fetchGroupCallState(
+  groupId: string,
+  token: string,
+): Promise<GroupCallState | null> {
+  if (!token) return null;
+  try {
+    const base = API_BASE_URL.replace(/\/+$/, '');
+    const res = await fetch(
+      `${base}/api/v2/groups/${encodeURIComponent(groupId)}/hopechat-call-state`,
+      { headers: { Authorization: bearer(token) } },
+    );
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const data = json?.responseObject ?? json?.data ?? json;
+    if (!data || typeof data !== 'object') return null;
+    return {
+      active: !!data.active,
+      liveKitRoom: data.liveKitRoom ?? null,
+      callKind: data.callKind ?? null,
+      startedByUserId: data.startedByUserId ?? null,
+      startedByName: data.startedByName ?? null,
+      participantCount: Number(data.participantCount ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tell the server this member left the group call. The last one out ends it,
+ * which is what writes the "Call ended" row and clears the join banner.
+ */
+export async function leaveGroupCall(
+  groupId: string,
+  token: string,
+): Promise<void> {
+  if (!token) return;
+  try {
+    const base = API_BASE_URL.replace(/\/+$/, '');
+    await fetch(
+      `${base}/api/v2/groups/${encodeURIComponent(groupId)}/hopechat-call-leave`,
+      { method: 'POST', headers: { Authorization: bearer(token) } },
+    );
+  } catch {
+    /* fire-and-forget */
+  }
+}
+
 export async function notifyGroupCall(params: {
   groupId: string;
   liveKitRoom: string;
@@ -315,10 +373,10 @@ export async function notifyGroupCall(params: {
   token: string;
   /** Group name shown to callees on their incoming-call screen. */
   displayName?: string;
-}): Promise<void> {
+}): Promise<{ liveKitRoom: string; joinedExisting: boolean } | null> {
   try {
     const base = API_BASE_URL.replace(/\/+$/, '');
-    await fetch(
+    const res = await fetch(
       `${base}/api/v2/groups/${encodeURIComponent(params.groupId)}/hopechat-call-invite`,
       {
         method: 'POST',
@@ -333,7 +391,19 @@ export async function notifyGroupCall(params: {
         }),
       },
     );
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const data = json?.responseObject ?? json?.data ?? json;
+    // The server decides the room: pressing call while a call is already running
+    // returns THAT room so the member joins instead of starting a second one.
+    if (data?.liveKitRoom) {
+      return {
+        liveKitRoom: String(data.liveKitRoom),
+        joinedExisting: !!data.joinedExisting,
+      };
+    }
+    return null;
   } catch {
-    /* fire-and-forget */
+    return null;
   }
 }
