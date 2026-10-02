@@ -78,7 +78,9 @@ const ReplyPreviewBar: React.FC<{
   replyTo: ExtendedMessage | null;
   animatedHeight: Animated.Value;
   onClear: () => void;
-}> = ({ replyTo, animatedHeight, onClear }) => {
+  /** Overrides the sender name line, e.g. "Editing message". */
+  title?: string;
+}> = ({ replyTo, animatedHeight, onClear, title }) => {
   const isImage = replyTo?.media?.type === 'image';
   const isVideo = replyTo?.media?.type === 'video';
   const isVoice = replyTo?.media?.type === 'voice';
@@ -105,7 +107,7 @@ const ReplyPreviewBar: React.FC<{
           <View style={styles.replyAccentLine} />
           <View style={styles.replyContent}>
             <Text style={styles.replyName} numberOfLines={1}>
-              {replyTo.user?.name ?? 'User'}
+              {title ?? replyTo.user?.name ?? 'User'}
             </Text>
             <Text style={styles.replyText} numberOfLines={1}>
               {getReplyPreviewText(replyTo)}
@@ -205,6 +207,8 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
     handleVoiceRecordingComplete,
     handleVoiceRecordingCancel,
     clearReply,
+    editingMessage,
+    cancelEdit,
     openSellerSheet,
   } = useInbox();
   const { isDark, colors } = useAppTheme();
@@ -246,15 +250,22 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
     }).start();
   }, [isExpanded, expandAnim]);
 
-  // Animate reply bar height
+  const previewTarget = editingMessage ?? replyTo;
+
+  // Animate reply / edit bar height
   useEffect(() => {
     Animated.spring(replyHeight, {
-      toValue: replyTo ? 1 : 0,
+      toValue: previewTarget ? 1 : 0,
       tension: 90,
       friction: 9,
       useNativeDriver: false,
     }).start();
-  }, [replyTo, replyHeight]);
+  }, [previewTarget, replyHeight]);
+
+  const handleCancelEdit = () => {
+    cancelEdit();
+    props.textInputProps?.onChangeText?.('');
+  };
 
   // ── Voice recording UI
   if (isRecording) {
@@ -285,9 +296,10 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
       ]}
     >
       <ReplyPreviewBar
-        replyTo={replyTo}
+        replyTo={previewTarget}
         animatedHeight={replyHeight}
-        onClear={clearReply}
+        onClear={editingMessage ? handleCancelEdit : clearReply}
+        title={editingMessage ? 'Editing message' : undefined}
       />
 
       {showEmojiPicker && <EmojiPicker onSelect={appendEmoji} />}
@@ -361,7 +373,8 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
         </View>
 
         {/* Send or Mic */}
-        {hasText ? (
+        {/* While editing, never offer the 👍 quick-send — it would replace the text */}
+        {hasText || editingMessage ? (
           <GiftedSend {...props} containerStyle={styles.actionBtn}>
             <Send size={22} color={colorss.primary} />
           </GiftedSend>

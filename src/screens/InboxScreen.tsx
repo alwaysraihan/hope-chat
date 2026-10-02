@@ -17,7 +17,7 @@ import {
   Time,
   TimeProps,
 } from 'react-native-gifted-chat';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Phone as PhoneIcon, Video as VideoIcon } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -649,9 +649,14 @@ const InboxScreenInner: React.FC<
   );
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colorss.surface }}
-      edges={['top', 'left', 'right']}
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: colorss.primary,
+        paddingTop: insets.top,
+        paddingLeft: insets.left,
+        paddingRight: insets.right,
+      }}
     >
       <MessageHeader
         name={peerName}
@@ -975,8 +980,12 @@ const InboxScreenInner: React.FC<
 
               return <Day {...props} />;
             }}
+            // Measure the chat's real on-screen position instead of guessing it:
+            // the header height varies and the request/restricted banners push
+            // the chat down, so a fixed offset left the input under the keyboard.
             keyboardAvoidingViewProps={{
-              keyboardVerticalOffset: insets.top + 60,
+              automaticOffset: true,
+              keyboardVerticalOffset: 0,
             }}
           />
         );
@@ -1021,13 +1030,14 @@ const InboxScreenInner: React.FC<
           onSend([{ _id: String(Date.now()), text: url, createdAt: new Date(), user: { _id: user._id } } as ExtendedMessage]);
         }}
       />
-    </SafeAreaView>
+    </View>
   );
 };
 
 
 const InboxGate: React.FC<Props> = props => {
   const colorss = useColors();
+  const insets = useSafeAreaInsets();
   const { conversations, listLoading } = useChats();
   const id = props.route.params.conversationId;
   const seed = props.route.params.seedConversation;
@@ -1111,13 +1121,21 @@ const InboxGate: React.FC<Props> = props => {
   // leaves a black screen. Never early-return before hooks.
   if (!conv) {
     return (
-      <SafeAreaView
-        style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+        }}
       >
         <Text style={{ color: colorss.textSecondary }}>
           {listLoading ? 'Loading…' : 'Conversation not found.'}
         </Text>
-      </SafeAreaView>
+      </View>
     );
   }
 

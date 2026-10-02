@@ -107,6 +107,8 @@ export interface ExtendedMessage extends IMessage {
   pendingCipherText?: string;
   pending?: boolean;
   failed?: boolean;
+  /** ISO timestamp set by the server once the sender edits the text. */
+  editedAt?: string;
   reactions?: ReactionItem[];
   replyTo?: {
     _id: string | number;

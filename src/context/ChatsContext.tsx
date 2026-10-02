@@ -1430,21 +1430,20 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           // Use conversationsRef to avoid a stale closure (this handler is not
           // re-created when conversations changes).
           const conv = conversationsRef.current.find(c => c.id === p.conversationId);
-          // 1:1 missed/unanswered outcomes are now written server-side at call-cancel
-          // (hopeChatCallStateService) so BOTH inboxes always get the row, even when
-          // this app is killed or its POST would fail. Persisting here too would
-          // duplicate it: the server row arrives moments later via the normal
-          // new_message socket event. call_completed stays client-persisted (the
-          // server never learns the duration of an answered call), and group calls
-          // stay client-persisted (group decline never hits the 1:1 cancel endpoint).
-          const serverOwnsOutcome =
-            !conv?.isGroup &&
-            (p.variant === 'outgoing_not_connected' ||
-              p.variant === 'incoming_missed');
-          if (serverOwnsOutcome) {
+          // 1:1 unanswered calls: the CALLER is the single writer. Its
+          // outgoing_not_connected fires whether the callee declined, missed the
+          // ring, or the caller hung up first, so persisting on the callee side too
+          // would duplicate the row — the callee receives the caller's row via the
+          // normal new_message socket event instead. (The server does not write
+          // missed-call rows at hopechat-call-cancel, so skipping both sides left
+          // the call absent from both threads.) Group calls have no single caller
+          // outcome for the callee, so group incoming_missed stays persisted.
+          const callerOwnsOutcome =
+            !conv?.isGroup && p.variant === 'incoming_missed';
+          if (callerOwnsOutcome) {
             // The preview update above already gave instant chat-list feedback.
             // If this was a first contact via call the row isn't in the inbox yet —
-            // refetch so the server-created call log surfaces the conversation.
+            // refetch so the caller-created call log surfaces the conversation.
             if (!conv) {
               DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
             }
