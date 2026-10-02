@@ -23,11 +23,7 @@ import {
   deriveConversationMessageKey,
   maybeDecryptContent,
 } from '../e2ee/conversationCrypto';
-import {
-  deriveGroupMessageKey,
-  maybeDecryptGroupContent,
-} from '../e2ee/groupConversationCrypto';
-import { readCachedGroupMembers } from '../e2ee/groupMemberCache';
+import { decryptGroupForChat } from '../e2ee/groupKeyring';
 import { readPlaintext } from '../e2ee/sessionStore';
 
 const DM_PREFIX = 'HC1:';
@@ -82,10 +78,7 @@ export function decryptNotificationBody(
     }
 
     if (cipher.startsWith(GROUP_PREFIX)) {
-      const members = readCachedGroupMembers(chatId);
-      if (!members?.length) return null;
-      const key = deriveGroupMessageKey(chatId, members);
-      const out = maybeDecryptGroupContent(cipher, key);
+      const out = decryptGroupForChat(chatId, cipher);
       return out && out !== cipher ? out : null;
     }
 

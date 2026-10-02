@@ -110,6 +110,8 @@ export interface ExtendedMessage extends IMessage {
   /** ISO timestamp set by the server once the sender edits the text. */
   editedAt?: string;
   reactions?: ReactionItem[];
+  /** Deleted for everyone — rendered as a tombstone, not removed. */
+  deleted?: boolean;
   replyTo?: {
     _id: string | number;
     text?: string;

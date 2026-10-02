@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config/env';
+import { callSocket } from './callSocket';
 
 // v2/chats returns both DMs and group chats; v1/chats returns DMs only.
 const CHAT_LIST_ENDPOINT = '/api/v2/chats';
@@ -656,13 +657,23 @@ export async function fetchHopenityChatMessages(
   return unwrapChatMessagesEnvelope(json);
 }
 
-/** Delete a message the current user sent (within 30-minute window). */
+export type DeleteScope = 'me' | 'everyone';
+
+/**
+ * Delete a message. `everyone` tombstones it for all participants (sender only,
+ * time-limited by the server); `me` hides it from this user's view only.
+ * v2 threads (groups + v2 DMs) use the v2 endpoint; legacy v1 chats hard-delete.
+ */
 export async function deleteHopenityChatMessage(
   messageId: string | number,
   token?: string | null,
+  opts: { scope?: DeleteScope; v2?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string }> {
   if (!token) return { ok: false, error: 'Not authenticated' };
-  const url = `${API_BASE_URL}/api/v1/chats/messages/${encodeURIComponent(String(messageId))}`;
+  const scope = opts.scope ?? 'everyone';
+  const version = opts.v2 ? 'v2' : 'v1';
+  const qs = `?scope=${scope}`;
+  const url = `${API_BASE_URL}/api/${version}/chats/messages/${encodeURIComponent(String(messageId))}${qs}`;
   try {
     const response = await fetch(url, {
       method: 'DELETE',
@@ -673,6 +684,44 @@ export async function deleteHopenityChatMessage(
     return { ok: false, error: json?.message ?? 'Delete failed' };
   } catch {
     return { ok: false, error: 'Network error' };
+  }
+}
+
+/**
+ * Delete (hide) a conversation for THIS user. v2 also stamps a clear cutoff so
+ * history does not come back when a new message revives the thread.
+ */
+export async function deleteConversationForMe(
+  chatId: string | number,
+  token?: string | null,
+  v2 = true,
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/${v2 ? 'v2' : 'v1'}/chats/${encodeURIComponent(String(chatId))}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Clear this user's view of a conversation (the peer keeps theirs). */
+export async function clearHopenityChat(
+  chatId: string | number,
+  token?: string | null,
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v2/chats/${encodeURIComponent(String(chatId))}/clear`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+    );
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -878,16 +927,40 @@ export async function sendHopenityChatMessage(
     if (Number.isFinite(n)) body.storyId = n;
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
+  // v2 threads: send over the already-open socket (no new HTTP round trip).
+  // Same server code path as the POST below. Only an unreachable socket or a
+  // missing ack falls through to HTTP; a definitive refusal (403/429…) does not.
+  if (isGroup) {
+    const ack = await callSocket.sendChatMessage(chatId, body);
+    if (ack) {
+      if (ack.success) {
+        const raw = (ack.responseObject ?? ack.data) as unknown;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as HopenityChatMessage;
+      } else if (Number(ack.statusCode) >= 400 && Number(ack.statusCode) < 500) {
+        return null;
+      }
+    }
+  }
 
-  if (!response.ok) return null;
-  const json = await response.json().catch(() => null);
-  const raw = json?.responseObject ?? json?.data ?? json;
-  return typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+  // Without a deadline a stalled connection left the bubble "sending" for
+  // minutes and then appearing late. Fail fast so the user can retry.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) return null;
+    const json = await response.json().catch(() => null);
+    const raw = json?.responseObject ?? json?.data ?? json;
+    return typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -999,10 +1072,11 @@ export async function reactToMessage(
   messageId: string | number,
   emoji: string,
   token: string,
+  v2 = false,
 ): Promise<boolean> {
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/chats/messages/${encodeURIComponent(String(messageId))}/react`,
+      `${API_BASE_URL}/api/${v2 ? 'v2' : 'v1'}/chats/messages/${encodeURIComponent(String(messageId))}/react`,
       {
         method: 'POST',
         headers: {
@@ -1032,7 +1106,7 @@ export async function fetchMessageReactions(
 ): Promise<RemoteReaction[]> {
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v2/messaging/${encodeURIComponent(String(chatId))}/messages/${encodeURIComponent(String(messageId))}/reactions`,
+      `${API_BASE_URL}/api/v2/chats/${encodeURIComponent(String(chatId))}/messages/${encodeURIComponent(String(messageId))}/reactions`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     if (!res.ok) return [];

@@ -54,6 +54,7 @@ import {
   markHopenityChatRead,
   reactToMessage,
   sendHopenityChatMessage,
+  type DeleteScope,
   uploadChatMedia,
 } from '../services/chatService';
 import {
@@ -62,8 +63,10 @@ import {
   selectActivePage,
 } from '../redux/features/auth/authSlice';
 import { normalizeChatUserId } from '../utils/chatUserId';
+import { buildGroupKeyring } from '../services/e2ee/groupKeyring';
 import {
   readCachedGroupMembers,
+  readKnownRosters,
   sameMembers,
   writeCachedGroupMembers,
 } from '../services/e2ee/groupMemberCache';
@@ -96,7 +99,6 @@ import {
   maybeDecryptContent,
 } from '../services/e2ee/conversationCrypto';
 import {
-  deriveGroupMessageKey,
   encryptGroupMessage,
   maybeDecryptGroupContent,
 } from '../services/e2ee/groupConversationCrypto';
@@ -128,7 +130,6 @@ export type HandleLongPress = (
 interface InboxContextValue {
   // ── State
   messages: ExtendedMessage[];
-  text: string;
   setText: (t: string) => void;
   initialText: string;
   setInitialText: (t: string) => void;
@@ -149,6 +150,7 @@ interface InboxContextValue {
   // ── Message CRUD
   onSend: (msgs: ExtendedMessage[]) => void;
   loadEarlier: () => void;
+  retryMessage: (message: IMessage) => void;
   updateMessage: (id: string | number, patch: Partial<ExtendedMessage>) => void;
   deleteMessage: (id: string | number) => void;
 
@@ -307,14 +309,54 @@ function isServerEchoOfPending(
  * bubble REPLACES it in place instead of appearing next to it.
  * Returns null when nothing changed.
  */
+export const DELETED_TEXT = 'This message was deleted';
+
+function reactionSig(r?: ExtendedMessage['reactions']): string {
+  return (r ?? []).map(x => `${x.userId}:${x.emoji}`).sort().join('|');
+}
+
 function mergeFetchedAsc(
   prev: ExtendedMessage[],
   fetchedAsc: ExtendedMessage[],
 ): ExtendedMessage[] | null {
+  // The server is authoritative for edits, reactions and deletions made on the
+  // OTHER side. This used to ignore every row already on screen, so a peer's
+  // edit/reaction/delete never appeared until the chat was reopened.
+  const serverById = new Map(fetchedAsc.map(m => [String(m._id), m]));
+  let changed = false;
+  const patched = prev.map(m => {
+    if (m.pending || m.failed) return m;
+    const srv = serverById.get(String(m._id));
+    if (!srv) return m;
+    const patch: Partial<ExtendedMessage> = {};
+    if (srv.deleted && !m.deleted) {
+      patch.deleted = true;
+      patch.text = DELETED_TEXT;
+      patch.media = undefined;
+      patch.reactions = [];
+    } else if (!srv.deleted) {
+      if (
+        srv.editedAt !== m.editedAt &&
+        srv.text &&
+        !String(srv.text).startsWith('🔒')
+      ) {
+        patch.text = srv.text;
+        patch.editedAt = srv.editedAt;
+      }
+      // Only trust the server's list when it actually sent one.
+      if (srv.reactions && reactionSig(srv.reactions) !== reactionSig(m.reactions)) {
+        patch.reactions = srv.reactions;
+      }
+    }
+    if (Object.keys(patch).length === 0) return m;
+    changed = true;
+    return { ...m, ...patch };
+  });
+
   const existingIds = new Set(prev.map(m => String(m._id)));
   const fresh = fetchedAsc.filter(m => !existingIds.has(String(m._id)));
-  if (fresh.length === 0) return null;
-  const next = [...prev];
+  if (fresh.length === 0) return changed ? patched : null;
+  const next = [...patched];
   const appended: ExtendedMessage[] = [];
   for (const srv of fresh) {
     const i = next.findIndex(
@@ -401,10 +443,9 @@ export function InboxProvider({
    */
   const [groupCryptoKey, setGroupCryptoKey] = useState<Uint8Array | null>(() => {
     if (!isGroup || !_conversationId || !isE2eeEnabled()) return null;
-    const cached = readCachedGroupMembers(_conversationId);
-    if (!cached) return null;
     try {
-      return deriveGroupMessageKey(_conversationId, cached);
+      // Stable key: available synchronously, no roster or network needed.
+      return buildGroupKeyring(_conversationId, readCachedGroupMembers(_conversationId));
     } catch {
       return null;
     }
@@ -424,21 +465,32 @@ export function InboxProvider({
 
     let cancelled = false;
     const cachedMembers = readCachedGroupMembers(_conversationId);
+    // The keyring from first render is already usable; only swap it when the
+    // live roster teaches us a new fallback (avoids a pointless re-map).
+    let current: Uint8Array | null = null;
+    try {
+      current = buildGroupKeyring(_conversationId, cachedMembers);
+      groupKeyReadyRef.current = Promise.resolve(current);
+    } catch {
+      /* fall through to the fetch below */
+    }
 
-    // Always refresh: membership changes invalidate the key, and a stale key
-    // would decrypt nothing once someone joins or leaves.
+    // Learn the live roster so history sealed with it (legacy member-derived
+    // key) opens too. It only ADDS a fallback — the sending key never moves.
     const pending = fetchGroupInfo(_conversationId, token)
       .then(info => {
-        if (!info || info.members.length === 0) return null;
-        const memberIds = info.members.map(m => m.userId);
+        const memberIds = (info?.members ?? []).map(m => m.userId);
         try {
-          const key = deriveGroupMessageKey(_conversationId, memberIds);
-          if (!cancelled) {
-            if (!sameMembers(cachedMembers, memberIds)) {
-              writeCachedGroupMembers(_conversationId, memberIds);
-            }
-            setGroupCryptoKey(key);
+          const isNewRoster =
+            memberIds.length > 0 &&
+            !readKnownRosters(_conversationId).some(r => sameMembers(r, memberIds));
+          if (memberIds.length > 0 && !sameMembers(cachedMembers, memberIds)) {
+            writeCachedGroupMembers(_conversationId, memberIds);
           }
+          if (!isNewRoster && current) return current;
+          const key = buildGroupKeyring(_conversationId, memberIds);
+          current = key;
+          if (!cancelled) setGroupCryptoKey(key);
           return key;
         } catch {
           return null;
@@ -493,14 +545,21 @@ export function InboxProvider({
   const [editingMessage, setEditingMessage] = useState<ExtendedMessage | null>(null);
 
   // ── Message state
-  const [messages, setMessages] = useState<ExtendedMessage[]>([]);
+  // Single source of truth. `messages` (newest-first, with the intro card) is
+  // derived — it used to be a second copy updated in lockstep, doubling every
+  // state update and re-render.
   const [allMessages, setAllMessages] = useState<ExtendedMessage[]>([]);
+  const messages = useMemo(
+    () => mergeIntroDesc([...allMessages].reverse(), threadIntroPeer),
+    [allMessages, threadIntroPeer],
+  );
+  const allMessagesRef = useRef<ExtendedMessage[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const pageRef = useRef(1);
+  allMessagesRef.current = allMessages;
 
   // ── Input state
-  const [text, setTextRaw] = useState('');
   const [initialText, setInitialText] = useState('');
 
   // ── Typing indicator
@@ -529,10 +588,14 @@ export function InboxProvider({
 
   const { setConversations } = useChats();
 
-  const reactionEmojiRow =
-    remoteReactionPalette && remoteReactionPalette.length > 0
-      ? remoteReactionPalette.slice(0, 8)
-      : getEffectiveReactionPalette(_conversationId);
+  // Memoised: a fresh array every render would invalidate the context value.
+  const reactionEmojiRow = useMemo(
+    () =>
+      remoteReactionPalette && remoteReactionPalette.length > 0
+        ? remoteReactionPalette.slice(0, 8)
+        : getEffectiveReactionPalette(_conversationId),
+    [remoteReactionPalette, _conversationId],
+  );
 
   const mapHopenityMessage = useCallback(
     (raw: any): ExtendedMessage => {
@@ -831,6 +894,20 @@ export function InboxProvider({
         outgoingHint: hint,
         replyTo: replyToMapped,
         pendingCipherText,
+        ...(Array.isArray(raw.reactions)
+          ? {
+              reactions: (raw.reactions as Array<Record<string, unknown>>).map(r => ({
+                emoji: String(r.emoji ?? ''),
+                userId: String(r.userId ?? r.user_id ?? ''),
+                userName: String(
+                  (r.user as { name?: string } | undefined)?.name ?? r.userName ?? '',
+                ),
+              })),
+            }
+          : {}),
+        ...(raw.deletedAt ?? raw.deleted_at
+          ? { deleted: true, text: DELETED_TEXT, media: undefined, reactions: [] }
+          : {}),
         ...(raw.editedAt ?? raw.edited_at
           ? { editedAt: String(raw.editedAt ?? raw.edited_at) }
           : {}),
@@ -915,12 +992,27 @@ export function InboxProvider({
   // Only write when allMessages actually has content and we're in an active conversation.
   // This ensures optimistically-added messages are in cache before the server fetch
   // returns, preventing them from "disappearing" when the user goes back and re-enters.
+  // Debounced: serialising the whole thread to disk on EVERY state change (each
+  // keystroke-adjacent update, ack, reaction, poll) blocked the JS thread. The
+  // latest snapshot is flushed when the thread closes so nothing is lost.
+  const cacheSnapshotRef = useRef<{ id: string; msgs: ExtendedMessage[] } | null>(null);
   useEffect(() => {
-    if (_conversationId && allMessages.length > 0) {
-      writeThreadMessagesCache(_conversationId, allMessages);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!_conversationId || allMessages.length === 0) return;
+    cacheSnapshotRef.current = { id: _conversationId, msgs: allMessages };
+    const t = setTimeout(() => {
+      const snap = cacheSnapshotRef.current;
+      if (snap) writeThreadMessagesCache(snap.id, snap.msgs);
+      cacheSnapshotRef.current = null;
+    }, 1200);
+    return () => clearTimeout(t);
   }, [_conversationId, allMessages]);
+  useEffect(
+    () => () => {
+      const snap = cacheSnapshotRef.current;
+      if (snap) writeThreadMessagesCache(snap.id, snap.msgs);
+    },
+    [],
+  );
 
   // ── Animations
   const inputAnimation = useRef(new Animated.Value(0)).current;
@@ -955,7 +1047,7 @@ export function InboxProvider({
 
     setLoadingMore(false);
     setAllMessages(base);
-    setMessages(mergeIntroDesc([...base].reverse(), threadIntroPeer));
+    
     setHasMore(!!(_conversationId && token));
 
     if (!_conversationId || !token) {
@@ -1003,17 +1095,7 @@ export function InboxProvider({
           combined.sort((a, b) => createdAtMs(a.createdAt) - createdAtMs(b.createdAt));
           return combined;
         });
-        setMessages(prev => {
-          const serverIds = new Set(mergedAsc.map(m => String(m._id)));
-          const pendingToKeep = (prev as ExtendedMessage[]).filter(
-            (m: ExtendedMessage) => keepPending(m, serverIds),
-          );
-          const desc = [...mergedAsc].reverse();
-          if (pendingToKeep.length === 0) return mergeIntroDesc(desc, threadIntroPeer);
-          const combined = [...mergedAsc, ...pendingToKeep];
-          combined.sort((a, b) => createdAtMs(a.createdAt) - createdAtMs(b.createdAt));
-          return mergeIntroDesc([...combined].reverse(), threadIntroPeer);
-        });
+        
         setHasMore(
           page.pagination?.hasMore ??
             fetched.length >= PAGE_SIZE,
@@ -1057,12 +1139,7 @@ export function InboxProvider({
         writeThreadMessagesCache(_conversationId, merged);
         return merged;
       });
-      setMessages(prev => {
-        const prevAsc = [...stripIntro(prev as ExtendedMessage[])].reverse();
-        const merged = mergeFetchedAsc(prevAsc, mapped);
-        if (!merged) return prev;
-        return mergeIntroDesc([...merged].reverse(), threadIntroPeer);
-      });
+      
     } catch { /* silent — stale UI is fine, next poll will retry */ }
   }, [_conversationId, token, useV2Messages, mapHopenityMessage, threadIntroPeer]);
 
@@ -1129,7 +1206,7 @@ export function InboxProvider({
 
         setAllMessages(nextAsc);
         const desc = [...nextAsc].reverse();
-        setMessages(mergeIntroDesc(desc, threadIntroPeer));
+        
         setHasMore(
           res.pagination?.hasMore ?? chunk.length >= PAGE_SIZE,
         );
@@ -1164,9 +1241,7 @@ export function InboxProvider({
 
   const appendMessage = useCallback(
     (msg: ExtendedMessage) => {
-      setMessages(prev =>
-        mergeIntroDesc([msg, ...stripIntro(prev)], threadIntroPeer),
-      );
+      
       setAllMessages(prev => [...prev, msg]);
     },
     [threadIntroPeer],
@@ -1179,12 +1254,7 @@ export function InboxProvider({
    */
   const appendMessageIfNew = useCallback(
     (msg: ExtendedMessage) => {
-      setMessages(prev => {
-        if (stripIntro(prev).some(m => String(m._id) === String(msg._id))) {
-          return prev;
-        }
-        return mergeIntroDesc([msg, ...stripIntro(prev)], threadIntroPeer);
-      });
+      
       setAllMessages(prev =>
         prev.some(m => String(m._id) === String(msg._id)) ? prev : [...prev, msg],
       );
@@ -1195,10 +1265,8 @@ export function InboxProvider({
   const updateMessage = useCallback(
     (id: string | number, patch: Partial<ExtendedMessage>) => {
       const apply = (m: ExtendedMessage) =>
-        m._id === id ? { ...m, ...patch } : m;
-      setMessages(prev =>
-        mergeIntroDesc(stripIntro(prev).map(apply), threadIntroPeer),
-      );
+        String(m._id) === String(id) ? { ...m, ...patch } : m;
+      
       setAllMessages(prev => prev.map(apply));
       bumpRefresh();
     },
@@ -1221,9 +1289,7 @@ export function InboxProvider({
         if (serverCopyExists) return list.filter(m => m._id !== localId);
         return list.map(m => (m._id === localId ? { ...m, ...patch } : m));
       };
-      setMessages(prev =>
-        mergeIntroDesc(apply(stripIntro(prev)), threadIntroPeer),
-      );
+      
       setAllMessages(prev => apply(prev));
       bumpRefresh();
     },
@@ -1232,13 +1298,8 @@ export function InboxProvider({
 
   const deleteMessage = useCallback(
     (id: string | number) => {
-      setMessages(prev =>
-        mergeIntroDesc(
-          stripIntro(prev).filter(m => m._id !== id),
-          threadIntroPeer,
-        ),
-      );
-      setAllMessages(prev => prev.filter(m => m._id !== id));
+      
+      setAllMessages(prev => prev.filter(m => String(m._id) !== String(id)));
       bumpRefresh();
     },
     [bumpRefresh, threadIntroPeer],
@@ -1268,9 +1329,44 @@ export function InboxProvider({
     if (!_conversationId) return;
     callSocket.joinChatRoom(_conversationId);
 
+    // Deleted for everyone: keep a tombstone ("This message was deleted"), like
+    // WhatsApp, instead of making the bubble silently vanish.
     const unsubDeleted = callSocket.onMessageDeleted(({ chatId, messageId }) => {
       if (String(chatId) !== String(_conversationId)) return;
-      deleteMessage(messageId);
+      updateMessage(String(messageId), {
+        deleted: true,
+        text: DELETED_TEXT,
+        media: undefined,
+        reactions: [],
+      });
+    });
+
+    // A peer edited a message: apply it instantly instead of waiting for a poll.
+    const unsubEdited = callSocket.onMessageEdited(({ chatId, message }) => {
+      if (String(chatId) !== String(_conversationId)) return;
+      try {
+        const mapped = mapHopenityMessageRef.current(message);
+        if (!mapped.text || mapped.text.startsWith('🔒')) {
+          pollMessagesNow();
+          return;
+        }
+        updateMessage(mapped._id, { text: mapped.text, editedAt: mapped.editedAt });
+        DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+      } catch {
+        pollMessagesNow();
+      }
+    });
+
+    // Reactions (anyone's, including my other devices) arrive as the full list.
+    const unsubReaction = callSocket.onMessageReaction(({ chatId, messageId, reactions }) => {
+      if (String(chatId) !== String(_conversationId)) return;
+      updateMessage(messageId, {
+        reactions: reactions.map(r => ({
+          emoji: r.emoji,
+          userId: r.userId,
+          userName: String(r.userId) === String(localUserIdStr) ? 'You' : '',
+        })),
+      });
     });
 
     // Fetch the new message immediately when the socket event arrives, instead
@@ -1334,6 +1430,8 @@ export function InboxProvider({
       callSocket.leaveChatRoom(_conversationId);
       appStateSub.remove();
       unsubDeleted();
+      unsubEdited();
+      unsubReaction();
       unsubNew();
       unsubWordEffect();
     };
@@ -1341,6 +1439,8 @@ export function InboxProvider({
     _conversationId,
     appendMessageIfNew,
     deleteMessage,
+    updateMessage,
+    useV2Messages,
     localUserIdStr,
     mapHopenityMessage,
     playWordEffect,
@@ -1367,7 +1467,7 @@ export function InboxProvider({
         return { ...m, text: plain, pendingCipherText: undefined };
       });
     setAllMessages(prev => decryptPass(prev));
-    setMessages(prev => mergeIntroDesc(decryptPass(stripIntro(prev)), threadIntroPeer));
+    
   }, [groupCryptoKey, isGroup, threadIntroPeer]);
 
   // ─── Socket: typing indicator ──────────────────────────────────────────────
@@ -1405,7 +1505,6 @@ export function InboxProvider({
 
   const setText = useCallback(
     (t: string) => {
-      setTextRaw(t);
       if (!_conversationId || !localUserIdStr) return;
 
       // Throttled: this fired a socket emit on EVERY keystroke, so a normal
@@ -1488,6 +1587,133 @@ export function InboxProvider({
 
   // ─── Send text / media ─────────────────────────────────────────────────────
 
+  /** Encrypt + POST one already-appended (optimistic) message. Also used by retry. */
+  const deliverMessage = useCallback(
+    (stamped: ExtendedMessage, replyToId: string | number | null) => {
+      if (!_conversationId || !token) return;
+          const plain = String(stamped.text ?? '');
+          void (async () => {
+          let wire = plain;
+          if (isE2eeEnabled() && plain.length > 0) {
+            if (isGroup) {
+              // Sender keys (HCG2) — one ciphertext for the whole group, and a
+              // key the server never sees. The legacy group key derived from the
+              // group id + member list, both of which the server knows, so it
+              // could read every group message; it stays only as a fallback for
+              // members who have not updated yet.
+              const sealed = _conversationId && localUserIdStr
+                ? encryptGroupOutgoing(_conversationId, localUserIdStr, plain)
+                : null;
+              if (sealed) {
+                wire = sealed;
+                rememberOwnMessage(String(stamped._id), plain);
+              } else {
+                const gk = await resolveGroupKey();
+                if (gk) wire = encryptGroupMessage(plain, gk);
+              }
+            } else if (peerUserId && token) {
+              // Real end-to-end (HC2) when the peer has published keys.
+              const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
+              if (keys.mode === 'blocked') {
+                // This conversation has been encrypted before and the peer's
+                // keys have vanished. That is what a downgrade attack looks
+                // like, so refuse to send rather than fall back to the weaker
+                // scheme behind the user's back.
+                updateMessage(stamped._id, { pending: false, failed: true });
+                Toast.error('Could not send securely. Try again in a moment.');
+                return;
+              }
+              if (keys.mode === 'e2ee') {
+                // Seal for EVERY device the peer has published, not just the
+                // newest: a session is between two devices, so a copy sealed for
+                // their phone is unreadable on their tablet.
+                const all = cachedPeerBundles(peerUserId);
+                const sealed =
+                  all.length > 1
+                    ? encryptOutgoingMultiDevice(_conversationId, all, plain)
+                    : encryptOutgoing(_conversationId, keys.bundle, plain);
+                // Remember our own plaintext: the ratchet key for a message we
+                // sent is consumed, so this is the only way to render it back.
+                if (sealed) {
+                  wire = sealed;
+                  rememberOwnMessage(String(stamped._id), plain);
+                } else if (dmCryptoKey) {
+                  wire = encryptMessagePayload(plain, dmCryptoKey);
+                }
+              } else if (dmCryptoKey) {
+                // Peer has not updated yet — legacy scheme keeps the
+                // conversation working instead of breaking it on day one.
+                wire = encryptMessagePayload(plain, dmCryptoKey);
+              }
+            } else if (dmCryptoKey) {
+              wire = encryptMessagePayload(plain, dmCryptoKey);
+            }
+          }
+          sendHopenityChatMessage(_conversationId, wire, token, activePage?.id ?? null, useV2Messages, replyToId)
+            .then(res => {
+              if (!res) {
+                updateMessage(stamped._id, { pending: false, failed: true });
+                return;
+              }
+
+              const parsed = mapApiMessageToTimeline(
+                res as Record<string, unknown>,
+              );
+              const resDict = res as Record<string, unknown>;
+              const ackSender =
+                extractMessageSenderId(resDict) ||
+                String(res.senderId ?? resDict.sender_id ?? '').trim();
+              const ackUid =
+                ackSender !== ''
+                  ? normalizeChatUserId(ackSender) || ackSender
+                  : normalizeChatUserId(localUserIdStr) || localUserIdStr;
+              const ackName =
+                (res.sender as { name?: string } | undefined)?.name ??
+                (typeof stamped.user?.name === 'string' ? stamped.user.name : user.name);
+              confirmMessage(stamped._id, {
+                pending: false,
+                _id: String(res.id ?? stamped._id),
+                createdAt: res.createdAt ? new Date(res.createdAt) : stamped.createdAt,
+                user: {
+                  _id: ackUid,
+                  name: typeof ackName === 'string' ? ackName : 'You',
+                },
+                ...(parsed.delivery ? { delivery: parsed.delivery } : {}),
+              });
+            })
+            .catch(err => {
+              console.error('[InboxProvider] send message error:', err);
+              updateMessage(stamped._id, { pending: false, failed: true });
+            });
+          })();
+    },
+    [
+      _conversationId,
+      token,
+      isGroup,
+      localUserIdStr,
+      peerUserId,
+      resolveGroupKey,
+      dmCryptoKey,
+      activePage?.id,
+      useV2Messages,
+      updateMessage,
+      confirmMessage,
+      user.name,
+    ],
+  );
+
+  /** Tap-to-retry for a bubble that failed to send. */
+  const retryMessage = useCallback(
+    (message: IMessage) => {
+      const msg = message as ExtendedMessage;
+      if (!msg.failed) return;
+      updateMessage(msg._id, { pending: true, failed: false });
+      deliverMessage(msg, msg.replyTo?._id ?? null);
+    },
+    [updateMessage, deliverMessage],
+  );
+
   const onSend = useCallback(
     (outgoing: ExtendedMessage[] = []) => {
       if (!outgoing.length) return;
@@ -1558,101 +1784,7 @@ export function InboxProvider({
         );
 
         if (_conversationId && token) {
-          const plain = String(stamped.text ?? '');
-          void (async () => {
-          let wire = plain;
-          if (isE2eeEnabled() && plain.length > 0) {
-            if (isGroup) {
-              // Sender keys (HCG2) — one ciphertext for the whole group, and a
-              // key the server never sees. The legacy group key derived from the
-              // group id + member list, both of which the server knows, so it
-              // could read every group message; it stays only as a fallback for
-              // members who have not updated yet.
-              const sealed = _conversationId && localUserIdStr
-                ? encryptGroupOutgoing(_conversationId, localUserIdStr, plain)
-                : null;
-              if (sealed) {
-                wire = sealed;
-                rememberOwnMessage(String(stamped._id), plain);
-              } else {
-                const gk = await resolveGroupKey();
-                if (gk) wire = encryptGroupMessage(plain, gk);
-              }
-            } else if (peerUserId && token) {
-              // Real end-to-end (HC2) when the peer has published keys.
-              const keys = await resolvePeerKeys(token, _conversationId, peerUserId);
-              if (keys.mode === 'blocked') {
-                // This conversation has been encrypted before and the peer's
-                // keys have vanished. That is what a downgrade attack looks
-                // like, so refuse to send rather than fall back to the weaker
-                // scheme behind the user's back.
-                updateMessage(stamped._id, { pending: false, failed: true });
-                Toast.error('Could not send securely. Try again in a moment.');
-                return;
-              }
-              if (keys.mode === 'e2ee') {
-                // Seal for EVERY device the peer has published, not just the
-                // newest: a session is between two devices, so a copy sealed for
-                // their phone is unreadable on their tablet.
-                const all = cachedPeerBundles(peerUserId);
-                const sealed =
-                  all.length > 1
-                    ? encryptOutgoingMultiDevice(_conversationId, all, plain)
-                    : encryptOutgoing(_conversationId, keys.bundle, plain);
-                // Remember our own plaintext: the ratchet key for a message we
-                // sent is consumed, so this is the only way to render it back.
-                if (sealed) {
-                  wire = sealed;
-                  rememberOwnMessage(String(stamped._id), plain);
-                } else if (dmCryptoKey) {
-                  wire = encryptMessagePayload(plain, dmCryptoKey);
-                }
-              } else if (dmCryptoKey) {
-                // Peer has not updated yet — legacy scheme keeps the
-                // conversation working instead of breaking it on day one.
-                wire = encryptMessagePayload(plain, dmCryptoKey);
-              }
-            } else if (dmCryptoKey) {
-              wire = encryptMessagePayload(plain, dmCryptoKey);
-            }
-          }
-          sendHopenityChatMessage(_conversationId, wire, token, activePage?.id ?? null, useV2Messages, currentReplyTo?._id ?? null)
-            .then(res => {
-              if (!res) {
-                updateMessage(stamped._id, { pending: false, failed: true });
-                return;
-              }
-
-              const parsed = mapApiMessageToTimeline(
-                res as Record<string, unknown>,
-              );
-              const resDict = res as Record<string, unknown>;
-              const ackSender =
-                extractMessageSenderId(resDict) ||
-                String(res.senderId ?? resDict.sender_id ?? '').trim();
-              const ackUid =
-                ackSender !== ''
-                  ? normalizeChatUserId(ackSender) || ackSender
-                  : normalizeChatUserId(localUserIdStr) || localUserIdStr;
-              const ackName =
-                (res.sender as { name?: string } | undefined)?.name ??
-                (typeof stamped.user?.name === 'string' ? stamped.user.name : user.name);
-              confirmMessage(stamped._id, {
-                pending: false,
-                _id: String(res.id ?? stamped._id),
-                createdAt: res.createdAt ? new Date(res.createdAt) : stamped.createdAt,
-                user: {
-                  _id: ackUid,
-                  name: typeof ackName === 'string' ? ackName : 'You',
-                },
-                ...(parsed.delivery ? { delivery: parsed.delivery } : {}),
-              });
-            })
-            .catch(err => {
-              console.error('[InboxProvider] send message error:', err);
-              updateMessage(stamped._id, { pending: false, failed: true });
-            });
-          })();
+          deliverMessage(stamped, currentReplyTo?._id ?? null);
         } else {
           setTimeout(() => updateMessage(stamped._id, { pending: false }), 800);
         }
@@ -1674,8 +1806,7 @@ export function InboxProvider({
       token,
       updateConversationPreview,
       localUserIdStr,
-      resolveGroupKey,
-      dmCryptoKey,
+      deliverMessage,
       groupCryptoKey,
       isGroup,
       playWordEffect,
@@ -1947,36 +2078,36 @@ export function InboxProvider({
   const handleReact = useCallback(
     (emoji: string, message: IMessage) => {
       const msg = message as ExtendedMessage;
+      if (msg.deleted || msg.pending || msg.failed) return;
       const existing = msg.reactions ?? [];
       const uid = String(user._id);
-      const alreadyReacted = existing.some(
-        r => r.userId === uid && r.emoji === emoji,
-      );
+      const mine = existing.find(r => r.userId === uid);
 
-      const updated = alreadyReacted
-        ? existing.filter(r => !(r.userId === uid && r.emoji === emoji))
-        : [
-            ...existing,
-            {
-              emoji,
-              userId: uid,
-              userName: typeof user.name === 'string' ? user.name : 'You',
-            },
-          ];
+      // One reaction per person (matches the server): same emoji toggles off,
+      // a different emoji replaces theirs.
+      const others = existing.filter(r => r.userId !== uid);
+      const updated =
+        mine && mine.emoji === emoji
+          ? others
+          : [
+              ...others,
+              {
+                emoji,
+                userId: uid,
+                userName: typeof user.name === 'string' ? user.name : 'You',
+              },
+            ];
 
-      // Optimistic, then persist. Without the server call the reaction lived
-      // only in local state: it vanished on reload and the other person never
-      // saw it.
       updateMessage(msg._id, { reactions: updated });
 
       if (!token) return;
-      void reactToMessage(msg._id, emoji, token).then(ok => {
+      void reactToMessage(msg._id, emoji, token, useV2Messages).then(ok => {
         if (ok) return;
         // Roll back so the UI doesn't claim a reaction the server rejected.
         updateMessage(msg._id, { reactions: existing });
       });
     },
-    [user._id, user.name, updateMessage, token],
+    [user._id, user.name, updateMessage, token, useV2Messages],
   );
 
   // ─── Reply ─────────────────────────────────────────────────────────────────
@@ -2020,42 +2151,58 @@ export function InboxProvider({
 
   const handleDelete = useCallback(
     (message: IMessage) => {
-      const isMine = String((message as ExtendedMessage).user?._id ?? '') === String(localUserIdStr ?? '');
-      const ageMs = Date.now() - new Date((message as ExtendedMessage).createdAt ?? 0).getTime();
-      const withinWindow = ageMs < 30 * 60 * 1000;
+      const msg = message as ExtendedMessage;
+      const isMine = String(msg.user?._id ?? '') === String(localUserIdStr ?? '');
+      // No time limit: the sender can delete for everyone at any time.
+      const canDeleteForEveryone = isMine && !msg.deleted && !msg.pending && !msg.failed;
+      const id = String(message._id);
 
-      if (!isMine) {
-        Alert.alert("Can't delete", "You can only delete messages you sent.");
-        return;
+      const deleteForMe = async () => {
+        const prevList = [...allMessagesRef.current];
+        deleteMessage(id);
+        const { ok, error } = await deleteHopenityChatMessage(id, token, {
+          scope: 'me',
+          v2: useV2Messages,
+        });
+        if (!ok) {
+          Alert.alert('Could not delete', error ?? 'Please try again.');
+          // Put it back: the server still has it visible.
+          setAllMessages(prevList);
+          
+        }
+      };
+
+      const deleteForEveryone = async () => {
+        const before = { text: msg.text, media: msg.media, reactions: msg.reactions };
+        // Optimistic tombstone — both sides then show "This message was deleted".
+        updateMessage(id, { deleted: true, text: DELETED_TEXT, media: undefined, reactions: [] });
+        const { ok, error } = await deleteHopenityChatMessage(id, token, {
+          scope: 'everyone',
+          v2: useV2Messages,
+        });
+        if (!ok) {
+          updateMessage(id, { deleted: false, ...before });
+          Alert.alert('Could not delete', error ?? 'Please try again.');
+        } else {
+          DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
+        }
+      };
+
+      const buttons: Array<{ text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }> = [];
+      if (canDeleteForEveryone) {
+        buttons.push({ text: 'Delete for everyone', style: 'destructive', onPress: deleteForEveryone });
       }
-
-      const canDeleteForEveryone = withinWindow;
-      const title = canDeleteForEveryone ? 'Delete message?' : 'Delete for me?';
-      const body = canDeleteForEveryone
-        ? 'This will remove the message for everyone in this chat.'
-        : 'This message is older than 30 minutes and will only be removed from your view.';
-
-      Alert.alert(title, body, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            // Optimistic removal
-            deleteMessage(message._id);
-
-            if (canDeleteForEveryone) {
-              const { ok, error } = await deleteHopenityChatMessage(message._id, token);
-              if (!ok) {
-                // Restore is not straightforward; show error only
-                Alert.alert('Could not delete', error ?? 'Please try again.');
-              }
-            }
-          },
-        },
-      ]);
+      buttons.push({ text: 'Delete for me', style: 'destructive', onPress: deleteForMe });
+      buttons.push({ text: 'Cancel', style: 'cancel' });
+      Alert.alert(
+        'Delete message?',
+        canDeleteForEveryone
+          ? 'Delete for everyone removes it for all members. Delete for me only removes it from your view.'
+          : 'This removes the message from your view only.',
+        buttons,
+      );
     },
-    [deleteMessage, token, localUserIdStr],
+    [deleteMessage, updateMessage, token, localUserIdStr, useV2Messages, threadIntroPeer],
   );
 
   // ─── Edit ──────────────────────────────────────────────────────────────────
@@ -2069,7 +2216,7 @@ export function InboxProvider({
         !msg.threadIntro &&
         !msg.donationRequest &&
         (msg.messageKind == null || msg.messageKind === 'text');
-      return isMine && isPlainText && !msg.pending && !msg.failed && !!msg.text;
+      return isMine && isPlainText && !msg.deleted && !msg.pending && !msg.failed && !!msg.text;
     },
     [localUserIdStr],
   );
@@ -2284,68 +2431,117 @@ function isVideoAsset(asset: {
     [],
   );
 
-  const value = {
-    // State
-    messages: messagesForUi,
-    text,
-    setText,
-    initialText,
-    setInitialText,
-    user,
-    insets,
-    width,
-    refreshTrigger,
-    isRecording,
-    inputAnimation,
-    loadingMore,
-    hasMore,
-    replyTo,
-    peerIsTyping,
-    wordEffect,
-
-    // Message CRUD
-    onSend,
-    loadEarlier,
-    updateMessage,
-    deleteMessage,
-
-    // Actions
-    handleReact,
-    handleReply,
-    clearReply,
-    handleDelete,
-    canEditMessage,
-    handleEdit,
-    cancelEdit,
-    editingMessage,
-    handleForward,
-    forwardingMessage,
-    clearForwarding,
-    handlePressReplyPreview,
-    handleLongPress,
-
-    // Media
-    handleCameraPress,
-    handleGalleryPress,
-    sellerSheetVisible,
-    openSellerSheet,
-    closeSellerSheet,
-
-    // Voice
-    handleVoiceRecordingStart,
-    handleVoiceRecordingComplete,
-    handleVoiceRecordingCancel,
-
-    reactionEmojiRow,
-
-    isEncrypted: shouldEncryptOutgoing,
-
-    registerScrollToMessage,
-
-    // refs
-    wrapRef,
-    swipeRef,
-  };
+  const value = useMemo(
+    () => ({
+      // State
+      messages: messagesForUi,
+      setText,
+      initialText,
+      setInitialText,
+      user,
+      insets,
+      width,
+      refreshTrigger,
+      isRecording,
+      inputAnimation,
+      loadingMore,
+      hasMore,
+      replyTo,
+      peerIsTyping,
+      wordEffect,
+  
+      // Message CRUD
+      onSend,
+      retryMessage,
+      loadEarlier,
+      updateMessage,
+      deleteMessage,
+  
+      // Actions
+      handleReact,
+      handleReply,
+      clearReply,
+      handleDelete,
+      canEditMessage,
+      handleEdit,
+      cancelEdit,
+      editingMessage,
+      handleForward,
+      forwardingMessage,
+      clearForwarding,
+      handlePressReplyPreview,
+      handleLongPress,
+  
+      // Media
+      handleCameraPress,
+      handleGalleryPress,
+      sellerSheetVisible,
+      openSellerSheet,
+      closeSellerSheet,
+  
+      // Voice
+      handleVoiceRecordingStart,
+      handleVoiceRecordingComplete,
+      handleVoiceRecordingCancel,
+  
+      reactionEmojiRow,
+  
+      isEncrypted: shouldEncryptOutgoing,
+  
+      registerScrollToMessage,
+  
+      // refs
+      wrapRef,
+      swipeRef,}),
+    [
+      messagesForUi,
+      setText,
+      initialText,
+      setInitialText,
+      user,
+      insets,
+      width,
+      refreshTrigger,
+      isRecording,
+      inputAnimation,
+      loadingMore,
+      hasMore,
+      replyTo,
+      peerIsTyping,
+      wordEffect,
+      onSend,
+      retryMessage,
+      loadEarlier,
+      updateMessage,
+      deleteMessage,
+      handleReact,
+      handleReply,
+      clearReply,
+      handleDelete,
+      canEditMessage,
+      handleEdit,
+      cancelEdit,
+      editingMessage,
+      handleForward,
+      forwardingMessage,
+      clearForwarding,
+      handlePressReplyPreview,
+      handleLongPress,
+      handleCameraPress,
+      handleGalleryPress,
+      sellerSheetVisible,
+      openSellerSheet,
+      closeSellerSheet,
+      handleVoiceRecordingStart,
+      handleVoiceRecordingComplete,
+      handleVoiceRecordingCancel,
+      reactionEmojiRow,
+      shouldEncryptOutgoing,
+      registerScrollToMessage,
+      wrapRef,
+      swipeRef,
+    ],
+  );
 
   return (
     <InboxContext.Provider value={value}>{children}</InboxContext.Provider>

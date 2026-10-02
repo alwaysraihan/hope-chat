@@ -2,19 +2,21 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colorss } from '../../theme';
-import { deleteConversation } from '../../services/userSettingsService';
-import { addHiddenConversation } from '../../services/offlineCache';
+import { deleteConversationForMe } from '../../services/chatService';
+import { addHiddenConversation, clearThreadMessagesCache } from '../../services/offlineCache';
 
 type Props = {
   visible: boolean;
   peerName: string;
   conversationId: string;
   token: string | null;
+  /** v2 thread (group or v2-native DM) vs legacy v1 chat. */
+  useV2?: boolean;
   onCancel: () => void;
   onDeleted: () => void;
 };
 
-const DeleteChat = ({ visible, peerName, conversationId, token, onCancel, onDeleted }: Props) => {
+const DeleteChat = ({ visible, peerName, conversationId, token, useV2 = true, onCancel, onDeleted }: Props) => {
   const [busy, setBusy] = useState(false);
 
   const handleDelete = async () => {
@@ -23,7 +25,8 @@ const DeleteChat = ({ visible, peerName, conversationId, token, onCancel, onDele
     // Persist locally first so the chat never re-appears from cache or server reload.
     addHiddenConversation(conversationId);
     // Fire the server delete best-effort — don't block the UX on it.
-    deleteConversation(conversationId, token).catch(() => {});
+    clearThreadMessagesCache(conversationId);
+    deleteConversationForMe(conversationId, token, useV2).catch(() => {});
     setBusy(false);
     onDeleted();
   };

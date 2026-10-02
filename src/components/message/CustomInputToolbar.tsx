@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -22,7 +22,6 @@ import {
   ThumbsUp,
 } from 'lucide-react-native';
 import {
-  Send as GiftedSend,
   InputToolbarProps,
   IMessage,
 } from 'react-native-gifted-chat';
@@ -200,7 +199,6 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   const {
     isRecording,
     replyTo,
-    text: contextText,
     handleCameraPress,
     handleGalleryPress,
     handleVoiceRecordingStart,
@@ -226,9 +224,36 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
     // can be undefined depending on how the toolbar is rendered. Trusting it
     // alone meant an emoji tap REPLACED everything already typed with just the
     // emoji, because `current` fell back to ''.
-    const current = props.text ?? contextText ?? '';
+    const current = props.text ?? '';
     props.textInputProps?.onChangeText?.(current + emoji);
   };
+
+  // Entering edit mode: put the message's current text in the composer.
+  // (Nothing else did — the edit bar appeared over an empty input.)
+  const editingId = editingMessage?._id;
+  const editingText = editingMessage?.text;
+  const onChangeTextRef = useRef(props.textInputProps?.onChangeText);
+  onChangeTextRef.current = props.textInputProps?.onChangeText;
+  useEffect(() => {
+    if (editingId == null) return;
+    onChangeTextRef.current?.(editingText ?? '');
+    // Only when the edit target changes, not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
+
+  // Send straight from our own handler. The stock <Send> gates its tap on an
+  // animated opacity + `pointerEvents` that follow its `text` prop, so a tap that
+  // landed while that was a frame behind did nothing — "have to press send
+  // several times".
+  const textRef = useRef('');
+  textRef.current = props.text ?? '';
+  const onSendRef = useRef(props.onSend);
+  onSendRef.current = props.onSend;
+  const handleSendPress = useCallback(() => {
+    const t = textRef.current.trim();
+    if (!t) return;
+    onSendRef.current?.({ text: t }, true);
+  }, []);
 
   // Expand when the user starts typing
   useEffect(() => {
@@ -282,7 +307,7 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   // source the Send button silently turned back into the thumbs-up while the
   // user had text on screen. The context value is updated by
   // onInputTextChanged, so it is a reliable second source.
-  const hasText = Boolean((props.text ?? contextText ?? '').trim());
+  const hasText = Boolean((props.text ?? '').trim());
   const bottomPadding = isKeyboardVisible ? 10 : bottom;
 
   return (
@@ -375,9 +400,15 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
         {/* Send or Mic */}
         {/* While editing, never offer the 👍 quick-send — it would replace the text */}
         {hasText || editingMessage ? (
-          <GiftedSend {...props} containerStyle={styles.actionBtn}>
+          <Pressable
+            style={styles.actionBtn}
+            onPress={handleSendPress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel="Send"
+          >
             <Send size={22} color={colorss.primary} />
-          </GiftedSend>
+          </Pressable>
         ) : (
           <TouchableOpacity
             style={styles.actionBtn}

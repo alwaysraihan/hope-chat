@@ -67,6 +67,56 @@ export function encryptGroupMessage(
   return `${WIRE_PREFIX}${toBase64(combined)}`;
 }
 
+/**
+ * Stable per-group key, derived from the group id ALONE.
+ *
+ * The member-list key above changes whenever ANY device's view of the roster
+ * differs from the sender's (stale cache, list-vs-info endpoints disagreeing,
+ * someone joining/leaving) — which is what left group threads stuck on
+ * "Decrypting…". The server already knows both inputs, so dropping the roster
+ * costs no confidentiality, and every member can always derive it instantly.
+ * New messages are sealed with this key; the roster keys stay as decrypt-only
+ * fallbacks for history.
+ */
+const stableKeyCache = new Map<string, Uint8Array>();
+export function deriveStableGroupKey(groupId: string): Uint8Array {
+  const hit = stableKeyCache.get(groupId);
+  if (hit) return hit;
+  const ikm = sha256(te.encode(`hopechat-group-e2ee-v2|${groupId}`));
+  const key = hkdf(
+    sha256,
+    ikm,
+    te.encode('hopechat-hkdf-salt-v1'),
+    te.encode('hopechat-group-msg-v2'),
+    32,
+  );
+  stableKeyCache.set(groupId, key);
+  return key;
+}
+
+/** Decrypt-only alternates that travel with a primary key (see groupKeyring). */
+const keyFallbacks = new WeakMap<Uint8Array, Uint8Array[]>();
+/** Expensive guesses, computed only if every cheap key failed (and then once). */
+const lazyFallbacks = new WeakMap<Uint8Array, () => Uint8Array[]>();
+const lazyResolved = new WeakMap<Uint8Array, Uint8Array[]>();
+export function attachGroupKeyFallbacks(
+  primary: Uint8Array,
+  fallbacks: Uint8Array[],
+  lazy?: () => Uint8Array[],
+): void {
+  keyFallbacks.set(primary, fallbacks);
+  if (lazy) lazyFallbacks.set(primary, lazy);
+}
+
+function tryOpen(raw: Uint8Array, key: Uint8Array): string | null {
+  try {
+    const cipher = xchacha20poly1305(key, raw.subarray(0, 24));
+    return td.decode(cipher.decrypt(raw.subarray(24)));
+  } catch {
+    return null;
+  }
+}
+
 export function decryptGroupMessage(
   wire: string,
   key: Uint8Array,
@@ -74,15 +124,25 @@ export function decryptGroupMessage(
   if (!wire.startsWith(WIRE_PREFIX)) return null;
   const raw = fromBase64(wire.slice(WIRE_PREFIX.length));
   if (!raw || raw.length < 24 + 16) return null;
-  const nonce = raw.subarray(0, 24);
-  const ciphertext = raw.subarray(24);
-  try {
-    const cipher = xchacha20poly1305(key, nonce);
-    const plain = cipher.decrypt(ciphertext);
-    return td.decode(plain);
-  } catch {
-    return null;
+  const first = tryOpen(raw, key);
+  if (first != null) return first;
+  for (const alt of keyFallbacks.get(key) ?? []) {
+    const out = tryOpen(raw, alt);
+    if (out != null) return out;
   }
+  const lazy = lazyFallbacks.get(key);
+  if (lazy) {
+    let guesses = lazyResolved.get(key);
+    if (!guesses) {
+      guesses = lazy();
+      lazyResolved.set(key, guesses);
+    }
+    for (const alt of guesses) {
+      const out = tryOpen(raw, alt);
+      if (out != null) return out;
+    }
+  }
+  return null;
 }
 
 /** Try decrypt; if not a group envelope or failure, return original. */

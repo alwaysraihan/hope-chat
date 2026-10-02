@@ -171,11 +171,22 @@ export function formatChatListPreview(
     return '';
   }
   if (/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(trimmed)) {
-    const label = '📷 Photo';
+    const label = '📷 Sent a photo';
     return senderIsLocal ? `You: ${label}` : label;
   }
-  if (/^https?:\/\/.+\.(mp4|mov|webm)(\?|$)/i.test(trimmed)) {
-    const label = '🎬 Video';
+  // Same extension list mapApiMessageToTimeline uses for the thread view, so a
+  // video that renders correctly as a bubble there doesn't leak its raw CDN
+  // URL here just because this regex was narrower.
+  if (/^https?:\/\/.+\.(mp4|mov|m3u8|webm|mkv|avi|3gp|m4v)(\?|$)/i.test(trimmed)) {
+    const label = '🎬 Sent a video';
+    return senderIsLocal ? `You: ${label}` : label;
+  }
+  // Audio that wasn't tagged as a voice note via messageType/metadata (the
+  // isVoiceMsg branch above) but is still an audio file by extension — same
+  // gap that used to leak raw voice-note URLs before mapApiMessageToTimeline's
+  // extension fallback was added for the thread view.
+  if (/^https?:\/\/.+\.(m4a|mp3|aac|ogg|oga|opus|wav|amr|3ga|caf|weba|flac)(\?|$)/i.test(trimmed)) {
+    const label = '🎧 Sent an audio';
     return senderIsLocal ? `You: ${label}` : label;
   }
   const base = truncateForPreview(trimmed, 140);

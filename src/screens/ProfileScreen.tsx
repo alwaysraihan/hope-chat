@@ -326,6 +326,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
         peerName={peerName}
         conversationId={chatId}
         token={token}
+        useV2={!!conversation && (!!conversation.isGroup || !conversation.isV1Chat)}
         onCancel={() => setVisibleDeleteChatModal(false)}
         onDeleted={() => {
           setVisibleDeleteChatModal(false);

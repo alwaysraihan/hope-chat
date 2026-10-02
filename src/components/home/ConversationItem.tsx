@@ -194,4 +194,16 @@ const ConversationItem = ({
   );
 };
 
-export default ConversationItem;
+// The list re-renders whenever the directory refreshes (every poll / socket
+// nudge). Rows only need to repaint when their own data changed — the
+// press handlers are recreated each render but close over the same item.
+function sameItem(a: Item, b: Item): boolean {
+  const ka = Object.keys(a) as Array<keyof Item>;
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every(k => a[k] === b[k]);
+}
+
+export default React.memo(
+  ConversationItem,
+  (prev, next) => sameItem(prev.item, next.item),
+);

@@ -398,7 +398,7 @@ const sheet = StyleSheet.create({
 
 function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
   const { currentMessage, position, onPressReactions, isGroup, onSenderPress } = props;
-  const { handlePressReplyPreview, handleDelete } = useInbox();
+  const { handlePressReplyPreview, handleDelete, retryMessage } = useInbox();
   const msg = currentMessage as ExtendedMessage;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
@@ -532,6 +532,40 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
     );
   }
 
+  // ── Deleted for everyone: tombstone, no reactions / replies / media ────────
+
+  if (msg.deleted) {
+    return (
+      <View
+        style={[styles.column, bubbleWidthStyle, isOwn ? styles.alignRight : styles.alignLeft]}
+      >
+        <TouchableOpacity
+          activeOpacity={0.8}
+          delayLongPress={350}
+          onLongPress={() => handleDelete(msg as IMessage)}
+          style={[
+            styles.textBubble,
+            isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
+            {
+              backgroundColor: 'transparent',
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: isDark ? '#5f6368' : '#c4c7ce',
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.messageText,
+              { color: isDark ? '#9aa0a6' : '#8e8e93', fontStyle: 'italic' },
+            ]}
+          >
+            🚫 {msg.text || 'This message was deleted'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   // ── Donation request ───────────────────────────────────────────────────────
 
   if (msg.messageKind === 'donation_request') {
@@ -646,18 +680,26 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
             )}
           </TouchableOpacity>
         </View>
-        <MediaPreviewModal
+        {previewUrl !== null ? (
+
+          <MediaPreviewModal
           visible={previewUrl !== null && previewType === 'image'}
           mediaUrl={previewUrl}
           mediaType="image"
           onClose={() => setPreviewUrl(null)}
         />
-        <MediaActionSheet
+
+        ) : null}
+        {sheetUrl !== null ? (
+
+          <MediaActionSheet
           url={sheetUrl}
           type={sheetType}
           onClose={() => setSheetUrl(null)}
           onDelete={isOwn ? () => handleDelete(msg as IMessage) : undefined}
         />
+
+        ) : null}
       </Reaction>
     );
   }
@@ -709,18 +751,26 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
               </View>
             )}
           </TouchableOpacity>
-          <MediaPreviewModal
+          {previewUrl !== null ? (
+
+            <MediaPreviewModal
             visible={previewUrl !== null && previewType === 'video'}
             mediaUrl={previewUrl}
             mediaType="video"
             onClose={() => setPreviewUrl(null)}
           />
-          <MediaActionSheet
+
+          ) : null}
+          {sheetUrl !== null ? (
+
+            <MediaActionSheet
             url={sheetUrl}
             type={sheetType}
             onClose={() => setSheetUrl(null)}
             onDelete={isOwn ? () => handleDelete(msg as IMessage) : undefined}
           />
+
+          ) : null}
         </View>
       </Reaction>
     );
@@ -827,6 +877,17 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
             />
           ) : null}
         </View>
+        {msg.failed ? (
+          <TouchableOpacity
+            onPress={() => retryMessage(msg as IMessage)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{ marginTop: 2, alignSelf: 'flex-end' }}
+          >
+            <Text style={{ color: '#E5484D', fontSize: 12, fontWeight: '600' }}>
+              ⚠ Not sent · Tap to retry
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </Reaction>
   );
@@ -855,8 +916,7 @@ function areEqual(prev: ChatMessageBoxProps, next: ChatMessageBoxProps): boolean
     prev.previousMessage === next.previousMessage &&
     prev.nextMessage === next.nextMessage &&
     prev.position === next.position &&
-    prev.isGroup === next.isGroup &&
-    prev.refreshTrigger === next.refreshTrigger
+    prev.isGroup === next.isGroup
   );
 }
 

@@ -34,12 +34,11 @@ import { RootStackNavigatorParamList } from '../types/navigators';
 import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import {
-  deleteConversation,
   patchConversationArchive,
   patchConversationMute,
   patchConversationPin,
 } from '../services/userSettingsService';
-import { fetchHopenityChatDirectory } from '../services/chatService';
+import { deleteConversationForMe, fetchHopenityChatDirectory } from '../services/chatService';
 import PromptModal from '../components/PromptModal';
 import {
   closeBooking,
@@ -57,6 +56,7 @@ import {
 import {
   addArchivedConversation,
   addHiddenConversation,
+  clearThreadMessagesCache,
   writeChatDirectoryCache,
 } from '../services/offlineCache';
 import { useAppSelector as useSel } from '../hooks/redux';
@@ -331,7 +331,8 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
           style: 'destructive',
           onPress: () => {
             removeConversationLocally();
-            deleteConversation(conversationId, token).catch(() => {});
+            clearThreadMessagesCache(conversationId);
+            deleteConversationForMe(conversationId, token, useV2Block).catch(() => {});
             navigation.navigate('BottomTab', { screen: 'Home' });
           },
         },

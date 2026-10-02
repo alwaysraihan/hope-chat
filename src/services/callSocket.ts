@@ -15,6 +15,12 @@ const SOCKET_URL = API_BASE_URL.replace(/\/+$/, '');
 type CallSocketListener = (data: Record<string, string>) => void;
 
 type MessageDeletedListener = (data: { messageId: number; chatId: number }) => void;
+type MessageEditedListener = (data: { chatId: string; message: Record<string, unknown> }) => void;
+type MessageReactionListener = (data: {
+  chatId: string;
+  messageId: string;
+  reactions: Array<{ emoji: string; userId: string }>;
+}) => void;
 /**
  * The server emits the whole message row on `new_message`, not just an id.
  * Carrying it through lets the inbox render the message straight away instead
@@ -67,6 +73,8 @@ class CallSocketService {
   private cancelledListeners: Set<CallSocketListener> = new Set();
   private ringingListeners: Set<CallSocketListener> = new Set();
   private messageDeletedListeners: Set<MessageDeletedListener> = new Set();
+  private messageEditedListeners: Set<MessageEditedListener> = new Set();
+  private messageReactionListeners: Set<MessageReactionListener> = new Set();
   private newMessageListeners: Set<NewMessageListener> = new Set();
   private userTypingListeners: Set<TypingListener> = new Set();
   private userStoppedTypingListeners: Set<TypingListener> = new Set();
@@ -181,8 +189,28 @@ class CallSocketService {
       this.socket.on('message_deleted', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
         const d = data as Record<string, unknown>;
-        const payload = { messageId: Number(d.messageId), chatId: Number(d.chatId) };
+        // v2 sends `messageId`; older emitters only a row with `id`.
+        const payload = { messageId: Number(d.messageId ?? d.id), chatId: Number(d.chatId) };
         this.messageDeletedListeners.forEach(l => { try { l(payload); } catch { /* */ } });
+      });
+      this.socket.on('message_edited', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const chatId = String(d.chatId ?? d.chat_id ?? '');
+        if (!chatId) return;
+        this.messageEditedListeners.forEach(l => { try { l({ chatId, message: d }); } catch { /* */ } });
+      });
+      this.socket.on('message_reaction', (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        const chatId = String(d.chatId ?? '');
+        const messageId = String(d.messageId ?? '');
+        if (!chatId || !messageId || !Array.isArray(d.reactions)) return;
+        const reactions = (d.reactions as Array<Record<string, unknown>>).map(r => ({
+          emoji: String(r.emoji ?? ''),
+          userId: String(r.userId ?? ''),
+        }));
+        this.messageReactionListeners.forEach(l => { try { l({ chatId, messageId, reactions }); } catch { /* */ } });
       });
       this.socket.on('new_message', (data: unknown) => {
         if (!data || typeof data !== 'object') return;
@@ -376,9 +404,53 @@ class CallSocketService {
     return () => this.messageDeletedListeners.delete(listener);
   }
 
+  onMessageEdited(listener: MessageEditedListener): () => void {
+    this.messageEditedListeners.add(listener);
+    return () => this.messageEditedListeners.delete(listener);
+  }
+
+  onMessageReaction(listener: MessageReactionListener): () => void {
+    this.messageReactionListeners.add(listener);
+    return () => this.messageReactionListeners.delete(listener);
+  }
+
   onNewMessage(listener: NewMessageListener): () => void {
     this.newMessageListeners.add(listener);
     return () => this.newMessageListeners.delete(listener);
+  }
+
+  /**
+   * Send a chat message over the open socket and wait for the server's ack.
+   * Resolves `undefined` when the socket is down or the ack never comes, so the
+   * caller can fall back to HTTP instead of losing the message.
+   */
+  sendChatMessage(
+    chatId: string | number,
+    body: Record<string, unknown>,
+    timeoutMs = 8000,
+  ): Promise<Record<string, unknown> | undefined> {
+    const socket = this.socket;
+    if (!socket?.connected) return Promise.resolve(undefined);
+    return new Promise(resolve => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve(undefined);
+      }, timeoutMs);
+      try {
+        socket.emit('send_message', { chatId: String(chatId), ...body }, (res: unknown) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(res && typeof res === 'object' ? (res as Record<string, unknown>) : undefined);
+        });
+      } catch {
+        done = true;
+        clearTimeout(timer);
+        resolve(undefined);
+      }
+    });
   }
 
   emitTyping(chatId: string | number, userId: string): void {

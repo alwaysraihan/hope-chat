@@ -79,6 +79,14 @@ export function readThreadMessagesCache(
   }
 }
 
+/** Drop a thread's cached page (clear chat / delete chat). */
+export function clearThreadMessagesCache(conversationId: string): void {
+  if (!conversationId) return;
+  try {
+    storage().remove(threadPage1Key(conversationId));
+  } catch { /* best-effort */ }
+}
+
 export function writeThreadMessagesCache(
   conversationId: string,
   messagesAsc: ExtendedMessage[],
@@ -101,12 +109,27 @@ export function writeThreadMessagesCache(
 
 const HIDDEN_CONVS_KEY = 'hidden_conversations_v1';
 
+const HIDDEN_AT_KEY = 'hidden_conversations_at_v1';
+
+function readHiddenAt(): Record<string, number> {
+  try {
+    const raw = storage().getString(HIDDEN_AT_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
 export function addHiddenConversation(id: string): void {
   if (!id) return;
   try {
     const existing = getHiddenConversationIds();
     const next = Array.from(new Set([...existing, id]));
     storage().set(HIDDEN_CONVS_KEY, JSON.stringify(next));
+    // When it was hidden — lets a NEW message revive the chat instead of leaving
+    // it gone forever (WhatsApp behaviour: deleting a chat doesn't block the peer).
+    storage().set(HIDDEN_AT_KEY, JSON.stringify({ ...readHiddenAt(), [id]: Date.now() }));
   } catch { /* best-effort */ }
 }
 
@@ -115,6 +138,26 @@ export function removeHiddenConversation(id: string): void {
   try {
     const existing = getHiddenConversationIds();
     storage().set(HIDDEN_CONVS_KEY, JSON.stringify(existing.filter(x => x !== id)));
+    const at = readHiddenAt();
+    delete at[id];
+    storage().set(HIDDEN_AT_KEY, JSON.stringify(at));
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Un-hide any hidden conversation the server reports activity on AFTER it was
+ * hidden. Archived chats (no timestamp recorded by older builds) are untouched.
+ */
+export function reviveHiddenConversationsWithNewActivity(
+  lastActivityMsById: Map<string, number>,
+): void {
+  try {
+    const at = readHiddenAt();
+    for (const id of getHiddenConversationIds()) {
+      const hiddenAt = at[id];
+      const last = lastActivityMsById.get(id);
+      if (hiddenAt && last && last > hiddenAt + 2000) removeHiddenConversation(id);
+    }
   } catch { /* best-effort */ }
 }
 

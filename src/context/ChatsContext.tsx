@@ -43,17 +43,18 @@ import {
   maybeDecryptContent,
 } from '../services/e2ee/conversationCrypto';
 import {
-  deriveGroupMessageKey,
   maybeDecryptGroupContent,
 } from '../services/e2ee/groupConversationCrypto';
 import { isV2Envelope } from '../services/e2ee/secureMessaging';
 import { readPlaintext } from '../services/e2ee/sessionStore';
+import { buildGroupKeyring } from '../services/e2ee/groupKeyring';
 import { writeCachedGroupMembers } from '../services/e2ee/groupMemberCache';
 import { isE2eeEnabled } from '../services/chatPrefs';
 import type { ExtendedMessage } from '../components/types/chat';
 import {
   appendCallLogToThreadCache,
   getHiddenConversationIds,
+  reviveHiddenConversationsWithNewActivity,
   readChatDirectoryCache,
   readRequestCountCache,
   readRequestsSeenCount,
@@ -683,12 +684,8 @@ export function mapChatItemToSummary(
     lastForPreview.content.startsWith('HCG1:') &&
     chat.participants?.length
   ) {
-    // The list endpoint already includes the full member roster, so the
-    // group key can be derived synchronously here — no extra network
-    // round-trip needed just to preview the last message. Field name varies
-    // across API versions (matches the same fallback as normalizeGroupInfo
-    // in groupService.ts), so check all known variants defensively.
-    const key = deriveGroupMessageKey(
+    // Stable group key + every roster this device has seen as fallbacks.
+    const key = buildGroupKeyring(
       String(chat.id ?? ''),
       chat.participants
         .map(p => String((p as any).userId ?? p.user_id ?? (p as any).id ?? ''))
@@ -922,6 +919,16 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // A new message after a delete/clear revives the chat.
+      reviveHiddenConversationsWithNewActivity(
+        new Map(
+          (chats as any[]).map(c => {
+            const at = c.lastMessageAt ?? c.last_message_at ?? c.lastMessage?.createdAt ?? c.updatedAt;
+            const ms = at ? new Date(at).getTime() : 0;
+            return [String(c.id ?? ''), Number.isFinite(ms) ? ms : 0] as [string, number];
+          }),
+        ),
+      );
       const hidden = new Set(getHiddenConversationIds());
       const pinnedIds = new Set(getPinnedConversationIds());
       const mutedIds = new Set(getMutedConversationIds());
@@ -1003,19 +1010,35 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
             .filter(c => c.peerUserId)
             .map(c => [String(c.peerUserId), c.isOnline === true]),
         );
+        const prevById = new Map(prevConversations.map(c => [c.id, c]));
+        // Keep the previous object for any row that did not actually change, so
+        // memoised rows skip re-rendering on every refresh.
+        const reuse = <T extends { id: string }>(c: T): T => {
+          const old = prevById.get(c.id) as unknown as T | undefined;
+          if (!old) return c;
+          const keys = Object.keys(c) as Array<keyof T>;
+          const same =
+            keys.length === Object.keys(old).length &&
+            keys.every(k => {
+              const a = c[k];
+              const b = old[k];
+              return a === b || (typeof a === 'object' && JSON.stringify(a) === JSON.stringify(b));
+            });
+          return same ? old : c;
+        };
         return next.map(c => {
-          if (c.isGroup || !c.peerUserId) return c;
+          if (c.isGroup || !c.peerUserId) return reuse(c);
           const id = String(c.peerUserId);
           if (c.isOnline) {
             lastOnlineAtRef.current.set(id, now);
-            return c;
+            return reuse(c);
           }
           const wasOnline = prevOnlineById.get(id);
           const lastSeen = lastOnlineAtRef.current.get(id) ?? 0;
           if (wasOnline && now - lastSeen < PRESENCE_GRACE_MS) {
-            return { ...c, isOnline: true };
+            return reuse({ ...c, isOnline: true });
           }
-          return c;
+          return reuse(c);
         });
       });
       setHasMoreConversations(chats.length >= CHAT_PAGE_SIZE);
@@ -1368,10 +1391,20 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   // Instant reload when something (e.g. FCM new-message notification) fires the event.
   useEffect(() => {
     if (!token) return undefined;
+    // Coalesce bursts: every incoming message / edit / reaction fires this, and
+    // each used to trigger a full directory refetch on its own.
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const sub = DeviceEventEmitter.addListener(RELOAD_CHAT_LIST_EVENT, () => {
-      void reloadConversations();
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void reloadConversations();
+      }, 600);
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      if (timer) clearTimeout(timer);
+    };
   }, [token, reloadConversations]);
 
   useEffect(() => {

@@ -66,6 +66,16 @@ const PRESET_IMAGES: Record<number, number> = {
   1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
 };
 
+// Stable identity, and taps on the list must not be swallowed by the keyboard.
+const LIST_PROPS = {
+  showsVerticalScrollIndicator: false,
+  keyboardShouldPersistTaps: 'handled' as const,
+  // Long threads were mounting too many rows at once.
+  initialNumToRender: 12,
+  maxToRenderPerBatch: 8,
+  windowSize: 9,
+};
+
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Inbox'>;
 
 const InboxScreenInner: React.FC<
@@ -397,6 +407,8 @@ const InboxScreenInner: React.FC<
   );
 
   const headerStatus = useMemo(() => {
+    // WhatsApp/Messenger style: the header line becomes "typing…" while they type.
+    if (peerIsTyping) return 'typing…';
     if (conversation.isGroup) {
       const total = conversation.groupMemberCount;
       const online = conversation.groupOnlineCount ?? 0;
@@ -415,6 +427,7 @@ const InboxScreenInner: React.FC<
     }
     return '';
   }, [
+    peerIsTyping,
     conversation.isGroup,
     conversation.groupMemberCount,
     conversation.groupOnlineCount,
@@ -909,6 +922,9 @@ const InboxScreenInner: React.FC<
             // why the composer always read "Type here…" even when the thread was
             // locked awaiting acceptance.
             textInputProps={{
+              // gifted-chat v3 has no onInputTextChanged; this is the hook it
+              // actually calls, and it drives the typing indicator.
+              onChangeText: setText,
               editable: !inputLocked,
               placeholder: needsAcceptance
                 ? 'Accept the request above to reply…'
@@ -942,8 +958,6 @@ const InboxScreenInner: React.FC<
             // either: flipping controlled/uncontrolled at runtime is what made
             // the Send button disappear mid-typing.
             onSend={(msgs: IMessage[]) => onSend(msgs as ExtendedMessage[])}
-            // @ts-ignore
-            onInputTextChanged={setText}
             user={{
               _id: normalizeChatUserId(user?._id) || 'me',
               name: typeof user?.name === 'string' ? user.name : undefined,
@@ -952,11 +966,10 @@ const InboxScreenInner: React.FC<
             renderAvatar={() => null}
             minComposerHeight={36}
             maxComposerHeight={132}
-            alwaysShowSend
             renderInputToolbar={renderInputToolbar}
             renderMessage={renderMessage}
             isTyping={peerIsTyping}
-            listProps={{ showsVerticalScrollIndicator: false }}
+            listProps={LIST_PROPS}
             // gifted-chat v3 replaced the old loadEarlier/infiniteScroll/
             // onLoadEarlier/isLoadingEarlier props with this single object —
             // the old names are silently ignored (same pattern as the
@@ -969,9 +982,7 @@ const InboxScreenInner: React.FC<
               isInfiniteScrollEnabled: true,
               onPress: loadEarlier,
             }}
-            keyboardShouldPersistTaps="handled"
             timeFormat="LT"
-            bottomOffset={insets.bottom}
             renderDay={props => {
               const systemMessageId = '__hopenity_thread_intro';
               if (props.currentMessage?._id === systemMessageId) {

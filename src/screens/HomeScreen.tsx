@@ -1073,7 +1073,8 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             data={filteredConversations}
             renderItem={renderConversation}
             keyExtractor={item => String(item.id)}
-            extraData={filteredConversations}
+            initialNumToRender={12}
+            windowSize={9}
             ListHeaderComponent={ListHeader}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContent}

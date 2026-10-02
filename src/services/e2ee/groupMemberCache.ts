@@ -47,6 +47,41 @@ export function writeCachedGroupMembers(
   if (!conversationId || memberIds.length === 0) return;
   try {
     store().set(key(conversationId), JSON.stringify(memberIds));
+    rememberRoster(conversationId, memberIds);
+  } catch {
+    /* best-effort */
+  }
+}
+
+const MAX_ROSTERS = 8;
+
+/**
+ * Every distinct roster ever seen for a group. Old messages were sealed with
+ * whichever roster the sender had at the time, so we keep the history and try
+ * each one rather than only the latest.
+ */
+export function readKnownRosters(conversationId: string): string[][] {
+  if (!conversationId) return [];
+  try {
+    const raw = store().getString(`rosters:${conversationId}`);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (r): r is string[] => Array.isArray(r) && r.every(v => typeof v === 'string'),
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function rememberRoster(conversationId: string, memberIds: string[]): void {
+  if (!conversationId || memberIds.length === 0) return;
+  try {
+    const sig = [...memberIds].sort().join('|');
+    const known = readKnownRosters(conversationId);
+    if (known.some(r => [...r].sort().join('|') === sig)) return;
+    const next = [memberIds, ...known].slice(0, MAX_ROSTERS);
+    store().set(`rosters:${conversationId}`, JSON.stringify(next));
   } catch {
     /* best-effort */
   }
