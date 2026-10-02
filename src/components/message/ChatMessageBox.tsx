@@ -405,12 +405,18 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const [sheetType, setSheetType] = useState<'image' | 'video'>('image');
   const { isDark, colors } = useAppTheme();
+  // Modals mount on first use (not per row up front) and then STAY mounted, so
+  // their close animation still plays.
+  const [previewEverOpened, setPreviewEverOpened] = useState(false);
+  const [sheetEverOpened, setSheetEverOpened] = useState(false);
   const openPreview = useCallback((url: string, type: 'image' | 'video') => {
+    setPreviewEverOpened(true);
     setPreviewType(type);
     setPreviewUrl(url);
   }, []);
 
   const openSheet = useCallback((url: string, type: 'image' | 'video') => {
+    setSheetEverOpened(true);
     setSheetType(type);
     setSheetUrl(url);
   }, []);
@@ -680,7 +686,7 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
             )}
           </TouchableOpacity>
         </View>
-        {previewUrl !== null ? (
+        {previewEverOpened ? (
 
           <MediaPreviewModal
           visible={previewUrl !== null && previewType === 'image'}
@@ -690,7 +696,7 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
         />
 
         ) : null}
-        {sheetUrl !== null ? (
+        {sheetEverOpened ? (
 
           <MediaActionSheet
           url={sheetUrl}
@@ -751,7 +757,7 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
               </View>
             )}
           </TouchableOpacity>
-          {previewUrl !== null ? (
+          {previewEverOpened ? (
 
             <MediaPreviewModal
             visible={previewUrl !== null && previewType === 'video'}
@@ -761,7 +767,7 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
           />
 
           ) : null}
-          {sheetUrl !== null ? (
+          {sheetEverOpened ? (
 
             <MediaActionSheet
             url={sheetUrl}

@@ -40,7 +40,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete, onCa
   const [initialized, setInitialized] = useState(false);
 
   const audioRecorderPlayer = useRef(AudioRecorderPlayer);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Animations
   const pulseAnim = useRef(new Animated.Value(1)).current;

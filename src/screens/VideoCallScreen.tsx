@@ -990,7 +990,7 @@ function VideoStage({
     setFacingUser(!facingUser);
 
     // Enumerate all available media devices
-    const devices = await mediaDevices.enumerateDevices();
+    const devices = (await mediaDevices.enumerateDevices()) as Array<{ kind?: string; facing?: string; deviceId?: string }>;
     let newDevice = null;
 
     // Find the video input device with the target facing mode
@@ -1008,7 +1008,7 @@ function VideoStage({
 
     // Perform the camera switch
     try {
-      await room.switchActiveDevice('videoinput', newDevice.deviceId);
+      await room.switchActiveDevice('videoinput', newDevice.deviceId as string);
       console.log('Camera switched successfully');
     } catch (error) {
       console.error('Failed to switch camera:', error);

@@ -71,5 +71,5 @@ export function removeFromSearchHistory(userId: string): void {
 
 /** Wipe all history. */
 export function clearSearchHistory(): void {
-  store().delete(KEY);
+  store().remove(KEY);
 }

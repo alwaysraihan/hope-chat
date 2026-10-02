@@ -209,6 +209,7 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
   const handleAddMembers = () => {
     navigation.navigate('AddGroupMembers', {
       groupId: conversationId,
+      conversationId,
       existingMemberIds: [],
     });
   };

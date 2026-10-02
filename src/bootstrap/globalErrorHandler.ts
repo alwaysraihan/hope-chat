@@ -8,7 +8,7 @@
  */
 try {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const eu: any = (global as any).ErrorUtils;
+  const eu: any = (globalThis as any).ErrorUtils;
   if (eu && typeof eu.setGlobalHandler === 'function') {
     eu.setGlobalHandler((error: Error, isFatal?: boolean) => {
       try {

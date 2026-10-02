@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   mutualDotSecond: { marginLeft: -12 },
   prompt: {
     fontSize: 13,
-    color: colorss.textMuted ?? colorss.textSecondary,
+    color: colorss.textSecondary,
     textAlign: 'center',
     lineHeight: 19,
     paddingHorizontal: 8,

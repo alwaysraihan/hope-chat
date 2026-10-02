@@ -4,7 +4,7 @@ import { radius, spacing } from '../../theme';
 import { LucideSearch } from 'lucide-react-native';
 import { useAppTheme } from '../../context/ThemeContext';
 
-const SearchBar = ({ onSearchPress }) => {
+const SearchBar = ({ onSearchPress }: { onSearchPress?: () => void }) => {
   const { colors } = useAppTheme();
   const styles = useMemo(
     () =>

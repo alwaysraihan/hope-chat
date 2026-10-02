@@ -1,7 +1,7 @@
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { colorss } from '../theme';
 
-const Radio = ({ selected, onPress = () => {} }) => (
+const Radio = ({ selected, onPress = () => {} }: { selected?: boolean; onPress?: () => void }) => (
   <TouchableOpacity onPress={onPress}>
     <View style={styles.radioOuter}>
       {selected && <View style={styles.radioInner} />}

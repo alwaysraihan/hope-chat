@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { colorss } from '../../theme';
 
-const SectionItem = ({ item }) => {
+const SectionItem = ({ item }: { item: any }) => {
   return (
     <TouchableOpacity onPress={item.onPress} style={styles.row}>
       {item.image}

@@ -96,7 +96,7 @@ export function performLogout(dispatch: AppDispatch): void {
   // 1. Close any active LiveKit call first so WebRTC cleans up before unmount.
   const activeCall = getActiveCall();
   if (activeCall) {
-    activeCall.leave?.().catch(() => {});
+    Promise.resolve(activeCall.leave?.()).catch(() => {});
   }
 
   // 2. Stop this device from ringing for the account being signed out.

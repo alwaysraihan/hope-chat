@@ -15,6 +15,6 @@ export function setLocalNickname(conversationId: string, userId: string, nick: s
   if (nick.trim()) {
     store().set(key, nick.trim());
   } else {
-    store().delete(key);
+    store().remove(key);
   }
 }

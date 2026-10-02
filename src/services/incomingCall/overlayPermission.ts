@@ -1,5 +1,5 @@
 import { NativeModules, Platform } from 'react-native';
-import { MMKV } from 'react-native-mmkv';
+import { createMMKV, type MMKV } from 'react-native-mmkv';
 
 type NativeOverlay = {
   hasOverlayPermission?: () => Promise<boolean>;
@@ -15,7 +15,7 @@ const PROMPT_OPT_OUT_KEY = 'optOut';
 let _overlayPrefs: MMKV | null = null;
 function getOverlayPrefs(): MMKV {
   if (!_overlayPrefs) {
-    _overlayPrefs = new MMKV({ id: 'hopechat.overlay-permission' });
+    _overlayPrefs = createMMKV({ id: 'hopechat.overlay-permission' });
   }
   return _overlayPrefs;
 }

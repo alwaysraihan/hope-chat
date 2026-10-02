@@ -2,6 +2,7 @@
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "types": ["jest"],
+    "skipLibCheck": true,
     // Hermes provides TextEncoder/TextDecoder (via the fast-text-encoding
     // polyfill loaded in index.js) and btoa/atob, but the RN base config does
     // not include the DOM lib, so every use of them was a type error. The e2ee

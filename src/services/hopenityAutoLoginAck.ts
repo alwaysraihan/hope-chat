@@ -42,7 +42,7 @@ export function markAutoLoginAcked(): void {
 
 export function clearAutoLoginAck(): void {
   try {
-    getStorage().delete(AUTO_LOGIN_ACK_KEY);
+    getStorage().remove(AUTO_LOGIN_ACK_KEY);
   } catch {
     /* non-fatal */
   }

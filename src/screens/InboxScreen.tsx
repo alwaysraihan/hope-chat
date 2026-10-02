@@ -983,7 +983,7 @@ const InboxScreenInner: React.FC<
               onPress: loadEarlier,
             }}
             timeFormat="LT"
-            renderDay={props => {
+            renderDay={(props: any) => {
               const systemMessageId = '__hopenity_thread_intro';
               if (props.currentMessage?._id === systemMessageId) {
                 return null;

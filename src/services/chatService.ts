@@ -905,6 +905,8 @@ export async function sendHopenityChatMessage(
   replyToId?: string | number | null,
   /** Attaches this message to a story as a reply — same `storyId` field the web app sends. */
   storyId?: string | number | null,
+  /** Stable per-message id so a retry can never create a duplicate server-side. */
+  clientMessageId?: string | number | null,
 ): Promise<HopenityChatMessage | null> {
   if (!content || !token) return null;
 
@@ -918,6 +920,7 @@ export async function sendHopenityChatMessage(
   const body: Record<string, unknown> = { content };
   if (senderPageId) body.senderPageId = senderPageId;
   if (replyToId != null) body.replyToId = replyToId;
+  if (clientMessageId != null) body.clientMessageId = String(clientMessageId);
   // Backend validates storyId as a number ("Expected number, received
   // string") — StorySlide.id is a string, so passing it through unconverted
   // made every story-reply send fail with a 400 the caller never surfaced,

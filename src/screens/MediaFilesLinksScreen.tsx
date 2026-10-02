@@ -24,7 +24,7 @@ const DATA = Array.from({ length: 12 }).map((_, i) => ({
   unique: `img-${i}`,
 }));
 
-const MediaFilesLinksScreen = ({ navigation }) => {
+const MediaFilesLinksScreen = ({ navigation }: { navigation: any }) => {
   const [visible, setVisible] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);
 
@@ -32,12 +32,12 @@ const MediaFilesLinksScreen = ({ navigation }) => {
     uri: Image.resolveAssetSource(item.image).uri,
   }));
 
-  const openImage = index => {
+  const openImage = (index: number) => {
     setImageIndex(index);
     setVisible(true);
   };
 
-  const renderItem = ({ index, item }) => (
+  const renderItem = ({ index, item }: { index: number; item: any }) => (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={() => openImage(index)}

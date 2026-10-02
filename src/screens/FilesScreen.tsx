@@ -4,7 +4,7 @@ import { colorss } from '../theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BackHeader from '../components/BackHeader';
 
-const FilesScreen = ({ navigation }) => {
+const FilesScreen = ({ navigation }: { navigation: any }) => {
   return (
     <SafeAreaView style={styles.screen}>
       <BackHeader title="Media, files and links" navigation={navigation} />

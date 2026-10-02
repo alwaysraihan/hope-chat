@@ -133,11 +133,11 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
         });
         if (loggedIn) {
           if (navigationRef.isReady()) {
-            navigationRef.navigate('BottomTab' as never, { screen: 'Home' } as never);
+            (navigationRef as any).navigate('BottomTab', { screen: 'Home' });
           } else {
             setTimeout(() => {
               if (navigationRef.isReady()) {
-                navigationRef.navigate('BottomTab' as never, { screen: 'Home' } as never);
+                (navigationRef as any).navigate('BottomTab', { screen: 'Home' });
               }
             }, 250);
           }
@@ -318,7 +318,7 @@ function handleDeepLinkUrl(url: string | null | undefined): void {
   });
   // Bring HomeScreen into view so its listener can navigate to the right chat.
   if (navigationRef.isReady()) {
-    navigationRef.navigate('BottomTab' as never, { screen: 'Home' } as never);
+    (navigationRef as any).navigate('BottomTab', { screen: 'Home' });
   }
 }
 
@@ -334,7 +334,7 @@ const AppInner = () => {
   // (RootNavigator → PublicStackNavigator) at the same moment the NavigationContainer
   // teardown was running. React Navigation can't handle two concurrent navigator
   // destructions and crashes with an "Couldn't find a navigation object" error.
-  const loggedIn = useRef(selectHopeChatLoggedIn(store.getState() as { auth: { token: string | null } })).current;
+  const loggedIn = useRef(selectHopeChatLoggedIn(store.getState() as any)).current;
 
   return loggedIn ? (
     <ChatsProvider>

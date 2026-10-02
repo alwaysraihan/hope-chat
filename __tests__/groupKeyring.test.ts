@@ -1,5 +1,5 @@
-if (typeof (global as any).crypto?.getRandomValues !== 'function') {
-  (global as any).crypto = {
+if (typeof (globalThis as any).crypto?.getRandomValues !== 'function') {
+  (globalThis as any).crypto = {
     getRandomValues(arr: Uint8Array) {
       for (let i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 256);
       return arr;

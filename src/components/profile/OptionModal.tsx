@@ -10,6 +10,14 @@ const OptionModal = ({
   onSelect,
   onCancel,
   onConfirm,
+}: {
+  visible: boolean;
+  title: string;
+  data: Array<{ id: number | string; title: string }>;
+  selected: number | string | null;
+  onSelect: (id: any) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
 }) => {
   return (
     <Modal transparent animationType="fade" visible={visible}>

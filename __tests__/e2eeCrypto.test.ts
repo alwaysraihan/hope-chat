@@ -1,6 +1,6 @@
 /** Minimal Web Crypto shim for Jest (Hermes/RN provides real getRandomValues in-app). */
-if (typeof global.crypto?.getRandomValues !== 'function') {
-  (global as any).crypto = {
+if (typeof globalThis.crypto?.getRandomValues !== 'function') {
+  (globalThis as any).crypto = {
     getRandomValues(arr: Uint8Array) {
       for (let i = 0; i < arr.length; i++) {
         arr[i] = Math.floor(Math.random() * 256);

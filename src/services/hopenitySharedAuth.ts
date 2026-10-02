@@ -174,7 +174,7 @@ export function persistHopenityUser(blob: HopenityPersistedUserBlob | null): boo
   try {
     const storage = getHopeChatHopenityMMKV();
     if (blob == null) {
-      storage.delete(USER_KEY);
+      storage.remove(USER_KEY);
     } else {
       storage.set(USER_KEY, JSON.stringify(blob));
     }
