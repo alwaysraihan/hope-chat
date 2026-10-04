@@ -665,7 +665,7 @@ const InboxScreenInner: React.FC<
     <View
       style={{
         flex: 1,
-        backgroundColor: colorss.primary,
+        backgroundColor: colorss.surface,
         paddingTop: insets.top,
         paddingLeft: insets.left,
         paddingRight: insets.right,
@@ -991,12 +991,11 @@ const InboxScreenInner: React.FC<
 
               return <Day {...props} />;
             }}
-            // Measure the chat's real on-screen position instead of guessing it:
-            // the header height varies and the request/restricted banners push
-            // the chat down, so a fixed offset left the input under the keyboard.
+            // Fixed offset for the header above the chat. `automaticOffset`
+            // (Sep 29) mis-measured the chat's window position and left the
+            // input toolbar under the keyboard.
             keyboardAvoidingViewProps={{
-              automaticOffset: true,
-              keyboardVerticalOffset: 0,
+              keyboardVerticalOffset: insets.top + 60,
             }}
           />
         );

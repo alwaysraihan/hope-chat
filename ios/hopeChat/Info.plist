@@ -46,11 +46,11 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Hope Chat uses your location to share it with friends and family in your chats.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hope Chat needs your microphone for voice and video calls, and to record voice messages.</string>
+	<string>Hopechat needs your microphone for voice and video calls, and to record voice messages.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Hope Chat saves photos and videos you download from chats to your photo library.</string>
+	<string>Hopechat saves photos and videos you download from chats to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Hope Chat needs access to your photo library so you can send photos and videos in chats.</string>
+	<string>Hopechat needs access to your photo library so you can send photos and videos in chats.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIBackgroundModes</key>

@@ -54,6 +54,12 @@ target 'hopeChat' do
     # that's what made Swift's `import RNCallKeep` in AppDelegate.swift fail
     # with "no such module 'RNCallKeep'". Forcing it on just these two targets
     # (not every pod) keeps this scoped to the actual problem.
+    # Archive dSYMs for every pod, so App Store Connect's symbol check has
+    # DWARF files to find ("Upload Symbols Failed" otherwise).
+    installer.pods_project.build_configurations.each do |bc|
+      bc.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
+    end
+
     installer.pods_project.targets.each do |target|
       if ['RNCallKeep', 'RNVoipPushNotification'].include?(target.name)
         target.build_configurations.each do |bc|
