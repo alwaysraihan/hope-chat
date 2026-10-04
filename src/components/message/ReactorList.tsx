@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -7,11 +7,16 @@ import {
   Text,
   View,
   ListRenderItem,
+  PanResponder,
+  Animated as RNAnimated,
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { X } from 'lucide-react-native';
 
 import { colorss } from '../../theme';
+import { useAppSelector } from '../../hooks/redux';
+import { selectAuthToken } from '../../redux/features/auth/authSlice';
+import { fetchMessageReactions } from '../../services/chatService';
 
 //  Types
 
@@ -25,15 +30,86 @@ interface Reactor {
 interface ReactorListProps {
   onClose?: () => void;
   reactors?: Reactor[];
+  /** When given, the list is refreshed from the server so names/avatars are real. */
+  chatId?: string;
+  messageId?: string;
+}
+
+function swapCdnHost(url: string): string {
+  if (url.includes('hopenity.nikolacdn.com')) return url.replace('hopenity.nikolacdn.com', 'cdn.hopenity.com');
+  if (url.includes('cdn.hopenity.com')) return url.replace('cdn.hopenity.com', 'hopenity.nikolacdn.com');
+  return url;
 }
 
 //  Component
 
 export default function ReactorList({
   onClose,
-  reactors = [],
+  reactors: localReactors = [],
+  chatId,
+  messageId,
 }: ReactorListProps) {
   const [activeFilter, setActiveFilter] = useState('ALL');
+  const token = useAppSelector(selectAuthToken);
+  const [remote, setRemote] = useState<Reactor[] | null>(null);
+  const [failed, setFailed] = useState<Record<string, number>>({});
+
+  // Live reactions only carry userId + emoji, so names/avatars come from the
+  // server. Keep showing the live list (so toggles show up) but borrow the
+  // fetched profile for each person.
+  useEffect(() => {
+    if (!chatId || !messageId || !token) return;
+    let cancelled = false;
+    fetchMessageReactions(chatId, messageId, token).then(rows => {
+      if (cancelled) return;
+      setRemote(
+        rows.map(r => ({
+          id: r.userId,
+          name: r.userName,
+          reaction: r.emoji,
+          avatar: r.avatar ?? null,
+        })),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Refetch when the live count/emoji set changes (someone reacted/unreacted).
+  }, [chatId, messageId, token, localReactors.map(r => `${r.id}:${r.reaction}`).join('|')]);
+
+  const reactors = useMemo(() => {
+    const profile = new Map((remote ?? []).map(r => [r.id, r]));
+    return localReactors.map(r => {
+      const p = profile.get(r.id);
+      return {
+        ...r,
+        name: r.name || p?.name || (remote === null && chatId ? '…' : 'Unknown'),
+        avatar: r.avatar || p?.avatar || null,
+      };
+    });
+  }, [localReactors, remote]);
+
+  // Swipe the sheet down to dismiss.
+  const dragY = useRef(new RNAnimated.Value(0)).current;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) dragY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 90 || g.vy > 0.8) {
+          RNAnimated.timing(dragY, { toValue: 600, duration: 160, useNativeDriver: true }).start(
+            () => onCloseRef.current?.(),
+          );
+        } else {
+          RNAnimated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+        }
+      },
+    }),
+  ).current;
 
   const reactionGroups = reactors.reduce<Record<string, number>>((acc, r) => {
     acc[r.reaction] = (acc[r.reaction] ?? 0) + 1;
@@ -56,8 +132,14 @@ export default function ReactorList({
   const renderItem: ListRenderItem<Reactor> = ({ item }) => (
     <View style={styles.row}>
       <View style={styles.userInfo}>
-        {item.avatar ? (
-          <Image source={{ uri: item.avatar }} style={styles.avatar} />
+        {item.avatar && (failed[item.id] ?? 0) < 2 ? (
+          <Image
+            source={{ uri: failed[item.id] ? swapCdnHost(item.avatar) : item.avatar }}
+            style={styles.avatar}
+            // The two CDN hosts serve different users; if one 404s try the other
+            // before falling back to the initial.
+            onError={() => setFailed(f => ({ ...f, [item.id]: (f[item.id] ?? 0) + 1 }))}
+          />
         ) : (
           // Initials, not a stock photo — the old placeholder pulled a random
           // stranger's face from i.pravatar.cc and showed it as the reactor.
@@ -79,8 +161,11 @@ export default function ReactorList({
 
   return (
     <Animated.View entering={FadeInUp.duration(250)} style={styles.overlay}>
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <RNAnimated.View style={[styles.sheet, { transform: [{ translateY: dragY }] }]}>
+        <View {...pan.panHandlers} style={styles.grabArea}>
+          <View style={styles.handle} />
+        </View>
 
         <View style={styles.header}>
           <Text style={styles.title}>Reactions</Text>
@@ -132,7 +217,7 @@ export default function ReactorList({
             ) : null
           }
         />
-      </View>
+      </RNAnimated.View>
     </Animated.View>
   );
 }
@@ -160,7 +245,10 @@ const styles = StyleSheet.create({
     backgroundColor: colorss.border,
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 14,
+  },
+  grabArea: {
+    paddingVertical: 8,
+    marginBottom: 6,
   },
   header: {
     flexDirection: 'row',

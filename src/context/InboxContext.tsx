@@ -53,6 +53,7 @@ import {
   formatChatTime,
   markHopenityChatRead,
   reactToMessage,
+  fetchMessageReactions,
   sendHopenityChatMessage,
   type DeleteScope,
   uploadChatMedia,
@@ -194,6 +195,7 @@ interface InboxContextValue {
   handleVoiceRecordingCancel: () => void;
 
   reactionEmojiRow: string[];
+  conversationId?: string;
 
   /** True when E2EE is active for the current conversation (DM or group). */
   isEncrypted: boolean;
@@ -773,6 +775,8 @@ export function InboxProvider({
                 userName: String(
                   (r.user as { name?: string } | undefined)?.name ?? r.userName ?? '',
                 ),
+                avatar:
+                  (r.user as { image?: string | null } | undefined)?.image ?? null,
               })),
             }
           : {}),
@@ -917,7 +921,10 @@ export function InboxProvider({
         : [];
 
     setLoadingMore(false);
-    setAllMessages(base);
+    // Provider is keyed per conversation, so anything already in state is this
+    // thread's. Don't wipe it with the (reaction-less) list snapshot when this
+    // effect re-runs — that made reactions flash to 0 until the refetch landed.
+    setAllMessages(prev => (prev.length ? prev : base));
     
     setHasMore(!!(_conversationId && token));
 
@@ -1229,15 +1236,77 @@ export function InboxProvider({
     });
 
     // Reactions (anyone's, including my other devices) arrive as the full list.
-    const unsubReaction = callSocket.onMessageReaction(({ chatId, messageId, reactions }) => {
-      if (String(chatId) !== String(_conversationId)) return;
-      updateMessage(messageId, {
-        reactions: reactions.map(r => ({
-          emoji: r.emoji,
-          userId: r.userId,
-          userName: String(r.userId) === String(localUserIdStr) ? 'You' : '',
-        })),
+    // Live events and v2 (group) message lists carry only userId + emoji. Ask the
+    // reactions endpoint for the people behind them and patch the message.
+    const hydrateReactionProfiles = (messageId: string) => {
+      if (!token) return;
+      void fetchMessageReactions(_conversationId, messageId, token).then(rows => {
+        if (!rows.length) {
+          pollMessagesNow();
+          return;
+        }
+        const byUser = new Map(rows.map(r => [r.userId, r]));
+        setAllMessages(prev =>
+          prev.map(m => {
+            if (String(m._id) !== String(messageId) || !m.reactions?.length) return m;
+            return {
+              ...m,
+              reactions: m.reactions.map(r => {
+                const p = byUser.get(r.userId);
+                if (!p) return r;
+                return {
+                  ...r,
+                  userName: r.userName && r.userName !== 'You' ? r.userName : p.userName,
+                  avatar: r.avatar || p.avatar || null,
+                };
+              }),
+            };
+          }),
+        );
+        bumpRefresh();
       });
+    };
+
+    const unsubReaction = callSocket.onMessageReaction(({ chatId, messageId, reactions, delta }) => {
+      // v1 events carry no chatId; the message id is unique enough to match locally.
+      if (chatId && String(chatId) !== String(_conversationId)) return;
+      if (delta) {
+        setAllMessages(prev =>
+          prev.map(m => {
+            if (String(m._id) !== String(messageId)) return m;
+            const others = (m.reactions ?? []).filter(r => r.userId !== delta.userId);
+            const prior = (m.reactions ?? []).find(r => r.userId === delta.userId);
+            const next = delta.removed
+              ? others
+              : [...others, { emoji: delta.emoji, userId: delta.userId, userName: prior?.userName ?? '' }];
+            return { ...m, reactions: next };
+          }),
+        );
+        bumpRefresh();
+        // Live events carry no profile; pull name/photo from the thread fetch.
+        if (!delta.removed) hydrateReactionProfiles(messageId);
+        return;
+      }
+      setAllMessages(prev =>
+        prev.map(m =>
+          String(m._id) !== String(messageId)
+            ? m
+            : {
+                ...m,
+                reactions: reactions.map(r => ({
+                  emoji: r.emoji,
+                  userId: r.userId,
+                  // Keep the profile we already know for this person.
+                  userName:
+                    String(r.userId) === String(localUserIdStr)
+                      ? 'You'
+                      : (m.reactions ?? []).find(x => x.userId === r.userId)?.userName ?? '',
+                })),
+              },
+        ),
+      );
+      bumpRefresh();
+      if (reactions.length) hydrateReactionProfiles(messageId);
     });
 
     // Fetch the new message immediately when the socket event arrives, instead
@@ -1316,6 +1385,8 @@ export function InboxProvider({
     mapHopenityMessage,
     playWordEffect,
     pollMessagesNow,
+    token,
+    bumpRefresh,
   ]);
 
   // ─── Retro-decrypt: groupCryptoKey is derived asynchronously (after an
@@ -2356,6 +2427,7 @@ function isVideoAsset(asset: {
       handleVoiceRecordingCancel,
   
       reactionEmojiRow,
+      conversationId: _conversationId,
   
       isEncrypted: shouldEncryptOutgoing,
   
@@ -2407,6 +2479,7 @@ function isVideoAsset(asset: {
       handleVoiceRecordingComplete,
       handleVoiceRecordingCancel,
       reactionEmojiRow,
+      _conversationId,
       shouldEncryptOutgoing,
       registerScrollToMessage,
       wrapRef,

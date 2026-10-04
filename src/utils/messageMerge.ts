@@ -75,7 +75,7 @@ export function isServerEchoOfPending(
 export const DELETED_TEXT = 'This message was deleted';
 
 export function reactionSig(r?: ExtendedMessage['reactions']): string {
-  return (r ?? []).map(x => `${x.userId}:${x.emoji}`).sort().join('|');
+  return (r ?? []).map(x => `${x.userId}:${x.emoji}:${x.userName ? 1 : 0}${x.avatar ? 1 : 0}`).sort().join('|');
 }
 
 export function mergeFetchedAsc(
@@ -107,8 +107,21 @@ export function mergeFetchedAsc(
         patch.editedAt = srv.editedAt;
       }
       // Only trust the server's list when it actually sent one.
-      if (srv.reactions && reactionSig(srv.reactions) !== reactionSig(m.reactions)) {
-        patch.reactions = srv.reactions;
+      if (srv.reactions) {
+        // v2 lists carry no profile; never let them blank out a name/photo we
+        // already resolved for the same person.
+        const known = new Map((m.reactions ?? []).map(r => [r.userId, r]));
+        const nextReactions = srv.reactions.map(r => {
+          const old = known.get(r.userId);
+          return {
+            ...r,
+            userName: r.userName || old?.userName || '',
+            avatar: r.avatar || old?.avatar || null,
+          };
+        });
+        if (reactionSig(nextReactions) !== reactionSig(m.reactions)) {
+          patch.reactions = nextReactions;
+        }
       }
     }
     if (Object.keys(patch).length === 0) return m;

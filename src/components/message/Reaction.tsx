@@ -121,6 +121,7 @@ export default function Reaction({
     canEditMessage,
     handleEdit,
     reactionEmojiRow,
+    conversationId,
   } = useInbox();
 
   const isRight = position === 'right';
@@ -519,9 +520,11 @@ export default function Reaction({
       <Modal transparent visible={reactorListVisible} animationType="slide">
         <ReactorList
           onClose={() => setReactorListVisible(false)}
+          chatId={conversationId}
+          messageId={String(currentMessage._id)}
           reactors={(currentMessage.reactions ?? []).map(r => ({
             id: String(r.userId),
-            name: r.userName || 'Unknown',
+            name: r.userName || '',
             reaction: r.emoji,
             avatar: (r as { avatar?: string | null }).avatar ?? null,
           }))}

@@ -20,6 +20,12 @@ type MessageReactionListener = (data: {
   chatId: string;
   messageId: string;
   reactions: Array<{ emoji: string; userId: string }>;
+  /**
+   * Legacy (v1) servers send one person's change instead of the full list, and
+   * no chatId. When set, `reactions` is empty and this delta must be applied to
+   * the message the client already has.
+   */
+  delta?: { userId: string; emoji: string; removed: boolean };
 }) => void;
 /**
  * The server emits the whole message row on `new_message`, not just an id.
@@ -205,6 +211,15 @@ class CallSocketService {
         const d = data as Record<string, unknown>;
         const chatId = String(d.chatId ?? '');
         const messageId = String(d.messageId ?? '');
+        if (messageId && !Array.isArray(d.reactions) && d.userId) {
+          const delta = {
+            userId: String(d.userId),
+            emoji: String(d.emoji ?? ''),
+            removed: !!d.removed,
+          };
+          this.messageReactionListeners.forEach(l => { try { l({ chatId, messageId, reactions: [], delta }); } catch { /* */ } });
+          return;
+        }
         if (!chatId || !messageId || !Array.isArray(d.reactions)) return;
         const reactions = (d.reactions as Array<Record<string, unknown>>).map(r => ({
           emoji: String(r.emoji ?? ''),

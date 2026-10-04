@@ -19,6 +19,7 @@ export interface ReactionItem {
   emoji: string;
   userId: string;
   userName: string;
+  avatar?: string | null;
 }
 
 export type DonationRequestType = 'blood' | 'food' | 'essential' | 'product' | 'general';
