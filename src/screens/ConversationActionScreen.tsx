@@ -131,7 +131,10 @@ const ConversationActionScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const removeConversationLocally = () => {
     // Add to persistent hidden list so it never re-appears from cache or server reload.
-    addHiddenConversation(conversationId);
+    addHiddenConversation(
+      conversationId,
+      conversations.find(c => c.id === conversationId)?.sortAt ?? null,
+    );
     setConversations(prev => {
       const next = prev.filter(c => c.id !== conversationId);
       const uid = String(profile?.userId ?? '');

@@ -119,6 +119,34 @@ export async function inviteContactToExistingCall(params: {
 }
 
 /**
+ * Callee → caller "my phone is ringing", over HTTP. The socket `call_ringing`
+ * only works when the callee's socket is connected; a phone woken by a push
+ * usually is not yet, so the caller stayed on "Calling…". Fire-and-forget.
+ */
+export async function notifyCallRinging(params: {
+  token: string | null | undefined;
+  liveKitRoom: string;
+}): Promise<void> {
+  const auth = params.token ? bearer(params.token) : '';
+  const room = String(params.liveKitRoom ?? '').trim();
+  if (!auth || !room) return;
+  try {
+    const base = API_BASE_URL.replace(/\/+$/, '');
+    await fetch(`${base}/api/v1/chats/hopechat-call-ringing`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: auth,
+      },
+      body: JSON.stringify({ liveKitRoom: room }),
+    });
+  } catch (e) {
+    if (__DEV__) console.warn('[HopeChat] hopechat-call-ringing network', e);
+  }
+}
+
+/**
  * Notifies the Hopenity API that the callee rejected the call so the server can
  * send a `call_cancelled` FCM to the caller — stopping their outgoing ring immediately.
  * Fire-and-forget — gracefully degrades if the endpoint doesn't exist yet.
@@ -180,6 +208,15 @@ export async function notifyPeerCallRejected(params: {
  *
  * Fire-and-forget: a hangup must never be blocked or fail visibly.
  */
+/** Room → when this device last sent an end signal for it (see callEndSignalledSince). */
+const endSignalledAt = new Map<string, number>();
+
+/** True when an end signal for `liveKitRoom` was sent at or after `sinceMs`. */
+export function callEndSignalledSince(liveKitRoom: string, sinceMs: number): boolean {
+  const at = endSignalledAt.get(liveKitRoom);
+  return at != null && at >= sinceMs;
+}
+
 export async function notifyCallEndedByRoom(params: {
   token: string | null | undefined;
   liveKitRoom: string;
@@ -190,6 +227,7 @@ export async function notifyCallEndedByRoom(params: {
   if (!auth) return;
   const room = String(params.liveKitRoom ?? '').trim();
   if (!room) return;
+  endSignalledAt.set(room, Date.now());
   try {
     const base = API_BASE_URL.replace(/\/+$/, '');
     const res = await fetch(`${base}/api/v1/chats/hopechat-call-end`, {

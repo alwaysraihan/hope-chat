@@ -25,6 +25,8 @@ import { selectHopenityProfile, selectAuthToken } from '../redux/features/auth/a
 import { fetchNicknames, saveNickname } from '../services/userSettingsService';
 import { getLocalNickname, setLocalNickname } from '../services/nicknameCache';
 import { callSocket } from '../services/callSocket';
+import { fetchGroupInfo } from '../services/groupService';
+import { Toast } from '../components/Toast';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'Nicknames'>;
 
@@ -67,11 +69,40 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
   const token = useAppSelector(selectAuthToken);
   const myUserId = profile?.userId ?? '';
   const { conversations, setConversations } = useChats();
+  const conv = conversations.find(c => c.id === conversationId);
+  const isGroup = !!conv?.isGroup;
+  // Groups and v2-native DMs are ChatThreads — see sharedPrefScope.
+  const isV2 = !!conv && (conv.isGroup || !conv.isV1Chat);
+
+  // Group members come from the group endpoint; the list row carries none.
+  // Groups used to return [] here, so the screen said "No participants found"
+  // and nicknames could not be set in any group.
+  const [groupMembers, setGroupMembers] = useState<Participant[]>([]);
+  useEffect(() => {
+    if (!isGroup || !conversationId || !token) return;
+    let cancelled = false;
+    fetchGroupInfo(conversationId, token)
+      .then(info => {
+        if (cancelled || !info) return;
+        setGroupMembers(
+          (info.members ?? [])
+            .filter(m => !!m.userId)
+            .map(m => ({
+              userId: String(m.userId),
+              name: m.userId === myUserId ? profile?.displayName ?? 'You' : m.name ?? 'Member',
+              image: m.image ?? null,
+            })),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isGroup, conversationId, token, myUserId, profile?.displayName]);
 
   const participants = useMemo<Participant[]>(() => {
-    const conv = conversations.find(c => c.id === conversationId);
     if (!conv) return [];
-    if (conv.isGroup) return [];
+    if (conv.isGroup) return groupMembers;
     const list: Participant[] = [];
     if (conv.peerUserId && conv.peerUserId !== myUserId) {
       list.push({
@@ -90,7 +121,7 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
       });
     }
     return list;
-  }, [conversations, conversationId, myUserId, profile]);
+  }, [conv, groupMembers, myUserId, profile]);
 
   // nicknames state: { [userId]: nickname }
   const [nicknames, setNicknamesState] = useState<Record<string, string>>(() => {
@@ -105,7 +136,7 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
   // Fetch from backend on mount and merge with local cache
   useEffect(() => {
     if (!conversationId || !token) return;
-    fetchNicknames(conversationId, token).then(serverNicks => {
+    fetchNicknames(conversationId, token, isV2).then(serverNicks => {
       if (!serverNicks || typeof serverNicks !== 'object') return;
       // Merge: server wins for keys that exist server-side; keep others from local
       setNicknamesState(prev => {
@@ -119,8 +150,7 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
         return merged;
       });
     }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, token]);
+  }, [conversationId, token, isV2]);
 
   // Nicknames are shared by both participants, so the other end's change has to
   // land here live rather than on the next remount.
@@ -184,12 +214,14 @@ const NicknamesScreen: React.FC<Props> = ({ navigation, route }) => {
     Keyboard.dismiss();
     setEditing(null);
 
-    // Persist to backend
+    // Persist to backend. A silent failure here looked like success on this
+    // phone while the other person never saw the nickname.
     if (token) {
-      await saveNickname(conversationId, editing.userId, nick, token).catch(() => {});
+      const ok = await saveNickname(conversationId, editing.userId, nick, token, isV2).catch(() => false);
+      if (!ok) Toast.error('Could not save nickname. Please try again.');
     }
     setSaving(false);
-  }, [editing, draft, conversationId, token, setConversations]);
+  }, [editing, draft, conversationId, token, setConversations, isV2]);
 
   const handleCancel = useCallback(() => {
     Keyboard.dismiss();

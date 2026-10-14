@@ -121,15 +121,27 @@ function readHiddenAt(): Record<string, number> {
   }
 }
 
-export function addHiddenConversation(id: string): void {
+/**
+ * @param lastActivityAt The conversation's last activity as the SERVER stamped
+ * it (the row's `sortAt`). Revival compares server timestamps, so it must be
+ * recorded in server time: the phone clock used before could run minutes ahead
+ * of the server, and every message that arrived inside that skew failed to
+ * bring the deleted/cleared chat back — the chat just stayed gone.
+ */
+export function addHiddenConversation(id: string, lastActivityAt?: number | null): void {
   if (!id) return;
   try {
     const existing = getHiddenConversationIds();
     const next = Array.from(new Set([...existing, id]));
     storage().set(HIDDEN_CONVS_KEY, JSON.stringify(next));
-    // When it was hidden — lets a NEW message revive the chat instead of leaving
-    // it gone forever (WhatsApp behaviour: deleting a chat doesn't block the peer).
-    storage().set(HIDDEN_AT_KEY, JSON.stringify({ ...readHiddenAt(), [id]: Date.now() }));
+    // The activity cutoff — a NEW message after it revives the chat instead of
+    // leaving it gone forever (WhatsApp behaviour: deleting a chat doesn't
+    // block the peer). Device-clock fallback keeps the old 2s slack.
+    const cutoff =
+      typeof lastActivityAt === 'number' && lastActivityAt > 0
+        ? lastActivityAt
+        : Date.now() + 2000;
+    storage().set(HIDDEN_AT_KEY, JSON.stringify({ ...readHiddenAt(), [id]: cutoff }));
   } catch { /* best-effort */ }
 }
 
@@ -156,7 +168,7 @@ export function reviveHiddenConversationsWithNewActivity(
     for (const id of getHiddenConversationIds()) {
       const hiddenAt = at[id];
       const last = lastActivityMsById.get(id);
-      if (hiddenAt && last && last > hiddenAt + 2000) removeHiddenConversation(id);
+      if (hiddenAt && last && last > hiddenAt) removeHiddenConversation(id);
     }
   } catch { /* best-effort */ }
 }

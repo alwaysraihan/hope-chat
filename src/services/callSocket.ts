@@ -82,6 +82,10 @@ class CallSocketService {
   private messageEditedListeners: Set<MessageEditedListener> = new Set();
   private messageReactionListeners: Set<MessageReactionListener> = new Set();
   private newMessageListeners: Set<NewMessageListener> = new Set();
+  /** "chatId:messageId" → first-seen time, for deduping the double new_message fan-out. */
+  private recentMessageIds: Map<string, number> = new Map();
+  /** Room → when its callee last acked ringing (see wasRingingRecently). */
+  private ringingAt: Map<string, number> = new Map();
   private userTypingListeners: Set<TypingListener> = new Set();
   private userStoppedTypingListeners: Set<TypingListener> = new Set();
   private nicknamesUpdatedListeners: Set<NicknamesUpdatedListener> = new Set();
@@ -190,6 +194,7 @@ class CallSocketService {
       this.socket.on('call_ringing', (data: unknown) => {
         const normalized = normalizeSocketData(data);
         if (!normalized) return;
+        if (normalized.liveKitRoom) this.ringingAt.set(normalized.liveKitRoom, Date.now());
         this.ringingListeners.forEach(l => { try { l(normalized); } catch { /* */ } });
       });
       this.socket.on('message_deleted', (data: unknown) => {
@@ -233,6 +238,23 @@ class CallSocketService {
         // chatId lives on the message row itself; older emitters sent only it.
         const chatId = Number(d.chatId ?? d.chat_id);
         if (!Number.isFinite(chatId)) return;
+        // The server emits every message to the chat room AND to each
+        // participant's user room, so a client in both gets it twice — which
+        // bumped the chat list's unread count by 2 and did all the work twice.
+        // Only rows with an id are deduped; bare `{ chatId }` pings still pass.
+        const msgId = d.id != null ? `${chatId}:${String(d.id)}` : '';
+        if (msgId) {
+          const now = Date.now();
+          const seenAt = this.recentMessageIds.get(msgId);
+          if (seenAt != null && now - seenAt < 60_000) return;
+          this.recentMessageIds.set(msgId, now);
+          if (this.recentMessageIds.size > 300) {
+            for (const [k, t] of this.recentMessageIds) {
+              if (now - t > 60_000 || this.recentMessageIds.size > 200) this.recentMessageIds.delete(k);
+              else break;
+            }
+          }
+        }
         const payload = { chatId, message: d };
         this.newMessageListeners.forEach(l => { try { l(payload); } catch { /* */ } });
       });
@@ -361,6 +383,17 @@ class CallSocketService {
   }
 
   /** Caller subscribes: fires when callee's device receives the ring. */
+  /**
+   * True when the callee acknowledged ringing for this room within `withinMs`.
+   * The server can send that ack while the caller's invite request is still in
+   * flight — before the call screen exists to listen — so screens read this on
+   * mount instead of only waiting for the next event.
+   */
+  wasRingingRecently(liveKitRoom: string, withinMs = 20_000): boolean {
+    const at = liveKitRoom ? this.ringingAt.get(liveKitRoom) : undefined;
+    return at != null && Date.now() - at <= withinMs;
+  }
+
   onCallRinging(listener: CallSocketListener): () => void {
     this.ringingListeners.add(listener);
     return () => this.ringingListeners.delete(listener);

@@ -55,6 +55,42 @@ export function markCallCancelled(
   }, CANCEL_ENTRY_TTL_MS);
 }
 
+/**
+ * Calls this device ANSWERED, per room: when, and the answered invite's server
+ * timestamp.
+ *
+ * Every invite reaches the phone more than once (socket + FCM, sometimes a VoIP
+ * push too). Duplicates were only ignored while the call screen had registered
+ * the active call — and that registry is empty while the call is connecting and
+ * after the user minimises it. A late copy of the invite then reopened the
+ * incoming-call screen mid-call: "it keeps ringing after I picked up".
+ */
+const answeredRooms = new Map<string, { at: number; inviteSentAtMs?: number }>();
+
+/** Undated duplicates of an answered invite are dropped for this long. */
+const ANSWERED_UNDATED_SUPPRESSION_MS = 90_000;
+const ANSWERED_ENTRY_TTL_MS = 3 * 60 * 60_000;
+
+export function markCallAnswered(liveKitRoom: string, inviteSentAtMs?: number): void {
+  if (!liveKitRoom) return;
+  answeredRooms.set(liveKitRoom, { at: Date.now(), inviteSentAtMs });
+  setTimeout(() => {
+    const e = answeredRooms.get(liveKitRoom);
+    if (e && Date.now() - e.at >= ANSWERED_ENTRY_TTL_MS) answeredRooms.delete(liveKitRoom);
+  }, ANSWERED_ENTRY_TTL_MS);
+}
+
+/**
+ * True when this invite is a copy of a call already answered here. An invite
+ * the server stamped AFTER the answered one is a new call and still rings.
+ */
+export function isCallAnswered(liveKitRoom: string, sentAtMs?: number): boolean {
+  const e = answeredRooms.get(liveKitRoom);
+  if (!e) return false;
+  if (sentAtMs != null && e.inviteSentAtMs != null) return sentAtMs <= e.inviteSentAtMs;
+  return Date.now() - e.at < ANSWERED_UNDATED_SUPPRESSION_MS;
+}
+
 /** Clear the cancel record — used when we knowingly start a new call in this room. */
 export function clearCallCancelled(liveKitRoom: string): void {
   cancelledRooms.delete(liveKitRoom);
@@ -122,7 +158,8 @@ function openIncomingRoute(payload: IncomingCallPayload): void {
   // FCM delivery, or a cancel that overtook the ring). Never open a dead room.
   if (
     payload.liveKitRoom &&
-    isCallCancelled(payload.liveKitRoom, payload.sentAtMs)
+    (isCallCancelled(payload.liveKitRoom, payload.sentAtMs) ||
+      isCallAnswered(payload.liveKitRoom, payload.sentAtMs))
   ) {
     return;
   }
@@ -154,6 +191,7 @@ function openIncomingRoute(payload: IncomingCallPayload): void {
     isGroupCall: payload.isGroupCall,
     groupName: payload.groupName,
     groupPhotoUrl: payload.groupPhotoUrl,
+    sentAtMs: payload.sentAtMs,
   };
 
   if (current?.name === 'IncomingCall') {
@@ -168,7 +206,8 @@ function openIncomingRoute(payload: IncomingCallPayload): void {
 export function navigateIncomingCall(payload: IncomingCallPayload): void {
   if (
     payload.liveKitRoom &&
-    isCallCancelled(payload.liveKitRoom, payload.sentAtMs)
+    (isCallCancelled(payload.liveKitRoom, payload.sentAtMs) ||
+      isCallAnswered(payload.liveKitRoom, payload.sentAtMs))
   ) {
     return;
   }

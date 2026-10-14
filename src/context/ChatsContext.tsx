@@ -46,10 +46,12 @@ import {
   maybeDecryptGroupContent,
 } from '../services/e2ee/groupConversationCrypto';
 import { isV2Envelope } from '../services/e2ee/secureMessaging';
-import { readPlaintext } from '../services/e2ee/sessionStore';
+import { cachePlaintext, readPlaintext } from '../services/e2ee/sessionStore';
 import { buildGroupKeyring } from '../services/e2ee/groupKeyring';
-import { writeCachedGroupMembers } from '../services/e2ee/groupMemberCache';
-import { isE2eeEnabled } from '../services/chatPrefs';
+import {
+  readCachedGroupMembers,
+  writeCachedGroupMembers,
+} from '../services/e2ee/groupMemberCache';
 import type { ExtendedMessage } from '../components/types/chat';
 import {
   appendCallLogToThreadCache,
@@ -57,6 +59,7 @@ import {
   reviveHiddenConversationsWithNewActivity,
   readChatDirectoryCache,
   readRequestCountCache,
+  removeHiddenConversation,
   readRequestsSeenCount,
   writeRequestsSeenCount,
   writeChatDirectoryCache,
@@ -624,6 +627,95 @@ function extractPeerVerified(
   return verified;
 }
 
+/**
+ * Shown when a list preview genuinely cannot be decrypted on this device.
+ * Deliberately not "🔒 Encrypted message": every message is encrypted, so the
+ * label told the user nothing and read like an error in their inbox.
+ */
+const UNREADABLE_PREVIEW = 'Sent a message';
+
+/**
+ * Previews that already failed on this device, keyed by message id. A failed
+ * group decrypt walks every known roster plus "roster minus one/two member"
+ * guesses — dozens of key derivations — and the list re-maps every row on each
+ * 30s poll and after every message, which made the app stutter.
+ */
+const failedPreviewIds = new Set<string>();
+
+function isCipherContent(content: string): boolean {
+  return (
+    content.startsWith('HC1:') ||
+    content.startsWith('HCG1:') ||
+    isV2Envelope(content)
+  );
+}
+
+/**
+ * Plaintext for a chat-list preview, from the same keys the thread uses.
+ *
+ * Order matters:
+ *   1. The plaintext cache — filled whenever the thread (or a previous list
+ *      render) decrypted this exact message, and the ONLY safe source for HC2:
+ *      ratchet keys are single-use, so the list must never run the ratchet.
+ *   2. HC1 (1:1) — deterministic per-conversation key.
+ *   3. HCG1 (group) — stable group key plus every roster this device has seen.
+ *      This used to require `isE2eeEnabled()` and a participants array on the
+ *      list row; neither is needed to READ (the stable key needs no roster), and
+ *      v2 rows often omit participants — which is why group previews showed
+ *      "Encrypted message" while the open thread read fine.
+ */
+export function decryptPreviewContent(
+  content: unknown,
+  ctx: {
+    chatId: string;
+    messageId?: string | number | null;
+    isGroup: boolean;
+    localId: string;
+    peerUserId?: string | null;
+    memberIds?: string[] | null;
+  },
+): unknown {
+  if (typeof content !== 'string' || !isCipherContent(content)) return content;
+  const messageId = ctx.messageId != null ? String(ctx.messageId) : '';
+  const cached = messageId ? readPlaintext(messageId) : null;
+  if (cached) return cached;
+  if (isV2Envelope(content)) return UNREADABLE_PREVIEW;
+  if (messageId && failedPreviewIds.has(messageId)) return UNREADABLE_PREVIEW;
+
+  let out: string = content;
+  try {
+    if (content.startsWith('HCG1:') && ctx.chatId) {
+      const roster =
+        ctx.memberIds && ctx.memberIds.length > 0
+          ? ctx.memberIds
+          : readCachedGroupMembers(ctx.chatId);
+      out = maybeDecryptGroupContent(content, buildGroupKeyring(ctx.chatId, roster));
+    } else if (
+      content.startsWith('HC1:') &&
+      ctx.peerUserId &&
+      ctx.localId &&
+      ctx.chatId
+    ) {
+      out = maybeDecryptContent(
+        content,
+        deriveConversationMessageKey(ctx.localId, ctx.peerUserId, ctx.chatId),
+      );
+    }
+  } catch {
+    out = content;
+  }
+
+  if (isCipherContent(out)) {
+    if (messageId) {
+      if (failedPreviewIds.size > 500) failedPreviewIds.clear();
+      failedPreviewIds.add(messageId);
+    }
+    return UNREADABLE_PREVIEW;
+  }
+  if (messageId) cachePlaintext(messageId, out);
+  return out;
+}
+
 /** Maps API chat row → home/list row (no seeded GiftedChat messages — Inbox loads history via API). */
 export function mapChatItemToSummary(
   chat: HopenityChatItem,
@@ -646,67 +738,20 @@ export function mapChatItemToSummary(
   const created = lastRaw.createdAt ?? lastRaw.created_at;
 
   let lastForPreview = lastRaw as ApiLastMessageLike;
-  // HC2 (real E2EE) previews come from the plaintext cache the thread filled
-  // when it decrypted the message. The list must never run the ratchet itself:
-  // ratchet keys are single-use and ordered, so decrypting here would consume a
-  // key the thread still needs and desync the session.
-  if (
-    typeof lastForPreview?.content === 'string' &&
-    isV2Envelope(lastForPreview.content)
-  ) {
-    const cached = readPlaintext(
-      String((lastForPreview as { id?: unknown }).id ?? ''),
-    );
+  if (typeof lastForPreview?.content === 'string') {
     lastForPreview = {
       ...lastForPreview,
-      content: cached ?? '🔒 New message',
+      content: decryptPreviewContent(lastForPreview.content, {
+        chatId: String(chat.id ?? ''),
+        messageId: (lastForPreview as { id?: string | number }).id ?? null,
+        isGroup,
+        localId,
+        peerUserId: peerUserNorm,
+        memberIds: (chat.participants ?? [])
+          .map(p => String((p as any).userId ?? p.user_id ?? (p as any).id ?? ''))
+          .filter(Boolean),
+      }) as string,
     };
-  } else if (
-
-    peerUserNorm &&
-    typeof lastForPreview.content === 'string' &&
-    lastForPreview.content.startsWith('HC1:')
-  ) {
-    // NOTE: HC2 previews are handled before this branch — see below.
-    const key = deriveConversationMessageKey(
-      localId,
-      peerUserNorm,
-      String(chat.id ?? ''),
-    );
-    lastForPreview = {
-      ...lastForPreview,
-      content: maybeDecryptContent(lastForPreview.content, key),
-    };
-  } else if (
-    isGroup &&
-    isE2eeEnabled() &&
-    typeof lastForPreview.content === 'string' &&
-    lastForPreview.content.startsWith('HCG1:') &&
-    chat.participants?.length
-  ) {
-    // Stable group key + every roster this device has seen as fallbacks.
-    const key = buildGroupKeyring(
-      String(chat.id ?? ''),
-      chat.participants
-        .map(p => String((p as any).userId ?? p.user_id ?? (p as any).id ?? ''))
-        .filter(Boolean),
-    );
-    lastForPreview = {
-      ...lastForPreview,
-      content: maybeDecryptGroupContent(lastForPreview.content, key),
-    };
-  }
-
-  // Safety net: never surface raw ciphertext in the list preview. If it's
-  // still wire-format after the attempts above (key not derivable yet, wrong
-  // member roster, etc.), show a neutral placeholder instead of leaking the
-  // undecrypted payload — matches what the thread view does while its own
-  // key is still resolving.
-  if (
-    typeof lastForPreview.content === 'string' &&
-    (lastForPreview.content.startsWith('HC1:') || lastForPreview.content.startsWith('HCG1:'))
-  ) {
-    lastForPreview = { ...lastForPreview, content: '🔒 Encrypted message' };
   }
 
   const preview = formatChatListPreview(lastForPreview, localId);
@@ -903,7 +948,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
     setListLoading(true);
     try {
-      const { chats, counts, httpStatus } = await fetchHopenityChatDirectory(token, {
+      const { chats, counts, httpStatus, incomplete, v1Missing } = await fetchHopenityChatDirectory(token, {
         status: 'inbox',
         limit: CHAT_PAGE_SIZE,
         offset: 0,
@@ -918,6 +963,10 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         setPendingRequestCount(0);
         return;
       }
+
+      // A failed request is NOT an empty inbox. Applying it wiped the list until
+      // the next successful poll — the "people disappear from my inbox" report.
+      if (incomplete) return;
 
       // A new message after a delete/clear revives the chat.
       reviveHiddenConversationsWithNewActivity(
@@ -988,7 +1037,15 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         const ms = at ? new Date(at).getTime() : 0;
         return { ...c, sortAt: Number.isFinite(ms) ? ms : 0 };
       });
-      const next = sortConversations(stamped);
+      const fresh = sortConversations(stamped);
+      const freshIds = new Set(fresh.map(c => c.id));
+      // The first page was full, so anything older than its oldest row simply
+      // lives on a later page — it was not removed.
+      const pageWasFull = chats.length >= CHAT_PAGE_SIZE;
+      const oldestFreshAt = fresh.reduce(
+        (min, c) => (c.pinned ? min : Math.min(min, c.sortAt ?? 0)),
+        Number.POSITIVE_INFINITY,
+      );
       // Prefer the server's requested count — the inbox fetch excludes received
       // requests (they live in the Requests folder), so counting needsAcceptance
       // rows in this list always yielded 0 and the Requests badge never showed.
@@ -1005,6 +1062,18 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       // snapshot's offline verdict outright.
       const now = Date.now();
       setConversations(prevConversations => {
+        // Rows the refresh did not return but that still exist: v1 chats when
+        // only the v1 merge failed, and chats from pages 2+ (loaded via
+        // loadMore). Replacing the list outright dropped both on every 30s poll.
+        const carried = prevConversations.filter(c => {
+          if (freshIds.has(c.id) || hidden.has(c.id)) return false;
+          if (v1Missing && c.isV1Chat) return true;
+          return pageWasFull && (c.sortAt ?? 0) <= oldestFreshAt;
+        });
+        const next = carried.length > 0 ? sortConversations([...fresh, ...carried]) : fresh;
+        if (!activePage) {
+          writeChatDirectoryCache(String(localUser._id ?? ''), next);
+        }
         const prevOnlineById = new Map(
           prevConversations
             .filter(c => c.peerUserId)
@@ -1045,7 +1114,6 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       // Only cache personal-mode results — page inbox is transient and should
       // never appear after switching back to personal account.
       if (!activePage) {
-        writeChatDirectoryCache(String(localUser._id ?? ''), next);
         writeRequestCountCache(String(localUser._id ?? ''), newRequestCount);
       }
     } catch (err) {
@@ -1353,24 +1421,42 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         !!senderId &&
         normalizeChatUserId(senderId) === normalizeChatUserId(localId);
 
+      // A live message is new activity by definition, so a chat the user
+      // deleted/cleared comes straight back (WhatsApp behaviour) instead of
+      // waiting for a timestamp comparison on the next directory fetch.
+      if (getHiddenConversationIds().includes(id)) {
+        removeHiddenConversation(id);
+      }
+
       setConversations(prev => {
         const idx = prev.findIndex(c => String(c.id) === id);
-        // A brand-new conversation isn't in the list yet — only then pay for a
-        // refetch.
+        // A brand-new (or just-revived) conversation isn't in the list yet —
+        // only then pay for a refetch.
         if (idx === -1) {
           void reloadConversations();
           return prev;
         }
 
         const target = prev[idx]!;
-        const preview = formatChatListPreview(
-          message as unknown as ApiLastMessageLike,
-          localId,
-        );
+        const raw = message as unknown as ApiLastMessageLike & { id?: string | number };
+        // Socket rows carry the wire content; the preview must show what the
+        // thread shows, never the ciphertext or a lock placeholder.
+        const decrypted = {
+          ...raw,
+          content: decryptPreviewContent(raw.content, {
+            chatId: id,
+            messageId: raw.id ?? null,
+            isGroup: !!target.isGroup,
+            localId: activePageIdRef.current ?? localId,
+            peerUserId: target.peerUserId ?? null,
+          }) as string | undefined,
+        };
+        const preview = formatChatListPreview(decrypted, localId);
         const updated: ConversationSummary = {
           ...target,
           preview,
           time: 'now',
+          sortAt: Date.now(),
           unreadCount: fromMe ? target.unreadCount : target.unreadCount + 1,
           isUnread: fromMe ? target.isUnread : true,
         };

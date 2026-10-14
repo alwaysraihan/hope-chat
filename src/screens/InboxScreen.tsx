@@ -53,7 +53,8 @@ import {
   type GroupCallState,
 } from '../services/groupService';
 import { callSocket } from '../services/callSocket';
-import { getEffectiveAppearance, getConvAppearance } from '../services/chatPrefs';
+import { fetchChatTheme } from '../services/userSettingsService';
+import { getEffectiveAppearance, getConvAppearance, setConvAppearance } from '../services/chatPrefs';
 import { Toast } from '../components/Toast';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
@@ -61,6 +62,7 @@ import { selectActivePage } from '../redux/features/auth/authSlice';
 import { openHopenityProfile } from '../services/hopenityLinking';
 import { ShopSheet } from '../components/message/ShopSheet';
 import SharePreviewBar, { type PendingShare } from '../components/message/SharePreviewBar';
+import TypingBubble from '../components/message/TypingBubble';
 
 const PRESET_IMAGES: Record<number, number> = {
   1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
@@ -289,8 +291,27 @@ const InboxScreenInner: React.FC<
     sellerSheetVisible,
     closeSellerSheet,
     peerIsTyping,
+    typingUsers,
     wordEffect,
   } = useInbox();
+
+  // Who is typing, with a face: group members from the thread's profile map, the
+  // peer from the conversation row in a 1:1.
+  const typingPeople = useMemo(
+    () =>
+      conversation.isGroup
+        ? typingUsers
+        : typingUsers.map(p => ({
+            ...p,
+            name: p.name ?? conversation.name,
+            avatar: p.avatar ?? conversation.avatarUrl ?? undefined,
+          })),
+    [typingUsers, conversation.isGroup, conversation.name, conversation.avatarUrl],
+  );
+  const renderTypingIndicator = useCallback(
+    () => <TypingBubble people={typingPeople} showNames={!!conversation.isGroup} />,
+    [typingPeople, conversation.isGroup],
+  );
 
   // ── GiftedChat FlatList ref for reply-tap scroll ───────────────────────────
   const messageContainerRef = useRef<any>(null);
@@ -408,7 +429,13 @@ const InboxScreenInner: React.FC<
 
   const headerStatus = useMemo(() => {
     // WhatsApp/Messenger style: the header line becomes "typing…" while they type.
-    if (peerIsTyping) return 'typing…';
+    if (peerIsTyping) {
+      const first = conversation.isGroup
+        ? (typingPeople[0]?.name ?? '').trim().split(/\s+/)[0]
+        : '';
+      if (first && typingPeople.length > 1) return `${first} +${typingPeople.length - 1} typing…`;
+      return first ? `${first} is typing…` : 'typing…';
+    }
     if (conversation.isGroup) {
       const total = conversation.groupMemberCount;
       const online = conversation.groupOnlineCount ?? 0;
@@ -428,6 +455,7 @@ const InboxScreenInner: React.FC<
     return '';
   }, [
     peerIsTyping,
+    typingPeople,
     conversation.isGroup,
     conversation.groupMemberCount,
     conversation.groupOnlineCount,
@@ -448,25 +476,66 @@ const InboxScreenInner: React.FC<
     }, []),
   );
 
+  // A theme the peer picked while this device was offline never arrived as a
+  // socket event — read the shared value once per open.
+  const themeIsV2 = !!conversation.isGroup || !conversation.isV1Chat;
+  useEffect(() => {
+    if (!token || !conversation.id) return undefined;
+    let cancelled = false;
+    fetchChatTheme(conversation.id, token, themeIsV2)
+      .then(remote => {
+        const presetId = Number(remote);
+        if (cancelled || !Number.isFinite(presetId) || presetId <= 0) return;
+        if (getConvAppearance(conversation.id).themePresetId === presetId) return;
+        setConvAppearance(conversation.id, { themePresetId: presetId });
+        setLocalAppearance(getEffectiveAppearance(conversation.id));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [token, conversation.id, themeIsV2]);
+
+  // The peer changed the shared theme while this thread is open: apply it now,
+  // not on the next visit.
+  useEffect(() => {
+    return callSocket.onChatThemeUpdated(({ chatId, theme }) => {
+      if (String(chatId) !== String(convIdRef.current)) return;
+      const presetId = Number(theme);
+      if (!Number.isFinite(presetId) || presetId <= 0) return;
+      setConvAppearance(convIdRef.current, { themePresetId: presetId });
+      setLocalAppearance(getEffectiveAppearance(convIdRef.current));
+    });
+  }, []);
+
   // Chat background priority:
-  //   1. Server-provided wallpaper (remoteWallpaperUrl)
-  //   2. Per-conversation custom wallpaper URI (explicitly set for THIS chat)
-  //   3. Per-conversation theme preset image (explicitly set for THIS chat)
+  //   1. Per-conversation custom wallpaper URI (explicitly set for THIS chat)
+  //   2. Per-conversation theme preset (picked in ThemeScreen, or synced from
+  //      the peer) — preset 1 ("Light") explicitly means no image
+  //   3. Server-provided wallpaper / preset from the chat list row
+  //
+  // The server wallpaper used to come FIRST, so in any chat that had one, every
+  // theme the user picked was saved but never shown — "theme change does not
+  // work". An explicit choice for this chat now wins.
   //
   // Global theme/wallpaper is intentionally NOT used here — it would bleed into
   // every chat. Global appearance affects the app chrome (dark mode, accent), not
   // individual chat backgrounds.
   const chatWallpaperSource: { uri: string } | number | null = (() => {
-    if (conversation.remoteWallpaperUrl) {
-      return { uri: conversation.remoteWallpaperUrl };
-    }
     const convPrefs = getConvAppearance(conversation.id);
     if (convPrefs.wallpaperUri) {
       return { uri: convPrefs.wallpaperUri };
     }
     const preset = convPrefs.themePresetId;
-    if (preset && preset > 1 && PRESET_IMAGES[preset]) {
-      return PRESET_IMAGES[preset];
+    if (preset != null) {
+      return preset > 1 && PRESET_IMAGES[preset] ? PRESET_IMAGES[preset] : null;
+    }
+    if (conversation.remoteWallpaperUrl) {
+      return { uri: conversation.remoteWallpaperUrl };
+    }
+    const remotePreset = conversation.remoteThemePresetId;
+    if (remotePreset && remotePreset > 1 && PRESET_IMAGES[remotePreset]) {
+      return PRESET_IMAGES[remotePreset];
     }
     return null;
   })();
@@ -969,6 +1038,7 @@ const InboxScreenInner: React.FC<
             renderInputToolbar={renderInputToolbar}
             renderMessage={renderMessage}
             isTyping={peerIsTyping}
+            renderTypingIndicator={renderTypingIndicator}
             listProps={LIST_PROPS}
             // gifted-chat v3 replaced the old loadEarlier/infiniteScroll/
             // onLoadEarlier/isLoadingEarlier props with this single object —

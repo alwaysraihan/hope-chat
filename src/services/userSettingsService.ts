@@ -223,14 +223,25 @@ export async function patchConversationRestrict(
 }
 
 /** Fetch all nicknames for a conversation (returns { [peerUserId]: nick }). */
+/**
+ * Theme and nicknames live behind v1 routes for every chat, but a group or a
+ * v2-native DM is a ChatThread whose id can collide with an unrelated v1 Chat.
+ * `scope=v2` tells the server which one we mean — without it these settings
+ * were rejected (or written to the wrong conversation) for every v2 chat.
+ */
+function sharedPrefScope(v2?: boolean): string {
+  return v2 ? '?scope=v2' : '';
+}
+
 export async function fetchNicknames(
   conversationId: string,
   token: string,
+  v2?: boolean,
 ): Promise<Record<string, string>> {
   if (!token) return {};
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/nicknames`,
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/nicknames${sharedPrefScope(v2)}`,
       { headers: { Authorization: bearer(token) } },
     );
     if (!res.ok) return {};
@@ -249,11 +260,12 @@ export async function fetchNicknames(
 export async function fetchChatTheme(
   conversationId: string,
   token: string,
+  v2?: boolean,
 ): Promise<string | null> {
   if (!token) return null;
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/theme`,
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/theme${sharedPrefScope(v2)}`,
       { headers: { Authorization: bearer(token) } },
     );
     if (!res.ok) return null;
@@ -270,11 +282,12 @@ export async function saveChatTheme(
   conversationId: string,
   theme: string | null,
   token: string,
+  v2?: boolean,
 ): Promise<boolean> {
   if (!token) return false;
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/theme`,
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/theme${sharedPrefScope(v2)}`,
       {
         method: 'PATCH',
         headers: {
@@ -296,11 +309,12 @@ export async function saveNickname(
   targetUserId: string,
   nickname: string,
   token: string,
+  v2?: boolean,
 ): Promise<boolean> {
   if (!token) return false;
   try {
     const res = await fetch(
-      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/nicknames`,
+      `${API_BASE_URL}/api/v1/chats/${encodeURIComponent(conversationId)}/nicknames${sharedPrefScope(v2)}`,
       {
         method: 'PATCH',
         headers: {

@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { InteractionManager } from 'react-native';
 import { useRoomContext } from '@livekit/react-native';
-import { ConnectionState } from 'livekit-client';
+import { useRoute } from '@react-navigation/native';
 import { sendCallHangup } from '../services/livekit/callHangupBus';
 import { notifyCallEndedByRoom } from '../services/invitePeerToHopeChatCall';
 import { store } from '../redux/store';
@@ -23,6 +23,14 @@ type Options = {
  */
 export function useGracefulRoomLeave({ safePop, beforeLeave }: Options) {
   const room = useRoomContext();
+  // `room.name` stays EMPTY until the LiveKit connect completes. Keying the
+  // teardown on it alone meant a caller who hung up during "Calling…" sent no
+  // cancel at all — the callee's phone kept ringing for the full minute. The
+  // call screen's route always knows the room.
+  const route = useRoute();
+  const routeRoom = String(
+    (route?.params as { liveKitRoom?: string } | undefined)?.liveKitRoom ?? '',
+  ).trim();
   const leavingRef = useRef(false);
 
   return useCallback(() => {
@@ -40,10 +48,11 @@ export function useGracefulRoomLeave({ safePop, beforeLeave }: Options) {
     void (async () => {
       try {
         beforeLeave?.();
+        const roomName = room?.name || routeRoom;
         // Any further push/socket event for this room is stale now: mark it so a
         // late duplicate incoming-call event can't re-ring a call we just ended.
-        if (room?.name) {
-          try { markCallCancelled(room.name); } catch { /* */ }
+        if (roomName) {
+          try { markCallCancelled(roomName); } catch { /* */ }
         }
         // Signal the peer immediately so they end their side without the 30s wait.
         // Must happen before room.disconnect() closes the data channel.
@@ -52,13 +61,15 @@ export function useGracefulRoomLeave({ safePop, beforeLeave }: Options) {
         // (still ringing) or whose data channel is already gone. Belt and braces:
         // whichever arrives first ends the call, the other is a no-op. Keyed on the
         // room, so every call screen gets this without knowing its conversation id.
-        if (room?.name) {
-          // Already connected => the call really happened; the server must not
-          // write a "Missed call" row for it.
-          const answered = room.state === ConnectionState.Connected;
+        if (roomName) {
+          // Answered = the other person actually joined. Our OWN room being
+          // connected says nothing: a caller is connected the whole time the
+          // callee's phone rings, and treating that as "answered" logged no
+          // missed call and showed the callee no "Missed call" banner.
+          const answered = (room?.remoteParticipants?.size ?? 0) > 0;
           void notifyCallEndedByRoom({
             token: store.getState().auth.token,
-            liveKitRoom: room.name,
+            liveKitRoom: roomName,
             reason: answered ? 'hangup' : undefined,
           });
         }
@@ -80,5 +91,5 @@ export function useGracefulRoomLeave({ safePop, beforeLeave }: Options) {
         console.warn('[LiveKit] graceful leave', e);
       }
     })();
-  }, [beforeLeave, room, safePop]);
+  }, [beforeLeave, room, routeRoom, safePop]);
 }

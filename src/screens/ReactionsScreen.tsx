@@ -16,8 +16,10 @@ import { useColors } from '../hooks/useColors';
 import { RootStackNavigatorParamList } from '../types/navigators';
 import {
   getEffectiveAppearance,
+  getEffectiveQuickReaction,
   setChatAppearance,
   setConvAppearance,
+  DEFAULT_QUICK_REACTION,
   DEFAULT_REACTION_PALETTE,
 } from '../services/chatPrefs';
 
@@ -35,6 +37,8 @@ const EMOJI_GRID = [
 ];
 
 const SLOT_COUNT = 6;
+/** editingIndex value for the one-tap quick-reaction slot (not a palette slot). */
+const QUICK_SLOT = -1;
 
 export default function ReactionsScreen({ navigation, route }: Props) {
   const colorss = useColors();
@@ -48,10 +52,13 @@ export default function ReactionsScreen({ navigation, route }: Props) {
   });
 
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [quickReaction, setQuickReaction] = useState(() =>
+    getEffectiveQuickReaction(conversationId),
+  );
 
   const styles = useMemo(() => StyleSheet.create({
     screen: { flex: 1, backgroundColor: colorss.background },
-    desc: { color: colorss.textSecondary, fontSize: 13, lineHeight: 19, margin: 16 },
+    desc: { color: colorss.textSecondary, fontSize: 13, lineHeight: 19, marginHorizontal: 16, marginTop: 4, marginBottom: 12 },
     slotsRow: {
       flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
       backgroundColor: colorss.cardBg, marginHorizontal: 16, borderRadius: 16,
@@ -82,7 +89,27 @@ export default function ReactionsScreen({ navigation, route }: Props) {
     pickerTitle: { fontSize: 15, fontWeight: '700', color: colorss.textPrimary, textAlign: 'center', marginBottom: 12 },
     emojiItem: { width: '14.28%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
     emojiText: { fontSize: 26 },
+    sectionTitle: {
+      color: colorss.textPrimary, fontSize: 14, fontWeight: '700',
+      marginHorizontal: 16, marginTop: 20, marginBottom: 4,
+    },
+    quickRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 14,
+      backgroundColor: colorss.cardBg, marginHorizontal: 16, borderRadius: 16,
+      paddingVertical: 14, paddingHorizontal: 16,
+      borderWidth: 1, borderColor: colorss.border,
+    },
+    quickHint: { flex: 1, color: colorss.textSecondary, fontSize: 13, lineHeight: 18 },
   }), [colorss]);
+
+  const saveQuickReaction = (emoji: string) => {
+    setQuickReaction(emoji);
+    if (conversationId) {
+      setConvAppearance(conversationId, { quickReaction: emoji });
+    } else {
+      setChatAppearance({ quickReaction: emoji });
+    }
+  };
 
   const saveAndSync = (next: string[]) => {
     setPalette(next);
@@ -97,6 +124,20 @@ export default function ReactionsScreen({ navigation, route }: Props) {
     <SafeAreaView style={styles.screen}>
       <BackHeader title="Quick reactions" navigation={navigation} />
 
+      <Text style={styles.sectionTitle}>Quick reaction</Text>
+      <View style={styles.quickRow}>
+        <Pressable
+          style={[styles.slot, editingIndex === QUICK_SLOT && styles.slotActive]}
+          onPress={() => setEditingIndex(editingIndex === QUICK_SLOT ? null : QUICK_SLOT)}
+        >
+          <Text style={styles.slotEmoji}>{quickReaction}</Text>
+        </Pressable>
+        <Text style={styles.quickHint}>
+          Sent with one tap from the button next to the message box. Tap to change it.
+        </Text>
+      </View>
+
+      <Text style={styles.sectionTitle}>Message reactions</Text>
       <Text style={styles.desc}>
         Choose 6 emojis that appear when you long-press a message. Tap a slot to change it.
       </Text>
@@ -113,7 +154,13 @@ export default function ReactionsScreen({ navigation, route }: Props) {
         ))}
       </View>
 
-      <TouchableOpacity style={styles.resetBtn} onPress={() => saveAndSync([...DEFAULT_REACTION_PALETTE.slice(0, SLOT_COUNT)])}>
+      <TouchableOpacity
+        style={styles.resetBtn}
+        onPress={() => {
+          saveAndSync([...DEFAULT_REACTION_PALETTE.slice(0, SLOT_COUNT)]);
+          saveQuickReaction(DEFAULT_QUICK_REACTION);
+        }}
+      >
         <Text style={styles.resetText}>Reset to defaults</Text>
       </TouchableOpacity>
 
@@ -125,7 +172,11 @@ export default function ReactionsScreen({ navigation, route }: Props) {
         <Pressable style={styles.pickerOverlay} onPress={() => setEditingIndex(null)}>
           <View style={styles.pickerSheet}>
             <View style={styles.pickerHandle} />
-            <Text style={styles.pickerTitle}>Pick emoji for slot {editingIndex !== null ? editingIndex + 1 : ''}</Text>
+            <Text style={styles.pickerTitle}>
+              {editingIndex === QUICK_SLOT
+                ? 'Pick your quick reaction'
+                : `Pick emoji for slot ${editingIndex !== null ? editingIndex + 1 : ''}`}
+            </Text>
             <FlatList
               data={EMOJI_GRID}
               numColumns={7}
@@ -135,6 +186,11 @@ export default function ReactionsScreen({ navigation, route }: Props) {
                   style={styles.emojiItem}
                   onPress={() => {
                     if (editingIndex === null) return;
+                    if (editingIndex === QUICK_SLOT) {
+                      saveQuickReaction(item);
+                      setEditingIndex(null);
+                      return;
+                    }
                     const next = [...palette];
                     next[editingIndex] = item;
                     saveAndSync(next);

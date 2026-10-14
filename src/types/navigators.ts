@@ -177,6 +177,8 @@ type RootStackNavigatorParamList = AuthNavigatorParamList & {
     isGroupCall?: boolean;
     groupName?: string;
     groupPhotoUrl?: string | null;
+    /** Server timestamp of the invite — tells a duplicate of an answered call from a new one. */
+    sentAtMs?: number;
   };
   /** Full-screen Story viewer (ring index into `setStoryFeedRings` cache). */
   StoryViewer: { ringIndex: number };

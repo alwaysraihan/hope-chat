@@ -159,6 +159,15 @@ export type HopenityChatListEnvelope = {
   counts?: HopenityChatDirectoryCounts;
   /** Present when this envelope was built from an HTTP response (e.g. 401 handling). */
   httpStatus?: number;
+  /**
+   * True when the main request failed or its body was not a chat list, so the
+   * envelope says nothing about which chats exist. Callers
+   * must not treat a missing row as "removed" — doing so is what made chats
+   * vanish from the inbox for one poll whenever a request hiccuped.
+   */
+  incomplete?: boolean;
+  /** True when the legacy v1 merge failed — v1-sourced rows are missing. */
+  v1Missing?: boolean;
 };
 
 function unwrapChatListPayload(raw: unknown): HopenityChatListEnvelope | HopenityChatItem[] {
@@ -181,7 +190,7 @@ function unwrapChatListPayload(raw: unknown): HopenityChatListEnvelope | Hopenit
  * The v1 endpoint returns `responseObject` as either an Array or a plain object
  * with numeric keys (e.g. {0: chat, 1: chat, ...}). Both forms are handled.
  */
-async function fetchV1ChatList(token: string): Promise<HopenityChatItem[]> {
+async function fetchV1ChatList(token: string): Promise<HopenityChatItem[] | null> {
   try {
     const url = `${API_BASE_URL}${V1_CHAT_LIST_ENDPOINT}`;
     const res = await fetch(url, {
@@ -191,8 +200,11 @@ async function fetchV1ChatList(token: string): Promise<HopenityChatItem[]> {
         Authorization: `Bearer ${token}`,
       },
     });
-    if (!res.ok) return [];
+    // null (not []) on failure: an empty list is indistinguishable from "this
+    // user has no v1 chats", and the caller would drop every v1 conversation.
+    if (!res.ok) return null;
     const json = await res.json().catch(() => null);
+    if (json == null) return null;
     const raw = json?.responseObject ?? json?.data ?? json;
 
     // The v1 endpoint returns either an array or a numeric-keyed object.
@@ -214,7 +226,7 @@ async function fetchV1ChatList(token: string): Promise<HopenityChatItem[]> {
     }
     return list;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -264,11 +276,17 @@ export async function fetchHopenityChatDirectory(
   const raw = json?.responseObject ?? json?.data ?? json;
   const unwrapped = unwrapChatListPayload(raw);
 
+  const bodyIsList =
+    Array.isArray(raw) ||
+    (raw != null && typeof raw === 'object' && Array.isArray((raw as HopenityChatListEnvelope).chats));
   let base: HopenityChatListEnvelope;
   if (Array.isArray(unwrapped)) {
     base = { chats: unwrapped, httpStatus };
   } else {
     base = { ...unwrapped, httpStatus };
+  }
+  if (!response.ok || !bodyIsList) {
+    base = { ...base, incomplete: true };
   }
 
   // Merge v1 chats when fetching inbox (first page only).
@@ -281,7 +299,11 @@ export async function fetchHopenityChatDirectory(
   const wantBlocked = params?.status === 'blocked';
   if (token && (wantInbox || wantRequested || wantBlocked) && (params?.offset ?? 0) === 0 && !params?.pageId) {
     try {
-      const v1Chats = await fetchV1ChatList(token);
+      const v1Result = await fetchV1ChatList(token);
+      if (v1Result == null) {
+        base = { ...base, v1Missing: true };
+      }
+      const v1Chats = v1Result ?? [];
 
       // Build a set of IDs already in the response — but only from rows that are
       // themselves v1-sourced (server-merged legacy rows carry `_source: "v1"` /
@@ -400,7 +422,9 @@ export async function fetchHopenityChatDirectory(
       merged.sort((a, b) => activityAt(b) - activityAt(a));
       base = { ...base, chats: merged };
     } catch {
-      // v1 merge is best-effort — never block the main response
+      // v1 merge is best-effort — never block the main response, but say the
+      // result is partial so the inbox keeps the v1 rows it already has.
+      base = { ...base, v1Missing: true };
     }
   }
 

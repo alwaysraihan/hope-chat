@@ -28,7 +28,7 @@ import MediaPreviewModal from './ImagePreviewModal';
 import ReplyPreview from './ReplyPreview';
 import Reaction from './Reaction';
 import { ExtendedMessage } from '../types/chat';
-import { useInbox } from '../../context/InboxContext';
+import { useInboxRowActions } from '../../context/InboxContext';
 import { colorss } from '../../theme';
 import { getAutoSavePhotos } from '../../services/chatPrefs';
 import { Toast } from '../Toast';
@@ -58,7 +58,6 @@ import { useAppTheme } from '../../context/ThemeContext';
  */
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_BUBBLE_WIDTH = SCREEN_WIDTH * 0.78;
-const MIN_BUBBLE_WIDTH_WITH_REPLY = SCREEN_WIDTH * 0.58;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -398,7 +397,7 @@ const sheet = StyleSheet.create({
 
 function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
   const { currentMessage, position, onPressReactions, isGroup, onSenderPress } = props;
-  const { handlePressReplyPreview, handleDelete, retryMessage } = useInbox();
+  const { handlePressReplyPreview, handleDelete, retryMessage } = useInboxRowActions();
   const msg = currentMessage as ExtendedMessage;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
@@ -448,6 +447,14 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
   const { width: windowWidth } = useWindowDimensions();
   const liveBubbleMax = windowWidth * 0.78;
   const bubbleWidthStyle = { maxWidth: liveBubbleMax };
+  /**
+   * A bubble with a quoted reply gets an EXACT width. Sized to content, Android
+   * measured the quote (and the message under it) at one width and laid it out
+   * at a narrower one once `alignSelf: stretch` + minWidth settled, so the text
+   * got more lines than its measured height — the quote was cut off and the
+   * reply text below it was clipped by the bubble.
+   */
+  const replyBubbleWidthStyle = { width: liveBubbleMax, maxWidth: liveBubbleMax };
 
   /**
    * Auto-save incoming photos.
@@ -826,9 +833,8 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
         <View
           style={[
             styles.textBubble,
-              bubbleWidthStyle,
+            hasReply ? replyBubbleWidthStyle : bubbleWidthStyle,
             isOwn ? styles.textBubbleRight : styles.textBubbleLeft,
-            hasReply && styles.textBubbleWithReply,
             { backgroundColor: textBg },
           ]}
         >
@@ -982,7 +988,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     gap: 3,
   },
-  replyWrap: { borderRadius: 10, overflow: 'hidden' },
+  replyWrap: { borderRadius: 10 },
   replyOwn: { backgroundColor: 'rgba(0,0,0,0.22)' },
   replyOther: { backgroundColor: 'rgba(0,0,0,0.06)' },
   replyStretch: { alignSelf: 'stretch', marginBottom: 0 },
@@ -1005,7 +1011,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     borderTopRightRadius: 4,
   },
-  textBubbleWithReply: { minWidth: MIN_BUBBLE_WIDTH_WITH_REPLY },
   messageText: {
     fontSize: 14.5,
     // Emoji glyphs are drawn taller than the text they sit in. At lineHeight 20

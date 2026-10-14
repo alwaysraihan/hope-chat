@@ -327,6 +327,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
         conversationId={chatId}
         token={token}
         useV2={!!conversation && (!!conversation.isGroup || !conversation.isV1Chat)}
+        lastActivityAt={conversation?.sortAt ?? null}
         onCancel={() => setVisibleDeleteChatModal(false)}
         onDeleted={() => {
           setVisibleDeleteChatModal(false);

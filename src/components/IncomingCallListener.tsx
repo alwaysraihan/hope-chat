@@ -32,6 +32,7 @@ import {
   navigateIncomingCall,
   clearPendingIncomingCall,
   markCallCancelled,
+  markCallAnswered,
   isCallCancelled,
 } from '../services/incomingCall/navigateIncomingCall';
 import {
@@ -75,6 +76,7 @@ import { StackActions, CommonActions } from '@react-navigation/native';
 import { emitCallOutcome } from '../services/callOutcomeBus';
 import {
   notifyCallEndedByRoom,
+  notifyCallRinging,
   notifyPeerCallRejected,
 } from '../services/invitePeerToHopeChatCall';
 import { callSocket } from '../services/callSocket';
@@ -136,6 +138,23 @@ function endActiveCallIfMatchesRoom(liveKitRoom?: string): void {
 const pendingVoipCalls = new Map<string, Record<string, string>>();
 
 /**
+ * End the native CallKit ring for a cancelled call. Nothing ever did: a call
+ * reported to CallKit from a VoIP push kept ringing on the iPhone after the
+ * caller hung up, because only the app's own ringtone/notification were torn
+ * down. Reason 2 = CXCallEndedReasonRemoteEnded.
+ */
+function endCallKitCallsForRoom(liveKitRoom?: string): void {
+  if (Platform.OS !== 'ios' || !liveKitRoom) return;
+  for (const [uuid, data] of pendingVoipCalls) {
+    if ((data.liveKitRoom || data.room) !== liveKitRoom) continue;
+    pendingVoipCalls.delete(uuid);
+    try {
+      RNCallKeep.reportEndCallWithUUID(uuid, 2);
+    } catch { /* CallKit may already have ended it */ }
+  }
+}
+
+/**
  * Accept a call directly — skips IncomingCallScreen entirely so the user lands
  * straight on the call screen with no intermediate flash.
  */
@@ -152,6 +171,8 @@ async function acceptCallDirectly(parsed: ReturnType<typeof parseIncomingCallPay
   }
   stopIncomingCallRingtone();
   void cancelAndroidIncomingCallNotification();
+  // Later copies of this invite (socket/FCM/VoIP) must not ring mid-call.
+  if (parsed.liveKitRoom) markCallAnswered(parsed.liveKitRoom, parsed.sentAtMs);
 
   const isGroupRing = Boolean(parsed.isGroupCall && parsed.groupName);
   const params = {
@@ -626,6 +647,7 @@ const IncomingCallListener = () => {
       if (cancelledRoom) emitCallWaitingCleared(cancelledRoom);
       if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
       clearAllCallNotifications();
+      endCallKitCallsForRoom(cancelledRoom);
       dismissIncomingCallIfShowing(cancelledRoom);
       endActiveCallIfMatchesRoom(cancelledRoom);
       clearPendingIncomingCall(cancelledRoom);
@@ -824,6 +846,7 @@ const IncomingCallListener = () => {
           if (cancelledRoom) markCallCancelled(cancelledRoom, callPayloadSentAtMs(data));
           // Stop every ringing/ongoing surface immediately before anything else.
           clearAllCallNotifications();
+          endCallKitCallsForRoom(cancelledRoom);
           dismissIncomingCallIfShowing(cancelledRoom);
           endActiveCallIfMatchesRoom(cancelledRoom);
           // Kill any buffered pending navigation that hasn't fired yet — prevents
@@ -844,6 +867,13 @@ const IncomingCallListener = () => {
             emitCallWaiting(parsed);
           } else {
             navigateIncomingCall(parsed);
+            // This copy came by push, so our socket may not be up to ack it.
+            if (parsed.liveKitRoom && !isCallCancelled(parsed.liveKitRoom, parsed.sentAtMs)) {
+              void notifyCallRinging({
+                token: store.getState().auth.token,
+                liveKitRoom: parsed.liveKitRoom,
+              });
+            }
           }
         } else {
           // Non-call notification (new chat message, request, etc.) — refresh inbox.

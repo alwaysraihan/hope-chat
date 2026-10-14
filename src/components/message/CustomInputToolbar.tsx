@@ -208,6 +208,7 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
     editingMessage,
     cancelEdit,
     openSellerSheet,
+    quickReaction,
   } = useInbox();
   const { isDark, colors } = useAppTheme();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -249,11 +250,31 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
   textRef.current = props.text ?? '';
   const onSendRef = useRef(props.onSend);
   onSendRef.current = props.onSend;
+  /**
+   * Send and the quick-reaction button share one spot: the moment a send clears
+   * the text, Send turns into 👍. A quick double tap therefore sent the message
+   * AND a 👍, and two taps landing before the clear re-rendered sent the message
+   * twice. One send per short window, and the text ref is cleared synchronously
+   * so a second tap in the same frame finds nothing to send.
+   */
+  const lastSendAtRef = useRef(0);
+  const SEND_GUARD_MS = 700;
+  const claimSend = useCallback(() => {
+    const now = Date.now();
+    if (now - lastSendAtRef.current < SEND_GUARD_MS) return false;
+    lastSendAtRef.current = now;
+    return true;
+  }, []);
   const handleSendPress = useCallback(() => {
     const t = textRef.current.trim();
-    if (!t) return;
+    if (!t || !claimSend()) return;
+    textRef.current = '';
     onSendRef.current?.({ text: t }, true);
-  }, []);
+  }, [claimSend]);
+  const handleQuickReactionPress = useCallback(() => {
+    if (!claimSend()) return;
+    onSendRef.current?.({ text: quickReaction || '👍' }, true);
+  }, [claimSend, quickReaction]);
 
   // Expand when the user starts typing
   useEffect(() => {
@@ -412,9 +433,17 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
         ) : (
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={() => props.onSend?.({ text: '👍' })}
+            onPress={handleQuickReactionPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Send ${quickReaction || '👍'}`}
           >
-            <ThumbsUp size={22} color={colorss.primary} />
+            {/* The chat's own quick reaction (set in its Quick reactions
+                screen); the stock icon only for the default 👍. */}
+            {!quickReaction || quickReaction === '👍' ? (
+              <ThumbsUp size={22} color={colorss.primary} />
+            ) : (
+              <Text style={styles.quickReactionEmoji}>{quickReaction}</Text>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -489,6 +518,7 @@ const styles = StyleSheet.create({
   },
   emojiBtn: { marginLeft: 8, padding: 2 },
   actionBtn: { padding: 6, justifyContent: 'center' },
+  quickReactionEmoji: { fontSize: 22, lineHeight: 26 },
   emojiPanel: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colorss.border,

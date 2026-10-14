@@ -5,7 +5,7 @@ import { DeviceEventEmitter } from 'react-native';
 
 import { store } from '../../redux/store';
 import { HANGUP_ACTION_ID, stopLiveKitCallForeground } from '../livekit/liveKitCallForeground';
-import { notifyCallEndedByRoom } from '../invitePeerToHopeChatCall';
+import { notifyCallEndedByRoom, notifyCallRinging } from '../invitePeerToHopeChatCall';
 
 import {
   MESSAGE_CHANNEL_ID,
@@ -25,6 +25,8 @@ import {
   parseIncomingCallPayload,
 } from './payload';
 import { ONGOING_NOTIFICATION_ID } from '../livekit/liveKitCallForeground';
+import { getActiveCall } from '../livekit/activeCallRegistry';
+import { isCallAnswered } from './navigateIncomingCall';
 import {
   OPEN_ACTIVE_CALL_EVENT,
   setPendingOpenActiveCall,
@@ -307,9 +309,25 @@ setBackgroundMessageHandler(messaging, async remoteMessage => {
       return;
     }
 
+    // A copy of a call this phone already picked up (FCM redelivery while the
+    // call runs minimised): ringing full-screen over it was the "keeps ringing
+    // after I answered" report.
+    if (
+      getActiveCall()?.liveKitRoom === parsed.liveKitRoom ||
+      isCallAnswered(parsed.liveKitRoom, parsed.sentAtMs)
+    ) {
+      return;
+    }
+
     await ensureIncomingCallAndroidChannel();
     await displayAndroidIncomingCallNotification(parsed);
     startIncomingCallRingtone();
+    // Tell the caller it is ringing. A phone woken by this push has no socket
+    // yet, so the socket ack never fired and the caller saw "Calling…" throughout.
+    void notifyCallRinging({
+      token: store.getState().auth.token,
+      liveKitRoom: parsed.liveKitRoom,
+    });
 
     // Auto-cancel the notification after the ring timeout (60 s) so a sleeping
     // phone doesn't ring indefinitely when the cancel FCM is delayed or dropped.

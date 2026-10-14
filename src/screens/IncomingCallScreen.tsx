@@ -36,6 +36,7 @@ import {
 } from '../services/invitePeerToHopeChatCall';
 import {
   isCallCancelled,
+  markCallAnswered,
   markCallCancelled,
 } from '../services/incomingCall/navigateIncomingCall';
 import { store } from '../redux/store';
@@ -56,6 +57,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     isGroupCall,
     groupName,
     groupPhotoUrl,
+    sentAtMs,
   } = route.params;
   // Group call: the group is the "who", the caller goes in the subtitle.
   const isGroupRing = Boolean(isGroupCall && groupName);
@@ -142,6 +144,8 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
       try { navigation.goBack(); } catch { /* already popped */ }
       return;
     }
+    // From here on, any late copy of this invite is a duplicate, not a call.
+    if (liveKitRoom) markCallAnswered(liveKitRoom, sentAtMs);
 
     /**
      * Concurrent-call handover: if there's already a LiveKit call alive in another screen, tear
@@ -205,6 +209,7 @@ const IncomingCallScreen: React.FC<Props> = ({ navigation, route }) => {
     isGroupRing,
     groupName,
     groupPhotoUrl,
+    sentAtMs,
   ]);
 
   // When the user pressed "Accept" in the notification shade, skip the ringing UI.

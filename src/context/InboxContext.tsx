@@ -30,6 +30,8 @@ import {
   isV2Envelope,
   rememberOwnMessage,
 } from '../services/e2ee/secureMessaging';
+import { cachePlaintext, readPlaintext } from '../services/e2ee/sessionStore';
+import { getLocalNickname } from '../services/nicknameCache';
 import { isSenderKeyEnvelope } from '../services/e2ee/senderKey';
 import {
   cachedPeerBundles,
@@ -114,8 +116,11 @@ import {
 } from '../services/e2ee/groupConversationCrypto';
 import { fetchGroupInfo } from '../services/groupService';
 import {
+  APPEARANCE_CHANGED_EVENT,
   getEffectiveDisappearingTtlSec,
+  getEffectiveQuickReaction,
   getEffectiveReactionPalette,
+  hasConvReactionPalette,
   isE2eeEnabled,
   matchWordEffect,
 } from '../services/chatPrefs';
@@ -154,6 +159,8 @@ interface InboxContextValue {
   replyTo: ExtendedMessage | null;
   /** True while the other participant is actively typing in this conversation. */
   peerIsTyping: boolean;
+  /** Who is typing right now, with whatever profile this thread knows. */
+  typingUsers: Array<{ userId: string; name?: string; avatar?: string }>;
   /** Emoji to animate for a word effect, and a counter so repeats replay. */
   wordEffect: { emoji: string | null; burstId: number };
 
@@ -195,6 +202,8 @@ interface InboxContextValue {
   handleVoiceRecordingCancel: () => void;
 
   reactionEmojiRow: string[];
+  /** Emoji the composer's one-tap button sends — this chat's quick reaction. */
+  quickReaction: string;
   conversationId?: string;
 
   /** True when E2EE is active for the current conversation (DM or group). */
@@ -221,6 +230,40 @@ export function useInbox(): InboxContextValue {
   const ctx = useContext(InboxContext);
   if (!ctx) {
     throw new Error('useInbox must be used inside <InboxProvider>');
+  }
+  return ctx;
+}
+
+/**
+ * What a single message row needs, with a STABLE identity.
+ *
+ * Bubbles used to read the whole inbox context, whose value changes on every
+ * send, ack, refresh bump, typing ping and poll. A context change re-renders
+ * every consumer regardless of React.memo, so each of those re-rendered every
+ * bubble (and its reaction/swipe machinery) on screen — the phone visibly hung
+ * while sending in longer threads. The functions here always call the latest
+ * implementation, so rows only re-render when their own message changes.
+ */
+export type InboxRowActions = Pick<
+  InboxContextValue,
+  | 'handleReact'
+  | 'handleReply'
+  | 'handleDelete'
+  | 'handleForward'
+  | 'canEditMessage'
+  | 'handleEdit'
+  | 'handlePressReplyPreview'
+  | 'retryMessage'
+  | 'reactionEmojiRow'
+  | 'conversationId'
+>;
+
+const InboxRowActionsContext = createContext<InboxRowActions | null>(null);
+
+export function useInboxRowActions(): InboxRowActions {
+  const ctx = useContext(InboxRowActionsContext);
+  if (!ctx) {
+    throw new Error('useInboxRowActions must be used inside <InboxProvider>');
   }
   return ctx;
 }
@@ -294,6 +337,34 @@ export function InboxProvider({
     [user._id],
   );
 
+  /**
+   * Name + photo for everyone seen in this thread, from the group's member list
+   * and from every message that arrived WITH a profile. A message that arrives
+   * without one (a live push, a delegated send) is filled in from here instead
+   * of rendering a blank avatar until the chat is reopened — and the group
+   * typing indicator uses it to show who is typing.
+   */
+  const senderProfilesRef = useRef<Map<string, { name?: string; avatar?: string }>>(new Map());
+  const [senderProfilesVersion, setSenderProfilesVersion] = useState(0);
+  const rememberSenderProfile = useCallback(
+    (userId: string, name?: string | null, avatar?: string | null): boolean => {
+      const id = normalizeChatUserId(userId) || String(userId ?? '');
+      if (!id || id === 'unknown') return false;
+      const cleanName = name && name !== 'Unknown' ? String(name) : undefined;
+      const cleanAvatar = avatar ? String(avatar) : undefined;
+      if (!cleanName && !cleanAvatar) return false;
+      const prev = senderProfilesRef.current.get(id);
+      const next = {
+        name: cleanName ?? prev?.name,
+        avatar: cleanAvatar ?? prev?.avatar,
+      };
+      if (prev && prev.name === next.name && prev.avatar === next.avatar) return false;
+      senderProfilesRef.current.set(id, next);
+      return true;
+    },
+    [],
+  );
+
   /** Symmetric DM key — used to decrypt HC1 payloads even if “send encrypted” is toggled off. */
   const dmCryptoKey = useMemo(() => {
     if (isGroup || !_conversationId || !peerUserId) return null;
@@ -315,7 +386,10 @@ export function InboxProvider({
    * the thread never paints raw ciphertext while a round-trip is in flight.
    */
   const [groupCryptoKey, setGroupCryptoKey] = useState<Uint8Array | null>(() => {
-    if (!isGroup || !_conversationId || !isE2eeEnabled()) return null;
+    // Not gated on isE2eeEnabled(): that setting decides whether we ENCRYPT
+    // (see shouldEncryptOutgoing). Reading still needs the key, or turning it
+    // off left every existing group message stuck as ciphertext.
+    if (!isGroup || !_conversationId) return null;
     try {
       // Stable key: available synchronously, no roster or network needed.
       return buildGroupKeyring(_conversationId, readCachedGroupMembers(_conversationId));
@@ -330,7 +404,7 @@ export function InboxProvider({
   const groupKeyReadyRef = useRef<Promise<Uint8Array | null> | null>(null);
 
   useEffect(() => {
-    if (!isGroup || !_conversationId || !token || !isE2eeEnabled()) {
+    if (!isGroup || !_conversationId || !token) {
       setGroupCryptoKey(null);
       groupKeyReadyRef.current = null;
       return;
@@ -353,6 +427,13 @@ export function InboxProvider({
     const pending = fetchGroupInfo(_conversationId, token)
       .then(info => {
         const memberIds = (info?.members ?? []).map(m => m.userId);
+        let learned = false;
+        for (const m of info?.members ?? []) {
+          if (m?.userId && rememberSenderProfile(String(m.userId), m.name, m.image ?? null)) {
+            learned = true;
+          }
+        }
+        if (learned && !cancelled) setSenderProfilesVersion(v => v + 1);
         try {
           const isNewRoster =
             memberIds.length > 0 &&
@@ -375,7 +456,7 @@ export function InboxProvider({
     return () => {
       cancelled = true;
     };
-  }, [isGroup, _conversationId, token]);
+  }, [isGroup, _conversationId, token, rememberSenderProfile]);
 
   /**
    * Await the group key before deciding whether to encrypt. Without this, a
@@ -436,7 +517,8 @@ export function InboxProvider({
   const [initialText, setInitialText] = useState('');
 
   // ── Typing indicator
-  const [peerIsTyping, setPeerIsTyping] = useState(false);
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const peerIsTyping = typingUserIds.length > 0;
   const [wordEffect, setWordEffect] = useState<{
     emoji: string | null;
     burstId: number;
@@ -450,7 +532,6 @@ export function InboxProvider({
   /** Last "typing" ping sent, for throttling. 0 = free to ping immediately. */
   const lastTypingPingRef = useRef(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const peerTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -461,13 +542,39 @@ export function InboxProvider({
 
   const { setConversations } = useChats();
 
+  // Bumped when appearance prefs change (Quick reactions / Theme screens), so
+  // the palette and quick reaction below are re-read without reopening the chat.
+  const [appearanceVersion, setAppearanceVersion] = useState(0);
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      APPEARANCE_CHANGED_EVENT,
+      (e: { conversationId: string | null } | undefined) => {
+        if (e?.conversationId && e.conversationId !== _conversationId) return;
+        setAppearanceVersion(v => v + 1);
+      },
+    );
+    return () => sub.remove();
+  }, [_conversationId]);
+
   // Memoised: a fresh array every render would invalidate the context value.
+  //
+  // A palette the user picked for THIS chat wins. The server palette used to
+  // come first unconditionally, so in any chat that had one, the emojis chosen
+  // in Quick reactions were saved and never shown.
   const reactionEmojiRow = useMemo(
     () =>
-      remoteReactionPalette && remoteReactionPalette.length > 0
-        ? remoteReactionPalette.slice(0, 8)
-        : getEffectiveReactionPalette(_conversationId),
-    [remoteReactionPalette, _conversationId],
+      hasConvReactionPalette(_conversationId)
+        ? getEffectiveReactionPalette(_conversationId)
+        : remoteReactionPalette && remoteReactionPalette.length > 0
+          ? remoteReactionPalette.slice(0, 8)
+          : getEffectiveReactionPalette(_conversationId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [remoteReactionPalette, _conversationId, appearanceVersion],
+  );
+  const quickReaction = useMemo(
+    () => getEffectiveQuickReaction(_conversationId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [_conversationId, appearanceVersion],
   );
 
   const mapHopenityMessage = useCallback(
@@ -699,7 +806,28 @@ export function InboxProvider({
         rawReplyTo?.content ?? rawReplyTo?.text ?? '',
       ).trimStart();
       let replyText = rawReplyContent;
-      if (dmCryptoKey && rawReplyContent.startsWith('HC1:')) {
+      const quotedId = String(rawReplyTo?.id ?? rawReplyTo?._id ?? '');
+      const quotedIsCipher =
+        rawReplyContent.startsWith('HC1:') ||
+        rawReplyContent.startsWith('HCG1:') ||
+        isV2Envelope(rawReplyContent) ||
+        isSenderKeyEnvelope(rawReplyContent);
+      // The quoted message is usually already on screen (or in the plaintext
+      // cache) decrypted — reuse that before trying keys, and it is the ONLY
+      // way to quote an HC2 message, whose ratchet key is single-use.
+      const quotedLocal =
+        quotedIsCipher && quotedId
+          ? readPlaintext(quotedId) ??
+            (() => {
+              const t = allMessagesRef.current.find(m => String(m._id) === quotedId)?.text;
+              return t && !String(t).startsWith('🔒') ? String(t) : null;
+            })()
+          : null;
+      if (quotedLocal) {
+        replyText = quotedLocal;
+      } else if (isV2Envelope(rawReplyContent) || isSenderKeyEnvelope(rawReplyContent)) {
+        replyText = '🔒 Decrypting…';
+      } else if (dmCryptoKey && rawReplyContent.startsWith('HC1:')) {
         replyText = maybeDecryptContent(rawReplyContent, dmCryptoKey);
       } else if (groupCryptoKey && rawReplyContent.startsWith('HCG1:')) {
         const attempt = maybeDecryptGroupContent(rawReplyContent, groupCryptoKey);
@@ -749,14 +877,32 @@ export function InboxProvider({
           }
         : undefined;
 
+      // Learn from rows that carry a profile; fill rows that do not.
+      const hasRealName = !!senderName && senderName !== 'Unknown';
+      const profileKey = rawSender || resolvedUid;
+      if (profileKey && (hasRealName || senderAvatar)) {
+        rememberSenderProfile(profileKey, hasRealName ? senderName : null, senderAvatar ?? null);
+      }
+      const knownProfile = profileKey
+        ? senderProfilesRef.current.get(normalizeChatUserId(profileKey) || profileKey)
+        : undefined;
+      const nickname =
+        isGroup && _conversationId && profileKey
+          ? getLocalNickname(_conversationId, normalizeChatUserId(profileKey) || profileKey)
+          : '';
+      const displayName =
+        nickname ||
+        ((hasRealName ? senderName : undefined) ?? knownProfile?.name ?? senderName);
+      const displayAvatar = senderAvatar ?? knownProfile?.avatar;
+
       return {
         _id: id,
         text: parsed.text,
         createdAt: createdAtRaw ? new Date(createdAtRaw) : new Date(),
         user: {
           _id: resolvedUid,
-          name: senderName,
-          avatar: senderAvatar,
+          name: displayName,
+          avatar: displayAvatar,
         },
         media,
         messageKind: parsed.messageKind,
@@ -794,7 +940,7 @@ export function InboxProvider({
     // keeps closing over the earlier `null`, decryption is silently skipped,
     // and messages that had already been decrypted (via the retro-decrypt
     // pass below) flip back to raw ciphertext on the next 15s poll.
-    [_conversationId, dmCryptoKey, groupCryptoKey, localUserIdStr, peerUserId, isGroup],
+    [_conversationId, dmCryptoKey, groupCryptoKey, localUserIdStr, peerUserId, isGroup, rememberSenderProfile],
   );
 
   // Always-fresh handle to mapHopenityMessage that doesn't itself trigger
@@ -1156,15 +1302,39 @@ export function InboxProvider({
    * already inserted the server copy, drop the optimistic bubble instead of
    * ending up with two rows sharing one _id.
    */
+  /**
+   * Client id → server id for messages whose send was acknowledged. A reply
+   * composed against a bubble that was still sending carries the CLIENT id;
+   * the server cannot resolve that, stores no reply, and the other person saw
+   * a plain message with no quote — "reply to a new message does not show".
+   */
+  const ackedIdsRef = useRef<Map<string, string>>(new Map());
+
   const confirmMessage = useCallback(
     (localId: string | number, patch: Partial<ExtendedMessage>) => {
       const serverId = patch._id != null ? String(patch._id) : null;
+      if (serverId && serverId !== String(localId)) {
+        ackedIdsRef.current.set(String(localId), serverId);
+      }
       const apply = (list: ExtendedMessage[]) => {
+        const optimistic = list.find(m => m._id === localId);
         const serverCopyExists =
           serverId != null &&
           serverId !== String(localId) &&
           list.some(m => String(m._id) === serverId);
-        if (serverCopyExists) return list.filter(m => m._id !== localId);
+        if (serverCopyExists) {
+          // The poll already inserted the server copy. Keep it, but never let
+          // it show a lock placeholder where the optimistic bubble had the text.
+          return list
+            .filter(m => m._id !== localId)
+            .map(m =>
+              String(m._id) === serverId &&
+              optimistic?.text &&
+              String(m.text ?? '').startsWith('🔒')
+                ? { ...m, text: optimistic.text, pendingCipherText: undefined }
+                : m,
+            );
+        }
         return list.map(m => (m._id === localId ? { ...m, ...patch } : m));
       };
       
@@ -1322,16 +1492,16 @@ export function InboxProvider({
       if (message) {
         try {
           const mapped = mapHopenityMessage(message);
-          // Skip our own echo: the optimistic bubble is already on screen.
+          // Skip our own echo: the optimistic bubble is already on screen, and
+          // the chat list already moved this row when we sent — a full
+          // directory refetch for our own message was pure overhead on send.
           if (String(mapped.user._id) !== String(localUserIdStr)) {
             appendMessageIfNew(mapped);
             // A word I configured, arriving from them, animates on my side too.
             const incomingEffect = matchWordEffect(mapped.text ?? '');
             if (incomingEffect) playWordEffect(incomingEffect.emoji);
             DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
-            return;
           }
-          DeviceEventEmitter.emit(RELOAD_CHAT_LIST_EVENT);
           return;
         } catch {
           // Malformed or an encrypted shape we can't map yet — fall back.
@@ -1412,33 +1582,94 @@ export function InboxProvider({
     
   }, [groupCryptoKey, isGroup, threadIntroPeer]);
 
+  // ─── Backfill sender profiles ─────────────────────────────────────────────
+  // Once the member list (or a later message) teaches us someone's name/photo,
+  // patch bubbles of theirs that rendered without one.
+  useEffect(() => {
+    if (senderProfilesVersion === 0) return;
+    setAllMessages(prev => {
+      let changed = false;
+      const next = prev.map(m => {
+        const uid = String(m.user?._id ?? '');
+        const known = senderProfilesRef.current.get(normalizeChatUserId(uid) || uid);
+        if (!known) return m;
+        const needsName = !m.user?.name || m.user.name === 'Unknown';
+        const needsAvatar = !m.user?.avatar;
+        if ((!needsName || !known.name) && (!needsAvatar || !known.avatar)) return m;
+        changed = true;
+        return {
+          ...m,
+          user: {
+            ...m.user,
+            name: needsName && known.name ? known.name : m.user.name,
+            avatar: needsAvatar && known.avatar ? known.avatar : m.user.avatar,
+          },
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [senderProfilesVersion]);
+
   // ─── Socket: typing indicator ──────────────────────────────────────────────
+  // Tracked PER USER: in a group several people can type at once, and one
+  // person's stop event used to clear the indicator for everyone.
   useEffect(() => {
     if (!_conversationId) return;
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    const stop = (uid: string) => {
+      const t = timers.get(uid);
+      if (t) clearTimeout(t);
+      timers.delete(uid);
+      setTypingUserIds(prev => (prev.includes(uid) ? prev.filter(x => x !== uid) : prev));
+    };
 
     const unsubTyping = callSocket.onUserTyping(({ chatId, userId }) => {
       if (String(chatId) !== String(_conversationId)) return;
       if (localUserIdStr && String(userId) === String(localUserIdStr)) return;
-      setPeerIsTyping(true);
-      if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+      const uid = normalizeChatUserId(String(userId ?? '')) || String(userId ?? '');
+      setTypingUserIds(prev => (prev.includes(uid) ? prev : [...prev, uid]));
+      const existing = timers.get(uid);
+      if (existing) clearTimeout(existing);
       // Safety net in case a stop_typing event is dropped.
-      peerTypingTimeoutRef.current = setTimeout(() => setPeerIsTyping(false), 5000);
+      timers.set(uid, setTimeout(() => stop(uid), 5000));
     });
 
     const unsubStoppedTyping = callSocket.onUserStoppedTyping(({ chatId, userId }) => {
       if (String(chatId) !== String(_conversationId)) return;
       if (localUserIdStr && String(userId) === String(localUserIdStr)) return;
-      if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
-      setPeerIsTyping(false);
+      stop(normalizeChatUserId(String(userId ?? '')) || String(userId ?? ''));
+    });
+
+    // A message from someone means they stopped typing — without this their
+    // indicator lingered under the message they had just sent.
+    const unsubNewForTyping = callSocket.onNewMessage(({ chatId, message }) => {
+      if (String(chatId) !== String(_conversationId) || !message) return;
+      const row = message as Record<string, unknown>;
+      const sid = String((row.senderId ?? row.sender_id ?? '') as string);
+      if (sid) stop(normalizeChatUserId(sid) || sid);
     });
 
     return () => {
       unsubTyping();
       unsubStoppedTyping();
-      if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
-      setPeerIsTyping(false);
+      unsubNewForTyping();
+      timers.forEach(t => clearTimeout(t));
+      timers.clear();
+      setTypingUserIds([]);
     };
   }, [_conversationId, localUserIdStr]);
+
+  const typingUsers = useMemo(
+    () =>
+      typingUserIds.map(uid => {
+        const known = senderProfilesRef.current.get(uid);
+        return { userId: uid, name: known?.name, avatar: known?.avatar };
+      }),
+    // senderProfilesVersion: a profile learned mid-typing should appear.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [typingUserIds, senderProfilesVersion],
+  );
 
   /** Throttle window for "still typing" pings — see setText. */
   const TYPING_PING_MS = 2500;
@@ -1529,12 +1760,36 @@ export function InboxProvider({
 
   // ─── Send text / media ─────────────────────────────────────────────────────
 
+  /**
+   * The server id to quote. A numeric id is already a server id; a client id is
+   * mapped through ackedIdsRef, waiting briefly when that message's own send is
+   * still in flight. Gives up (sends without a quote) rather than block forever.
+   */
+  const resolveReplyToId = useCallback(
+    async (replyToId: string | number | null): Promise<string | number | null> => {
+      if (replyToId == null) return null;
+      const raw = String(replyToId);
+      if (/^\d+$/.test(raw)) return replyToId;
+      for (let waited = 0; waited <= 10_000; waited += 250) {
+        const acked = ackedIdsRef.current.get(raw);
+        if (acked) return acked;
+        const target = allMessagesRef.current.find(m => String(m._id) === raw);
+        // Gone, or failed to send: there is nothing on the server to quote.
+        if (!target || target.failed) return null;
+        await new Promise<void>(r => setTimeout(r, 250));
+      }
+      return null;
+    },
+    [],
+  );
+
   /** Encrypt + POST one already-appended (optimistic) message. Also used by retry. */
   const deliverMessage = useCallback(
-    (stamped: ExtendedMessage, replyToId: string | number | null) => {
+    (stamped: ExtendedMessage, replyToIdIn: string | number | null) => {
       if (!_conversationId || !token) return;
           const plain = String(stamped.text ?? '');
           void (async () => {
+          const replyToId = await resolveReplyToId(replyToIdIn);
           let wire = plain;
           if (isE2eeEnabled() && plain.length > 0) {
             if (isGroup) {
@@ -1612,6 +1867,11 @@ export function InboxProvider({
               const ackName =
                 (res.sender as { name?: string } | undefined)?.name ??
                 (typeof stamped.user?.name === 'string' ? stamped.user.name : user.name);
+              // Key the plaintext by the SERVER id too: the list preview and a
+              // later re-open look it up by that id, and the client id is gone.
+              if (res.id != null && wire !== plain && plain) {
+                cachePlaintext(String(res.id), plain);
+              }
               confirmMessage(stamped._id, {
                 pending: false,
                 _id: String(res.id ?? stamped._id),
@@ -1642,6 +1902,7 @@ export function InboxProvider({
       updateMessage,
       confirmMessage,
       user.name,
+      resolveReplyToId,
     ],
   );
 
@@ -2390,6 +2651,7 @@ function isVideoAsset(asset: {
       hasMore,
       replyTo,
       peerIsTyping,
+      typingUsers,
       wordEffect,
   
       // Message CRUD
@@ -2427,6 +2689,7 @@ function isVideoAsset(asset: {
       handleVoiceRecordingCancel,
   
       reactionEmojiRow,
+      quickReaction,
       conversationId: _conversationId,
   
       isEncrypted: shouldEncryptOutgoing,
@@ -2451,6 +2714,7 @@ function isVideoAsset(asset: {
       hasMore,
       replyTo,
       peerIsTyping,
+      typingUsers,
       wordEffect,
       onSend,
       retryMessage,
@@ -2479,6 +2743,7 @@ function isVideoAsset(asset: {
       handleVoiceRecordingComplete,
       handleVoiceRecordingCancel,
       reactionEmojiRow,
+      quickReaction,
       _conversationId,
       shouldEncryptOutgoing,
       registerScrollToMessage,
@@ -2487,7 +2752,29 @@ function isVideoAsset(asset: {
     ],
   );
 
+  const latestValueRef = useRef(value);
+  latestValueRef.current = value;
+  const rowActions = useMemo<InboxRowActions>(
+    () => ({
+      handleReact: (...a) => latestValueRef.current.handleReact(...a),
+      handleReply: (...a) => latestValueRef.current.handleReply(...a),
+      handleDelete: (...a) => latestValueRef.current.handleDelete(...a),
+      handleForward: (...a) => latestValueRef.current.handleForward(...a),
+      canEditMessage: (...a) => latestValueRef.current.canEditMessage(...a),
+      handleEdit: (...a) => latestValueRef.current.handleEdit(...a),
+      handlePressReplyPreview: (...a) => latestValueRef.current.handlePressReplyPreview(...a),
+      retryMessage: (...a) => latestValueRef.current.retryMessage(...a),
+      reactionEmojiRow,
+      conversationId: _conversationId,
+    }),
+    [reactionEmojiRow, _conversationId],
+  );
+
   return (
-    <InboxContext.Provider value={value}>{children}</InboxContext.Provider>
+    <InboxContext.Provider value={value}>
+      <InboxRowActionsContext.Provider value={rowActions}>
+        {children}
+      </InboxRowActionsContext.Provider>
+    </InboxContext.Provider>
   );
 }

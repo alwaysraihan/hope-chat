@@ -12,18 +12,20 @@ type Props = {
   token: string | null;
   /** v2 thread (group or v2-native DM) vs legacy v1 chat. */
   useV2?: boolean;
+  /** Server last-activity time (ms) of the chat — the revive cutoff. */
+  lastActivityAt?: number | null;
   onCancel: () => void;
   onDeleted: () => void;
 };
 
-const DeleteChat = ({ visible, peerName, conversationId, token, useV2 = true, onCancel, onDeleted }: Props) => {
+const DeleteChat = ({ visible, peerName, conversationId, token, useV2 = true, lastActivityAt, onCancel, onDeleted }: Props) => {
   const [busy, setBusy] = useState(false);
 
   const handleDelete = async () => {
     if (!token || busy) return;
     setBusy(true);
     // Persist locally first so the chat never re-appears from cache or server reload.
-    addHiddenConversation(conversationId);
+    addHiddenConversation(conversationId, lastActivityAt);
     // Fire the server delete best-effort — don't block the UX on it.
     clearThreadMessagesCache(conversationId);
     deleteConversationForMe(conversationId, token, useV2).catch(() => {});

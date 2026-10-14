@@ -22,6 +22,10 @@ interface ReplyPreviewProps {
   style?: ViewStyle;
 }
 
+/** Bengali, Devanagari & co. — see hasComplexScript in ChatMessageBox. */
+const COMPLEX_SCRIPT_RE =
+  /[\u0900-\u0DFF\u0E00-\u0E7F\u1000-\u109F\u1780-\u17FF]/;
+
 //  Component
 
 const ReplyPreview: React.FC<ReplyPreviewProps> = ({
@@ -81,6 +85,10 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
   const bgColor = isOwn ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.07)';
   const nameColor = isOwn ? 'rgba(255,255,255,0.9)' : colorss.success;
   const textColor = isOwn ? 'rgba(255,255,255,0.75)' : colorss.textSecondary;
+  // A fixed 17px line is shorter than Bengali's stacked matras, so the second
+  // line was drawn below the box and clipped — the "reply text is cut off"
+  // report. Let the font decide the line height for shaped scripts.
+  const complex = COMPLEX_SCRIPT_RE.test(previewLabel) || COMPLEX_SCRIPT_RE.test(replyTo.user?.name ?? '');
 
   return (
     <TouchableOpacity
@@ -95,8 +103,9 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
       {/* Text section */}
       <View style={styles.textSection}>
         <Text
-          style={[styles.senderName, { color: nameColor }]}
+          style={[styles.senderName, complex && styles.complexText, { color: nameColor }]}
           numberOfLines={1}
+          maxFontSizeMultiplier={1.3}
         >
           {replyTo.user?.name ?? 'Unknown'}
         </Text>
@@ -126,8 +135,9 @@ const ReplyPreview: React.FC<ReplyPreviewProps> = ({
 
         {mediaType !== 'voice' && (
           <Text
-            style={[styles.previewLabel, { color: textColor }]}
-            numberOfLines={2}
+            style={[styles.previewLabel, complex && styles.complexText, { color: textColor }]}
+            numberOfLines={3}
+            maxFontSizeMultiplier={1.3}
           >
             {previewLabel}
           </Text>
@@ -158,17 +168,21 @@ export default React.memo(ReplyPreview);
 //  Styles
 
 const styles = StyleSheet.create({
+  // No overflow:'hidden' here: it turned any text measured a few pixels short
+  // into a clipped line. The thumbnail clips itself instead.
   wrapper: {
     flexDirection: 'row',
     alignItems: 'stretch',
     borderRadius: 8,
     borderLeftWidth: 3,
-    overflow: 'hidden',
     marginBottom: 5,
     minHeight: 42,
   },
+  // grow/shrink with an auto basis, not flex:1 (basis 0): the text must be
+  // measured at its real width for its height to come out right.
   textSection: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     paddingHorizontal: 8,
     paddingVertical: 5,
     justifyContent: 'center',
@@ -182,6 +196,11 @@ const styles = StyleSheet.create({
   previewLabel: {
     fontSize: 12,
     lineHeight: 17,
+  },
+  complexText: {
+    lineHeight: undefined,
+    includeFontPadding: true,
+    letterSpacing: 0,
   },
   waveRow: {
     flexDirection: 'row',
@@ -201,6 +220,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: 48,
     height: 48,
+    overflow: 'hidden',
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
   },
   thumb: {
     width: 48,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -24,6 +24,8 @@ import { useAppSelector } from '../hooks/redux';
 import { selectAuthToken } from '../redux/features/auth/authSlice';
 import { fetchChatTheme, saveChatTheme } from '../services/userSettingsService';
 import { callSocket } from '../services/callSocket';
+import { useChats } from '../context/ChatsContext';
+import { Toast } from '../components/Toast';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GAP = 6;
@@ -41,6 +43,13 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
   const { isDark, toggleDarkMode, colors } = useAppTheme();
   const conversationId: string | undefined = route?.params?.conversationId;
   const token = useAppSelector(selectAuthToken);
+  const { conversations } = useChats();
+  const conv = conversationId ? conversations.find(c => c.id === conversationId) : undefined;
+  // Groups and v2-native DMs are ChatThreads — see sharedPrefScope.
+  const isV2 = !!conv && (!!conv.isGroup || !conv.isV1Chat);
+  // Set once the user taps a theme, so the on-open server read (which can land
+  // a moment later) never reverts the choice they just made.
+  const userPickedRef = useRef(false);
 
   const appearance = useMemo(
     () => (conversationId ? getEffectiveAppearance(conversationId) : getChatAppearance()),
@@ -57,10 +66,10 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
   useEffect(() => {
     if (!conversationId || !token) return;
     let cancelled = false;
-    fetchChatTheme(conversationId, token)
+    fetchChatTheme(conversationId, token, isV2)
       .then(remote => {
         const id = Number(remote);
-        if (cancelled || !Number.isFinite(id) || id <= 0) return;
+        if (cancelled || userPickedRef.current || !Number.isFinite(id) || id <= 0) return;
         setConvAppearance(conversationId, { themePresetId: id });
         setSelectedTheme(id);
       })
@@ -68,7 +77,7 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
     return () => {
       cancelled = true;
     };
-  }, [conversationId, token]);
+  }, [conversationId, token, isV2]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -90,12 +99,15 @@ const ThemeScreen = ({ navigation, route }: { navigation: any; route?: any }) =>
   };
 
   const handleSelectTheme = (id: number) => {
+    userPickedRef.current = true;
     setSelectedTheme(id);
     saveAppearance({ themePresetId: id });
     // Push to the peer. Wallpaper URLs stay local (they are device paths); only
     // the preset is shared.
     if (conversationId && token) {
-      void saveChatTheme(conversationId, String(id), token);
+      void saveChatTheme(conversationId, String(id), token, isV2).then(ok => {
+        if (!ok) Toast.error('Theme applied here, but could not sync to the chat.');
+      });
     }
     // Dark mode toggle only applies to global setting (affects UI chrome, not per-chat)
     if (!conversationId) {

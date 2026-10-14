@@ -1,4 +1,5 @@
 import { createMMKV, type MMKV } from 'react-native-mmkv';
+import { DeviceEventEmitter } from 'react-native';
 
 let _prefs: MMKV | null = null;
 function prefs(): MMKV {
@@ -107,7 +108,18 @@ export type ChatAppearance = {
   wallpaperUri: string | null;
   accentHex: string | null;
   reactionEmojiPalette: string[];
+  /** Emoji the composer's one-tap "like" button sends (Messenger's quick reaction). */
+  quickReaction?: string;
 };
+
+export const DEFAULT_QUICK_REACTION = '👍';
+
+/**
+ * Fired whenever a chat's appearance (theme, wallpaper, reactions) changes, so
+ * an open thread can re-read it. Without this the long-press palette and the
+ * quick-reaction button kept showing the old emoji until the chat was reopened.
+ */
+export const APPEARANCE_CHANGED_EVENT = 'hopechat:appearance_changed';
 
 const defaultAppearance = (): ChatAppearance => ({
   themePresetId: 1,
@@ -196,6 +208,7 @@ export function getChatAppearance(): ChatAppearance {
 export function setChatAppearance(patch: Partial<ChatAppearance>): void {
   const next = { ...getChatAppearance(), ...patch };
   prefs().set(K_APPEARANCE, JSON.stringify(next));
+  DeviceEventEmitter.emit(APPEARANCE_CHANGED_EVENT, { conversationId: null });
 }
 
 export function getReactionPalette(): string[] {
@@ -270,6 +283,7 @@ export type ConvAppearance = {
   themePresetId?: number;
   wallpaperUri?: string | null;
   reactionEmojiPalette?: string[];
+  quickReaction?: string;
 };
 
 export function getConvAppearance(conversationId: string): ConvAppearance {
@@ -288,6 +302,7 @@ export function setConvAppearance(
 ): void {
   const next = { ...getConvAppearance(conversationId), ...patch };
   prefs().set(convAppearanceKey(conversationId), JSON.stringify(next));
+  DeviceEventEmitter.emit(APPEARANCE_CHANGED_EVENT, { conversationId });
 }
 
 /** Effective appearance for a conversation: per-conv overrides global fallback. */
@@ -309,6 +324,19 @@ export function getEffectiveAppearance(conversationId: string | undefined): Chat
 export function getEffectiveReactionPalette(conversationId: string | undefined): string[] {
   const palette = getEffectiveAppearance(conversationId).reactionEmojiPalette;
   return palette.length > 0 ? palette : DEFAULT_REACTION_PALETTE;
+}
+
+/** True when THIS chat has its own palette (set in its Quick reactions screen). */
+export function hasConvReactionPalette(conversationId: string | undefined): boolean {
+  if (!conversationId) return false;
+  const p = getConvAppearance(conversationId).reactionEmojiPalette;
+  return !!p && p.length > 0;
+}
+
+/** The composer's one-tap reaction: this chat's choice, else the global one, else 👍. */
+export function getEffectiveQuickReaction(conversationId: string | undefined): string {
+  const conv = conversationId ? getConvAppearance(conversationId).quickReaction : undefined;
+  return conv || getChatAppearance().quickReaction || DEFAULT_QUICK_REACTION;
 }
 
 // ─── Notification preferences ──────────────────────────────────────────────────

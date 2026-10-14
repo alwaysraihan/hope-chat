@@ -68,6 +68,7 @@ import { useGracefulRoomLeave } from '../hooks/useGracefulRoomLeave';
 import { useLiveKitSessionEnd } from '../hooks/useLiveKitSessionEnd';
 import { useOutgoingCallRingback } from '../hooks/useOutgoingCallRingback';
 import { useLiveKitAndroidForeground } from '../hooks/useLiveKitAndroidForeground';
+import { useCallEndSafetyNet } from '../hooks/useCallEndSafetyNet';
 // useOverlayPermissionPrompt removed — SYSTEM_ALERT_WINDOW dropped from manifest.
 // Re-add when the floating in-call bubble feature is shipped.
 import { registerActiveCall } from '../services/livekit/activeCallRegistry';
@@ -178,7 +179,7 @@ function AudioCallGate({
         void notifyCallEndedByRoom({
           token: store.getState().auth.token,
           liveKitRoom,
-          reason: room.state === ConnectionState.Connected ? 'hangup' : undefined,
+          reason: (room.remoteParticipants?.size ?? 0) > 0 ? 'hangup' : undefined,
         });
         const lp = room?.localParticipant;
         if (lp) {
@@ -301,7 +302,9 @@ function AudioCallGate({
 
   // Track whether the callee's device acknowledged the ring — lets caller show
   // "Calling…" → "Ringing…" only when the callee is actually ringing.
-  const [peerIsRinging, setPeerIsRinging] = useState(false);
+  const [peerIsRinging, setPeerIsRinging] = useState(() =>
+    callSocket.wasRingingRecently(String(routeParams?.liveKitRoom ?? '')),
+  );
   const liveKitRoomName = routeParams?.liveKitRoom ?? '';
   useEffect(() => {
     if (!outgoing || !liveKitRoomName) return;
@@ -325,7 +328,9 @@ function AudioCallGate({
         ? 'reconnecting'
         : hasRemote && cs === ConnectionState.Connected
           ? 'connected'
-          : outgoing && !peerIsRinging
+          : connectedAtMsRef.current
+            ? 'reconnecting' // was talking; the peer dropped and may come back
+            : outgoing && !peerIsRinging
             ? 'connecting'
             : 'ringing';
     emitActiveCallStatus({
@@ -369,7 +374,13 @@ function AudioCallGate({
       (cs !== ConnectionState.Connected && cs !== ConnectionState.Reconnecting)
     )
       return;
-    const gracePeriodMs = isGroupCallRoute ? 30_000 : 3_000;
+    // 1:1 used to give up after 3 s. A peer moving between Wi-Fi and mobile
+    // data is fully reconnected by LiveKit — they leave and rejoin the room —
+    // which routinely takes longer than that, so calls were being cut a few
+    // minutes in, the moment either phone switched networks. A real hang-up
+    // still ends instantly via the hangup data message (subscribeCallHangup);
+    // this timer only decides how long to wait for a peer who vanished.
+    const gracePeriodMs = isGroupCallRoute ? 30_000 : 20_000;
     const t = setTimeout(() => {
       if (countRef.current > 0) return;
       // Peer left — just end. A modal over a call that is already over makes the
@@ -430,13 +441,15 @@ function AudioCallGate({
     return () => clearTimeout(t);
   }, [cs]);
 
-  // If stuck reconnecting for 25 s, give up and show a clear message.
+  // If stuck reconnecting for 45 s, give up. (25 s cut in before LiveKit's own
+  // retry schedule had finished, ending calls a network handover would have
+  // survived.)
   useEffect(() => {
     if (cs !== ConnectionState.Reconnecting) return;
     const t = setTimeout(() => {
       // Connection lost — end silently, same reasoning as above.
       void leaveRef.current();
-    }, 25_000);
+    }, 45_000);
     return () => clearTimeout(t);
   }, [cs]);
 
@@ -861,6 +874,8 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
     identity: liveKitIdentity,
     displayName: profile?.displayName ?? undefined,
   });
+  // Every exit that bypasses the in-room hang-up still tells the other phone.
+  useCallEndSafetyNet(route.params?.liveKitRoom);
 
   return (
     <SafeAreaView style={styles.outer}>
@@ -869,6 +884,16 @@ const AudioCallScreen: React.FC<Props> = ({ navigation, route }) => {
           <View style={styles.centerWrap}>
             <ActivityIndicator color={'white'} size="large" />
             <Text style={styles.statusText}>Connecting voice…</Text>
+            {/* Cancellable from the first frame — the other phone is already
+                ringing, and the safety net cancels it when this screen goes. */}
+            <TouchableOpacity
+              style={[styles.endBtn, { marginTop: 32 }]}
+              onPress={safePop}
+              accessibilityRole="button"
+              accessibilityLabel="End call"
+            >
+              <PhoneOff size={26} color={'white'} />
+            </TouchableOpacity>
           </View>
         ) : typeof serverUrl === 'string' &&
           serverUrl.length > 0 &&

@@ -25,7 +25,7 @@ import {
 
 import ReactorList from './ReactorList';
 import MediaPreviewModal from './ImagePreviewModal';
-import { useInbox } from '../../context/InboxContext';
+import { useInboxRowActions } from '../../context/InboxContext';
 import { ExtendedMessage, Anchor } from '../types/chat';
 import { colorss } from '../../theme';
 
@@ -122,7 +122,7 @@ export default function Reaction({
     handleEdit,
     reactionEmojiRow,
     conversationId,
-  } = useInbox();
+  } = useInboxRowActions();
 
   const isRight = position === 'right';
   const wrapRef = useRef<View>(null);
