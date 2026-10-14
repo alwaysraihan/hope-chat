@@ -91,6 +91,9 @@ export function getLiveKitRoomCallOptions(): Partial<RoomOptions> {
       noiseSuppression: true,
     },
     videoCaptureDefaults: {
+      // Explicit, so the call always starts on the front camera — the self-view
+      // mirroring assumes it, and some devices otherwise default to the back.
+      facingMode: 'user',
       /** Android: start at h180 bitrate — reduces encoder load during connect (crash mitigation). */
       resolution: isAndroid
         ? VideoPresets.h180.resolution
@@ -125,6 +128,7 @@ export function getLiveKitVideoCallRoomOptions(): Partial<RoomOptions> {
     adaptiveStream: false,
     dynacast: false,
     videoCaptureDefaults: {
+      facingMode: 'user',
       resolution: VideoPresets.h180.resolution,
       frameRate: 15,
     },

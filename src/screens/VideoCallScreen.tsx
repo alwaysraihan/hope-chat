@@ -997,36 +997,58 @@ function VideoStage({
     [],
   );
 
+  /**
+   * Switch front ↔ back camera.
+   *
+   * The old version flipped `facingUser` up front and, on failure, "reverted"
+   * with the same stale `!facingUser` — i.e. set it to the new value again. The
+   * preview's mirroring follows `facingUser`, so any failed or partial switch
+   * left the self-view mirrored on the back camera (reversed text) or unmirrored
+   * on the front one.
+   *
+   * `restartTrack({ facingMode })` is the primary path: it swaps the capture in
+   * place on the SAME published track (no renegotiation, the peer never loses
+   * video) and stores the facing in the track's constraints, so turning the
+   * camera off and on again keeps the side you picked. Device-id switching is
+   * the fallback for devices that ignore facingMode.
+   */
+  const flipBusyRef = useRef(false);
   const flipCamera = async () => {
-    // Determine the desired facing mode
-    const facingModeStr = facingUser ? 'environment' : 'front';
-    setFacingUser(!facingUser);
-
-    // Enumerate all available media devices
-    const devices = (await mediaDevices.enumerateDevices()) as Array<{ kind?: string; facing?: string; deviceId?: string }>;
-    let newDevice = null;
-
-    // Find the video input device with the target facing mode
-    for (const device of devices) {
-      if (device.kind === 'videoinput' && device.facing === facingModeStr) {
-        newDevice = device;
-        break;
-      }
-    }
-
-    if (newDevice == null) {
-      console.warn('No camera found with facing mode:', facingModeStr);
-      return;
-    }
-
-    // Perform the camera switch
+    if (flipBusyRef.current) return;
+    flipBusyRef.current = true;
+    const nextFront = !facingUser;
     try {
-      await room.switchActiveDevice('videoinput', newDevice.deviceId as string);
-      console.log('Camera switched successfully');
+      const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+      const track = pub?.track;
+      let switched = false;
+      if (track instanceof LocalVideoTrack) {
+        try {
+          await track.restartTrack({ facingMode: nextFront ? 'user' : 'environment' });
+          switched = true;
+        } catch (e) {
+          if (__DEV__) console.warn('[VideoCall] restartTrack facingMode', e);
+        }
+      }
+      if (!switched) {
+        const devices = (await mediaDevices.enumerateDevices()) as Array<{
+          kind?: string;
+          facing?: string;
+          deviceId?: string;
+        }>;
+        const want = nextFront ? 'front' : 'environment';
+        const device = devices.find(d => d.kind === 'videoinput' && d.facing === want);
+        if (device?.deviceId) {
+          switched = await room.switchActiveDevice('videoinput', device.deviceId);
+        }
+      }
+      // Only now does the preview's mirroring change — it always matches the
+      // camera actually capturing.
+      if (switched) setFacingUser(nextFront);
+      else console.warn('[VideoCall] camera switch failed');
     } catch (error) {
-      console.error('Failed to switch camera:', error);
-      // Revert the state if the switch fails
-      setFacingUser(!facingUser);
+      console.warn('[VideoCall] Failed to switch camera:', error);
+    } finally {
+      flipBusyRef.current = false;
     }
   };
   const renderPeerPausedMain = () => (
@@ -1056,7 +1078,10 @@ function VideoStage({
             key={localCameraTrack.publication?.trackSid ?? 'local-main'}
             trackRef={localCameraTrack}
             style={styles.mainVideoFill}
-            mirror
+            // Self-view is mirrored like a mirror only for the FRONT camera; the
+            // back camera must show the world as it is. The peer always gets the
+            // unmirrored stream, so their view is correct either way.
+            mirror={facingUser}
             zOrder={0}
           />
         );
@@ -1134,7 +1159,7 @@ function VideoStage({
           key={localCameraTrack.publication?.trackSid ?? 'local-pip'}
           trackRef={localCameraTrack}
           style={styles.pipVideo}
-          mirror
+          mirror={facingUser}
           zOrder={1}
         />
       );
@@ -1191,7 +1216,7 @@ function VideoStage({
                 <VideoTrack
                   trackRef={localCameraTrack}
                   style={StyleSheet.absoluteFill}
-                  mirror
+                  mirror={facingUser}
                   zOrder={0}
                 />
               ) : (
