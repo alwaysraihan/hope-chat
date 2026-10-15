@@ -11,6 +11,8 @@ import { AppRegistry } from 'react-native';
 import { registerGlobals } from '@livekit/react-native';
 
 registerGlobals();
+// Stopped local tracks must free native capture (and the screen-share service).
+import './src/bootstrap/releaseStoppedLocalTracks';
 
 import './src/services/incomingCall/registerBackgroundHandlers';
 import './src/services/livekit/registerCallForegroundBootstrap';
