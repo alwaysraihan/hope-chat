@@ -34,6 +34,7 @@ import { colorss } from '../../theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useKeyboardVisible from '../../hooks/useKeyboardVisible';
 import { useAppTheme } from '../../context/ThemeContext';
+import { activeMentionQuery, insertMention } from '../../utils/mentions';
 
 // gifted-chat's bundled InputToolbar wires up more props than its own
 // `InputToolbarProps` type declares (see GiftedChat/index.tsx), so we
@@ -209,6 +210,7 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
     cancelEdit,
     openSellerSheet,
     quickReaction,
+    mentionCandidates,
   } = useInbox();
   const { isDark, colors } = useAppTheme();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -298,6 +300,20 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
 
   const previewTarget = editingMessage ?? replyTo;
 
+  // @mention picker (groups): typing "@ra" lists matching members.
+  const mentionQuery =
+    mentionCandidates.length > 0 ? activeMentionQuery(props.text ?? '') : null;
+  const mentionMatches = React.useMemo(() => {
+    if (mentionQuery == null) return [];
+    const q = mentionQuery.toLowerCase();
+    return mentionCandidates
+      .filter(m => m.name.toLowerCase().split(/\s+/).some(w => w.startsWith(q)))
+      .slice(0, 6);
+  }, [mentionQuery, mentionCandidates]);
+  const pickMention = (name: string) => {
+    props.textInputProps?.onChangeText?.(insertMention(props.text ?? '', name));
+  };
+
   // Animate reply / edit bar height
   useEffect(() => {
     Animated.spring(replyHeight, {
@@ -349,6 +365,31 @@ const CustomInputToolbar: React.FC<CustomInputToolbarProps> = props => {
       />
 
       {showEmojiPicker && <EmojiPicker onSelect={appendEmoji} />}
+
+      {mentionMatches.length > 0 && (
+        <View style={[styles.mentionList, { backgroundColor: colors.surface }]}>
+          {mentionMatches.map(m => (
+            <TouchableOpacity
+              key={m.userId}
+              style={styles.mentionRow}
+              onPress={() => pickMention(m.name)}
+              accessibilityRole="button"
+              accessibilityLabel={`Mention ${m.name}`}
+            >
+              {m.avatar ? (
+                <FastImage source={{ uri: m.avatar }} style={styles.mentionAvatar} />
+              ) : (
+                <View style={[styles.mentionAvatar, styles.mentionAvatarFallback]}>
+                  <Text style={styles.mentionInitial}>{m.name.charAt(0).toUpperCase()}</Text>
+                </View>
+              )}
+              <Text style={[styles.mentionName, { color: colors.textPrimary }]} numberOfLines={1}>
+                {m.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {/* Input Row */}
       <View style={styles.inputRow}>
@@ -517,6 +558,27 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   emojiBtn: { marginLeft: 8, padding: 2 },
+  mentionList: {
+    borderRadius: 14,
+    marginBottom: 6,
+    paddingVertical: 4,
+    overflow: 'hidden',
+  },
+  mentionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 10,
+  },
+  mentionAvatar: { width: 30, height: 30, borderRadius: 15 },
+  mentionAvatarFallback: {
+    backgroundColor: colorss.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mentionInitial: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  mentionName: { flex: 1, fontSize: 15, fontWeight: '500' },
   actionBtn: { padding: 6, justifyContent: 'center' },
   quickReactionEmoji: { fontSize: 22, lineHeight: 26 },
   emojiPanel: {

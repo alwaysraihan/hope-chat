@@ -23,6 +23,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Bluetooth,
   ChevronLeft,
+  Flashlight,
+  FlashlightOff,
   Headphones,
   Mic,
   MicOff,
@@ -104,6 +106,7 @@ import {
   subscribeCallHangup,
 } from '../services/livekit/callHangupBus';
 import { mediaDevices } from '@livekit/react-native-webrtc';
+import { isTorchAvailable, setTorch } from '../services/livekit/torch';
 import {
   beginCallTransition,
   isCallTransitioning,
@@ -119,6 +122,9 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
  */
 const PUBLISH_VIDEO_ON_LIVEKIT_CONNECT =
   Platform.OS === 'ios' || liveKitAndroidPublishVideoEnabled();
+/** See the screen-share button: Android only until iOS has a broadcast extension. */
+const SCREEN_SHARE_SUPPORTED =
+  Platform.OS === 'android' && liveKitAndroidPublishVideoEnabled();
 /** Remote video needs subscription; only disable on Android crash-mitigation path. */
 const videoCallConnectOptions =
   Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled()
@@ -273,6 +279,10 @@ function VideoCallGate({
   }, [room, navigation, routeParams, displayName, peerAvatarUrl]);
 
   const handleSwitchToAudio = useCallback(async () => {
+    // A voice call must not keep streaming the screen.
+    if (room?.localParticipant?.isScreenShareEnabled) {
+      await room.localParticipant.setScreenShareEnabled(false).catch(() => undefined);
+    }
     try {
       sendCallModeChange(room, 'audio');
       await new Promise(resolve => setTimeout(resolve, 120));
@@ -849,7 +859,16 @@ function VideoStage({
     { onlySubscribed: false },
   ).filter(item => isTrackReference(item) && !item.participant.isLocal);
 
+  // A live screen share wins over the sharer's camera — otherwise a peer who
+  // shares with their camera on would only ever show their face.
   const primaryRemoteVisual =
+    remoteVisualRefs.find(
+      r =>
+        isTrackReference(r) &&
+        r.publication?.source === Track.Source.ScreenShare &&
+        !!r.publication?.track &&
+        !r.publication?.isMuted,
+    ) ??
     remoteVisualRefs.find(
       r => isTrackReference(r) && r.publication?.source === Track.Source.Camera,
     ) ??
@@ -859,6 +878,14 @@ function VideoStage({
         r.publication?.source === Track.Source.ScreenShare,
     ) ??
     null;
+
+  /** Screens are letterboxed ('contain') so nothing on the shared screen is cropped. */
+  const primaryRemoteFit: 'contain' | 'cover' =
+    primaryRemoteVisual &&
+    isTrackReference(primaryRemoteVisual) &&
+    primaryRemoteVisual.publication?.source === Track.Source.ScreenShare
+      ? 'contain'
+      : 'cover';
 
   const remoteVisualShowsLive =
     !!primaryRemoteVisual &&
@@ -935,14 +962,26 @@ function VideoStage({
     });
   }, [forceEndCallWithAlert, localParticipant, isCameraEnabled]);
 
+  const screenShareBusyRef = useRef(false);
   const toggleScreenShare = useCallback(() => {
-    localParticipant.setScreenShareEnabled(!isScreenShareEnabled).catch(err => {
-      console.warn('[VideoCall] screen share', err);
-      Alert.alert(
-        'Screen share',
-        'Screen sharing could not start. On iOS, ensure Broadcast capability is configured; on Android, grant screen capture permission.',
-      );
-    });
+    // The system capture prompt takes a while; ignore taps until it settles.
+    if (screenShareBusyRef.current) return;
+    screenShareBusyRef.current = true;
+    localParticipant
+      .setScreenShareEnabled(!isScreenShareEnabled)
+      .catch(err => {
+        const msg = String((err as { message?: unknown })?.message ?? err);
+        // Cancelling the "Start recording or casting?" prompt is not an error.
+        if (/NotAllowedError|Permission denied|cancel/i.test(msg)) return;
+        console.warn('[VideoCall] screen share', err);
+        Alert.alert(
+          'Screen share',
+          'Screen sharing could not start. Please try again.',
+        );
+      })
+      .finally(() => {
+        screenShareBusyRef.current = false;
+      });
   }, [localParticipant, isScreenShareEnabled]);
 
   const openAudioPicker = useCallback(() => setAudioPickerOpen(true), []);
@@ -968,6 +1007,57 @@ function VideoStage({
 
   const [mainIsLocal, setMainIsLocal] = useState(false);
   const [facingUser, setFacingUser] = useState(true);
+
+  /**
+   * Torch: only for the back camera on devices with a flash. Any new capture
+   * session (camera flip, camera off/on, a restarted track) starts with the
+   * flash off natively, so the state just follows those changes.
+   */
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const torchBusyRef = useRef(false);
+  const localCameraTrackId =
+    localCameraTrack && isTrackReference(localCameraTrack)
+      ? localCameraTrack.publication?.track?.mediaStreamTrack?.id ?? null
+      : null;
+  const showTorch =
+    PUBLISH_VIDEO_ON_LIVEKIT_CONNECT &&
+    torchSupported &&
+    isCameraEnabled &&
+    !facingUser &&
+    !!localCameraTrackId;
+
+  useEffect(() => {
+    let alive = true;
+    isTorchAvailable().then(ok => {
+      if (alive) setTorchSupported(ok);
+    });
+    return () => {
+      alive = false;
+      // Call end: the camera track is disposed (which drops the flash), but turn it
+      // off explicitly too — iOS can leave the torch lit on the device otherwise.
+      setTorch(false, null).catch(() => undefined);
+    };
+  }, []);
+
+  useEffect(() => {
+    setTorchOn(false);
+  }, [facingUser, isCameraEnabled, localCameraTrackId]);
+
+  const toggleTorch = useCallback(async () => {
+    if (torchBusyRef.current) return;
+    torchBusyRef.current = true;
+    const next = !torchOn;
+    try {
+      await setTorch(next, localCameraTrackId);
+      setTorchOn(next);
+    } catch (e) {
+      console.warn('[VideoCall] torch toggle', e);
+      setTorchOn(false);
+    } finally {
+      torchBusyRef.current = false;
+    }
+  }, [torchOn, localCameraTrackId]);
 
   const hasLocalVideo =
     !!localCameraTrack &&
@@ -1099,6 +1189,7 @@ function VideoStage({
           key={keyForTrack(primaryRemoteVisual, 0)}
           trackRef={primaryRemoteVisual}
           style={styles.mainVideoFill}
+          objectFit={primaryRemoteFit}
           zOrder={0}
         />
       );
@@ -1133,6 +1224,7 @@ function VideoStage({
           key={keyForTrack(primaryRemoteVisual, 0)}
           trackRef={primaryRemoteVisual}
           style={styles.pipVideo}
+          objectFit={primaryRemoteFit}
           zOrder={1}
         />
       );
@@ -1182,6 +1274,14 @@ function VideoStage({
                   r.participant.identity === participant.identity &&
                   r.publication?.source === Track.Source.Camera,
               );
+              const shareRef = remoteVisualRefs.find(
+                r =>
+                  isTrackReference(r) &&
+                  r.participant.identity === participant.identity &&
+                  r.publication?.source === Track.Source.ScreenShare &&
+                  !!r.publication?.track &&
+                  !r.publication?.isMuted,
+              );
               const hasCam =
                 !!camRef &&
                 isTrackReference(camRef) &&
@@ -1192,7 +1292,14 @@ function VideoStage({
                   key={participant.identity}
                   style={[styles.gridTile, { width: tileWidth, height: tileHeight }]}
                 >
-                  {hasCam && camRef ? (
+                  {shareRef && isTrackReference(shareRef) ? (
+                    <VideoTrack
+                      trackRef={shareRef}
+                      style={StyleSheet.absoluteFill}
+                      objectFit="contain"
+                      zOrder={0}
+                    />
+                  ) : hasCam && camRef ? (
                     <VideoTrack trackRef={camRef} style={StyleSheet.absoluteFill} zOrder={0} />
                   ) : (
                     <View style={styles.gridTilePlaceholder}>
@@ -1302,6 +1409,12 @@ function VideoStage({
                 {autoSwitchBanner}
               </Text>
             </View>
+          ) : isScreenShareEnabled ? (
+            <View pointerEvents="none" style={styles.autoSwitchBanner}>
+              <Text style={styles.autoSwitchBannerText}>
+                You're sharing your screen
+              </Text>
+            </View>
           ) : null}
           <View style={styles.controlsRow}>
             <TouchableOpacity
@@ -1364,13 +1477,35 @@ function VideoStage({
                 <SwitchCamera size={22} color={'white'} />
               </TouchableOpacity>
             ) : null}
-            {Platform.OS !== 'android' ? (
+            {showTorch ? (
+              <TouchableOpacity
+                style={[styles.ctrlBtn, torchOn ? styles.ctrlHighlight : null]}
+                onPress={() => {
+                  toggleTorch().catch(() => undefined);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={torchOn ? 'Turn off flashlight' : 'Turn on flashlight'}
+              >
+                {torchOn ? (
+                  <Flashlight size={22} color={'white'} />
+                ) : (
+                  <FlashlightOff size={22} color={'white'} />
+                )}
+              </TouchableOpacity>
+            ) : null}
+            {/* Android only: the mediaProjection service is enabled in MainApplication;
+                gated like camera publishing since both publish a video track. iOS
+                needs a ReplayKit Broadcast Upload Extension (not in the project yet) —
+                without it getDisplayMedia publishes a track that never gets frames. */}
+            {SCREEN_SHARE_SUPPORTED ? (
               <TouchableOpacity
                 style={[
                   styles.ctrlBtn,
                   isScreenShareEnabled ? styles.ctrlHighlight : null,
                 ]}
                 onPress={toggleScreenShare}
+                accessibilityRole="button"
+                accessibilityLabel={isScreenShareEnabled ? 'Stop sharing screen' : 'Share screen'}
               >
                 <MonitorUp size={22} color={'white'} />
               </TouchableOpacity>

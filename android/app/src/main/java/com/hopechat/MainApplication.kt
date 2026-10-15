@@ -7,6 +7,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.livekit.reactnative.LiveKitReactNative
+import com.oney.WebRTCModule.WebRTCModuleOptions
 import com.livekit.reactnative.audio.AudioType
 
 class MainApplication : Application(), ReactApplication {
@@ -44,6 +45,9 @@ class MainApplication : Application(), ReactApplication {
   }
 
   override fun onCreate() {
+    // Screen sharing on Android 10+ must run under a mediaProjection foreground
+    // service. The WebRTC module ships one but only starts it when enabled.
+    WebRTCModuleOptions.getInstance().enableMediaProjectionService = true
     LiveKitReactNative.setup(this, AudioType.CommunicationAudioType())
     super.onCreate()
     loadReactNative(this)

@@ -41,6 +41,7 @@ import {
 import { useWindowDimensions } from 'react-native';
 
 import { useAppTheme } from '../../context/ThemeContext';
+import { splitMentions } from '../../utils/mentions';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -867,6 +868,16 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
                   >
                     {seg.text}
                   </Text>
+                ) : isGroup ? (
+                  splitMentions(seg.text).map((part, j) =>
+                    part.mention ? (
+                      <Text key={`${i}-${j}`} style={styles.mentionText}>
+                        {part.text}
+                      </Text>
+                    ) : (
+                      part.text
+                    ),
+                  )
                 ) : (
                   seg.text
                 ),
@@ -1049,6 +1060,7 @@ const styles = StyleSheet.create({
   },
   callLogText: { fontStyle: 'italic', fontSize: 14 },
   linkText: { textDecorationLine: 'underline', opacity: 0.85 },
+  mentionText: { fontWeight: '700' },
   mediaBubble: {
     width: 210,
     height: 210,

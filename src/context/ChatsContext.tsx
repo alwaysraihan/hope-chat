@@ -10,6 +10,8 @@ import React, {
 } from 'react';
 import { AppState, DeviceEventEmitter } from 'react-native';
 
+import { CHAT_READ_LOCALLY_EVENT, isChatOpen } from '../services/openChat';
+
 /** Emitting this event from anywhere (e.g. FCM handler) triggers an immediate inbox reload. */
 export const RELOAD_CHAT_LIST_EVENT = 'hopechat:reload_chat_list';
 const POLL_INTERVAL_MS = 30_000;
@@ -55,7 +57,9 @@ import {
 import type { ExtendedMessage } from '../components/types/chat';
 import {
   appendCallLogToThreadCache,
+  getArchivedConversations,
   getHiddenConversationIds,
+  removeArchivedConversation,
   reviveHiddenConversationsWithNewActivity,
   readChatDirectoryCache,
   readRequestCountCache,
@@ -488,7 +492,7 @@ function extractPeerPresence(
     const on = coalesceOnline(r.isOnline ?? r.online ?? r.is_active ?? r.active);
     if (on !== undefined) isOnline = on;
     const ls = coalesceLastSeen(
-      r.lastSeen ?? r.last_seen ?? r.lastSeenAt ?? r.lastActiveAt,
+      r.lastSeen ?? r.last_seen ?? r.lastSeenAt ?? r.lastActiveAt ?? r.last_active_at,
     );
     if (ls) lastSeenAt = ls;
   };
@@ -812,14 +816,15 @@ export function mapChatItemToSummary(
     preview,
     time,
     isV1Chat: !!chat.conversationKey,
-    unreadCount: chat.unreadCount ?? 0,
+    // The chat on screen is read; a directory fetch racing its mark-read must not resurrect the badge.
+    unreadCount: isChatOpen(chatIdStr) ? 0 : (chat.unreadCount ?? 0),
     isGroup,
     groupName: isGroup ? ((chat.groupName ?? null) as string | null) : undefined,
     groupPhotoUrl: isGroup ? ((chat.groupPhotoUrl ?? null) as string | null) : undefined,
     groupAdminUserIds: isGroup ? (chat.groupAdminUserIds ?? []) : undefined,
     groupMemberCount,
     groupOnlineCount,
-    isUnread: (chat.unreadCount ?? 0) > 0,
+    isUnread: !isChatOpen(chatIdStr) && (chat.unreadCount ?? 0) > 0,
     avatarUrl: isGroup ? (chat.groupPhotoUrl ?? avatarUrl) : avatarUrl,
     isOnline: isGroup ? undefined : presence.isOnline,
     lastSeenAt: isGroup ? null : (presence.lastSeenAt ?? null),
@@ -978,6 +983,13 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           }),
         ),
       );
+      // The server unarchives a chat when a new message arrives; once it's back
+      // in the inbox listing, drop the local Archive snapshot too.
+      const inboxIds = new Set((chats as any[]).map(c => String(c.id ?? '')));
+      const stillHidden = new Set(getHiddenConversationIds());
+      for (const a of getArchivedConversations()) {
+        if (inboxIds.has(a.id) && !stillHidden.has(a.id)) removeArchivedConversation(a.id);
+      }
       const hidden = new Set(getHiddenConversationIds());
       const pinnedIds = new Set(getPinnedConversationIds());
       const mutedIds = new Set(getMutedConversationIds());
@@ -1427,6 +1439,10 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       if (getHiddenConversationIds().includes(id)) {
         removeHiddenConversation(id);
       }
+      // Same for an archived chat — the server unarchives it on a new message.
+      if (getArchivedConversations().some(a => a.id === id)) {
+        removeArchivedConversation(id);
+      }
 
       setConversations(prev => {
         const idx = prev.findIndex(c => String(c.id) === id);
@@ -1452,13 +1468,15 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           }) as string | undefined,
         };
         const preview = formatChatListPreview(decrypted, localId);
+        const open = isChatOpen(id);
         const updated: ConversationSummary = {
           ...target,
           preview,
           time: 'now',
           sortAt: Date.now(),
-          unreadCount: fromMe ? target.unreadCount : target.unreadCount + 1,
-          isUnread: fromMe ? target.isUnread : true,
+          // A message landing in the chat that's on screen is already read.
+          unreadCount: open ? 0 : fromMe ? target.unreadCount : target.unreadCount + 1,
+          isUnread: open ? false : fromMe ? target.isUnread : true,
         };
 
         const rest = prev.filter((_, i) => i !== idx);
@@ -1616,6 +1634,20 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     );
     return () => sub.remove();
   }, [token, localUser]);
+
+  // The open chat (InboxContext) marks itself read on open, on new arrivals and on leave.
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(CHAT_READ_LOCALLY_EVENT, (chatId: string) => {
+      setConversations(prev =>
+        prev.some(c => c.id === String(chatId) && (c.unreadCount > 0 || c.isUnread))
+          ? prev.map(c =>
+              c.id === String(chatId) ? { ...c, unreadCount: 0, isUnread: false } : c,
+            )
+          : prev,
+      );
+    });
+    return () => sub.remove();
+  }, []);
 
   const bumpUnread = useCallback((conversationId: string, delta = 1) => {
     setConversations(prev =>

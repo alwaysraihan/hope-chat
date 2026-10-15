@@ -37,6 +37,7 @@ import { useChats } from '../context/ChatsContext';
 import type { ExtendedMessage } from '../components/types/chat';
 import { acceptHopenityChatRequest, fetchHopenityChatDirectory } from '../services/chatService';
 import { fetchMyBookings } from '../services/premiumCallService';
+import { fetchFriendshipStatus } from '../services/friendsService';
 import { getBookingForChat } from '../services/bookingChatMap';
 import {
   selectAuthToken,
@@ -59,7 +60,7 @@ import { Toast } from '../components/Toast';
 import { THEME_1, THEME_2, THEME_3, THEME_4, THEME_5 } from '../assets';
 import { formatLastSeenLine } from '../utils/formatLastSeen';
 import { selectActivePage } from '../redux/features/auth/authSlice';
-import { openHopenityProfile } from '../services/hopenityLinking';
+import { showMemberActions } from '../utils/memberActions';
 import { ShopSheet } from '../components/message/ShopSheet';
 import SharePreviewBar, { type PendingShare } from '../components/message/SharePreviewBar';
 import TypingBubble from '../components/message/TypingBubble';
@@ -67,6 +68,8 @@ import TypingBubble from '../components/message/TypingBubble';
 const PRESET_IMAGES: Record<number, number> = {
   1: THEME_1, 2: THEME_2, 3: THEME_3, 4: THEME_4, 5: THEME_5,
 };
+
+const CHAT_HOST_STYLE = { flex: 1 } as const;
 
 // Stable identity, and taps on the list must not be swallowed by the keyboard.
 const LIST_PROPS = {
@@ -155,8 +158,21 @@ const InboxScreenInner: React.FC<
   const token = useAppSelector(selectAuthToken);
   const hopenityProfile = useAppSelector(selectHopenityProfile);
   const activePage = useAppSelector(selectActivePage);
-  const { setConversations, reloadConversations } = useChats();
+  const { conversations: allConversations, setConversations, reloadConversations } = useChats();
+  const conversationsRef = useRef(allConversations);
+  conversationsRef.current = allConversations;
   const [acceptBusy, setAcceptBusy] = useState(false);
+  // Window-y of the chat body. The keyboard offset was a fixed `insets.top + 60`
+  // (header only), so whenever a banner sat above the chat — request, sent-request,
+  // booking-restricted, "Sending as page" — or the header grew, the composer ended
+  // up behind the keyboard by exactly that much. Measured instead.
+  const chatHostRef = useRef<View>(null);
+  const [chatTopY, setChatTopY] = useState<number | null>(null);
+  const measureChatTop = useCallback(() => {
+    chatHostRef.current?.measureInWindow((_x, y) => {
+      if (Number.isFinite(y)) setChatTopY(prev => (prev === y ? prev : y));
+    });
+  }, []);
   const [needsAcceptance, setNeedsAcceptance] = useState(
     !!conversation.needsAcceptance,
   );
@@ -710,12 +726,19 @@ const InboxScreenInner: React.FC<
           isGroup={conversation.isGroup}
           refreshTrigger={refreshTrigger}
           onPressReactions={() => navigation.navigate('Reactions')}
-          onSenderPress={(senderId) => {
+          onSenderPress={(tappedId, senderName) => {
             // resolvedUid falls back to the literal string 'unknown' when the
             // sender couldn't be matched to local/peer — opening that as a
             // deep link silently fails on Hopenity's side (no such user).
-            if (!senderId || senderId === 'unknown') return;
-            openHopenityProfile(senderId).catch(() => {});
+            if (!tappedId || tappedId === 'unknown') return;
+            if (normalizeChatUserId(tappedId) === normalizeChatUserId(user._id)) return;
+            showMemberActions({
+              userId: tappedId,
+              name: senderName,
+              navigation,
+              token,
+              conversations: conversationsRef.current,
+            });
           }}
         />
       );
@@ -723,6 +746,7 @@ const InboxScreenInner: React.FC<
     [
       refreshTrigger,
       navigation,
+      token,
       user?._id,
       hopenityProfile?.userId,
       conversation.peerUserId,
@@ -1061,13 +1085,18 @@ const InboxScreenInner: React.FC<
 
               return <Day {...props} />;
             }}
-            // Fixed offset for the header above the chat. `automaticOffset`
+            // Measured window-y of the chat body (see chatTopY). `automaticOffset`
             // (Sep 29) mis-measured the chat's window position and left the
             // input toolbar under the keyboard.
             keyboardAvoidingViewProps={{
-              keyboardVerticalOffset: insets.top + 60,
+              keyboardVerticalOffset: chatTopY ?? insets.top + 60,
             }}
           />
+        );
+        const chatHost = (
+          <View ref={chatHostRef} style={CHAT_HOST_STYLE} collapsable={false} onLayout={measureChatTop}>
+            {mainChat}
+          </View>
         );
 
         return chatWallpaperSource ? (
@@ -1082,7 +1111,7 @@ const InboxScreenInner: React.FC<
               {requestBanner}
               {sentRequestBanner}
               {messagingRestrictedBanner}
-              {mainChat}
+              {chatHost}
             </View>
           </ImageBackground>
         ) : (
@@ -1090,7 +1119,7 @@ const InboxScreenInner: React.FC<
             {requestBanner}
             {sentRequestBanner}
             {messagingRestrictedBanner}
-            {mainChat}
+            {chatHost}
           </View>
         );
       })()}
@@ -1159,6 +1188,23 @@ const InboxGate: React.FC<Props> = props => {
     props.route.params.isGroupBooking,
   ]);
 
+  // The intro card used to claim "You're friends on Hopenity" for anyone with a
+  // peer id — including strangers you'd only sent a message request to.
+  const gateToken = useAppSelector(selectAuthToken);
+  const [friendStatus, setFriendStatus] = useState<string | null>(null);
+  useEffect(() => {
+    const peer = conv?.isGroup ? null : conv?.peerUserId;
+    setFriendStatus(null);
+    if (!peer || !gateToken) return undefined;
+    let cancelled = false;
+    fetchFriendshipStatus(peer, gateToken).then(st => {
+      if (!cancelled) setFriendStatus(st);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [conv?.peerUserId, conv?.isGroup, gateToken]);
+
   const threadIntroPeer = useMemo(() => {
     const name = props.route.params.displayName?.trim() || conv?.name || '';
     const avatarUrl = props.route.params.avatarUrl ?? conv?.avatarUrl ?? null;
@@ -1178,19 +1224,24 @@ const InboxGate: React.FC<Props> = props => {
     let subtitle: string;
     if (conv?.needsAcceptance) {
       subtitle = 'Wants to connect with you on Hopenity';
-    } else if (conv?.peerUserId) {
+    } else if (friendStatus === 'ACCEPTED') {
       subtitle = "You're friends on Hopenity";
+    } else if (conv?.isSentRequest) {
+      subtitle = 'Message request sent';
     } else {
       subtitle = 'Hopenity user';
     }
-    return { name, avatarUrl, subtitle };
+    const prompt =
+      friendStatus === 'ACCEPTED' ? undefined : `Say hi to ${name.split(/\s+/)[0] || name}.`;
+    return { name, avatarUrl, subtitle, prompt };
   }, [
+    friendStatus,
+    conv?.isSentRequest,
     conv?.avatarUrl,
     conv?.groupMemberCount,
     conv?.isGroup,
     conv?.name,
     conv?.needsAcceptance,
-    conv?.peerUserId,
     props.route.params.avatarUrl,
     props.route.params.displayName,
   ]);

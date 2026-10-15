@@ -50,8 +50,10 @@ import {
 } from '../services/groupService';
 import { Share, Alert as RNAlert } from 'react-native';
 import { normalizeChatUserId } from '../utils/chatUserId';
-import { openHopenityProfile } from '../services/hopenityLinking';
+import { showMemberActions } from '../utils/memberActions';
 import { appendGroupSystemMessage } from '../services/offlineCache';
+
+import { useChats } from '../context/ChatsContext';
 
 type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'GroupInfo'>;
 
@@ -60,6 +62,7 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
   const styles = useMemo(() => stylesFunc(colorss), [colorss]);
   const { groupId, conversationId } = route.params;
   const token = useAppSelector(selectAuthToken);
+  const { conversations } = useChats();
   const profile = useAppSelector(selectHopenityProfile);
   const myUserId = normalizeChatUserId(profile?.userId) ?? '';
 
@@ -398,7 +401,17 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
             return (
               <View key={member.userId} style={styles.memberRow}>
                 <TouchableOpacity
-                  onPress={() => !isSelf && openHopenityProfile(member.userId).catch(() => {})}
+                  onPress={() =>
+                    !isSelf &&
+                    showMemberActions({
+                      userId: member.userId,
+                      name: member.name ?? '',
+                      avatarUrl: member.image ?? null,
+                      navigation,
+                      token,
+                      conversations,
+                    })
+                  }
                   activeOpacity={isSelf ? 1 : 0.7}
                   disabled={isSelf}
                 >
@@ -410,7 +423,17 @@ const GroupInfoScreen: React.FC<Props> = ({ navigation, route }) => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.memberInfo}
-                  onPress={() => !isSelf && openHopenityProfile(member.userId).catch(() => {})}
+                  onPress={() =>
+                    !isSelf &&
+                    showMemberActions({
+                      userId: member.userId,
+                      name: member.name ?? '',
+                      avatarUrl: member.image ?? null,
+                      navigation,
+                      token,
+                      conversations,
+                    })
+                  }
                   activeOpacity={isSelf ? 1 : 0.7}
                   disabled={isSelf}
                 >

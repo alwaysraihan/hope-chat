@@ -102,3 +102,27 @@ export async function fetchMyFriends(
     return { friends: [] };
   }
 }
+
+/**
+ * Relationship with one user: 'ACCEPTED' (friends), 'PENDING', 'NONE', … or
+ * null when it couldn't be determined (offline / error) — callers must not
+ * treat null as "friends".
+ */
+export async function fetchFriendshipStatus(
+  userId: string,
+  token: string | null,
+): Promise<string | null> {
+  if (!userId || !token) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/friendships/status/${encodeURIComponent(userId)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const payload = json?.responseObject ?? json;
+    return typeof payload?.status === 'string' ? payload.status.toUpperCase() : null;
+  } catch {
+    return null;
+  }
+}

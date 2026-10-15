@@ -11,6 +11,7 @@ class CrossAppAuthPackage : ReactPackage {
       CrossAppAuthModule(reactContext),
       HopeChatCallRingtoneModule(reactContext),
       HopeChatOverlayPermissionModule(reactContext),
+      HopeChatTorchModule(reactContext),
     )
   }
 

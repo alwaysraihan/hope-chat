@@ -1,0 +1,116 @@
+diff --git a/node_modules/@livekit/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java b/node_modules/@livekit/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
+index 95d7687..25749f6 100644
+--- a/node_modules/@livekit/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
++++ b/node_modules/@livekit/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
+@@ -69,6 +69,9 @@ class GetUserMediaImpl {
+             public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
+                 super.onActivityResult(activity, requestCode, resultCode, data);
+                 if (requestCode == PERMISSION_REQUEST_CODE) {
++                    if (displayMediaPromise == null) {
++                        return;
++                    }
+                     if (resultCode != Activity.RESULT_OK) {
+                         displayMediaPromise.reject("DOMException", "NotAllowedError");
+                         displayMediaPromise = null;
+@@ -79,7 +82,21 @@ class GetUserMediaImpl {
+ 
+                     ThreadUtils.runOnExecutor(() -> {
+                         MediaProjectionService.launch(activity);
+-                        createScreenStream();
++                        // getMediaProjection needs the foreground service running (Android 14+).
++                        if (!MediaProjectionService.awaitStarted(5000)) {
++                            Log.w(TAG, "Media projection service did not start in time");
++                        }
++                        try {
++                            createScreenStream();
++                        } catch (Exception e) {
++                            Log.e(TAG, "createScreenStream failed", e);
++                            MediaProjectionService.abort(activity);
++                            if (displayMediaPromise != null) {
++                                displayMediaPromise.reject("DOMException", "AbortError: " + e.getMessage());
++                            }
++                            mediaProjectionPermissionResultData = null;
++                            displayMediaPromise = null;
++                        }
+                     });
+                 }
+             }
+diff --git a/node_modules/@livekit/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/MediaProjectionService.java b/node_modules/@livekit/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/MediaProjectionService.java
+index 26e188c..24957a1 100644
+--- a/node_modules/@livekit/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/MediaProjectionService.java
++++ b/node_modules/@livekit/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/MediaProjectionService.java
+@@ -11,6 +11,8 @@ import android.os.IBinder;
+ import android.util.Log;
+ 
+ import java.util.Random;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.TimeUnit;
+ 
+ /**
+  * This class implements an Android {@link Service}, a foreground one specifically, and it's
+@@ -24,6 +26,31 @@ public class MediaProjectionService extends Service {
+ 
+     static final int NOTIFICATION_ID = new Random().nextInt(99999) + 10000;
+ 
++    /**
++     * Counted down once onStartCommand has called startForeground. Android 14+ throws a
++     * SecurityException from getMediaProjection until a mediaProjection-type foreground service
++     * is running, and startForegroundService only queues the start; the capturer swallows that
++     * exception, leaving a live track that never produces frames (black screen share).
++     */
++    private static volatile CountDownLatch startedLatch;
++
++    /**
++     * Blocks (never call on the main thread) until the service is in the foreground, or the
++     * timeout passes. Returns true when it started, or when the service is disabled/not needed.
++     */
++    public static boolean awaitStarted(long timeoutMs) {
++        CountDownLatch latch = startedLatch;
++        if (latch == null) {
++            return true;
++        }
++        try {
++            return latch.await(timeoutMs, TimeUnit.MILLISECONDS);
++        } catch (InterruptedException e) {
++            Thread.currentThread().interrupt();
++            return false;
++        }
++    }
++
+     public static void launch(Context context) {
+         if (!WebRTCModuleOptions.getInstance().enableMediaProjectionService) {
+             return;
+@@ -32,6 +59,7 @@ public class MediaProjectionService extends Service {
+         MediaProjectionNotification.createNotificationChannel(context);
+         Intent intent = new Intent(context, MediaProjectionService.class);
+         ComponentName componentName;
++        startedLatch = new CountDownLatch(1);
+ 
+         try {
+             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+@@ -43,11 +71,13 @@ public class MediaProjectionService extends Service {
+             // Avoid crashing due to ForegroundServiceStartNotAllowedException (API level 31).
+             // See: https://developer.android.com/guide/components/foreground-services#background-start-restrictions
+             Log.w(TAG, "Media projection service not started", e);
++            startedLatch = null;
+             return;
+         }
+ 
+         if (componentName == null) {
+             Log.w(TAG, "Media projection service not started");
++            startedLatch = null;
+         } else {
+             Log.i(TAG, "Media projection service started");
+         }
+@@ -77,6 +107,11 @@ public class MediaProjectionService extends Service {
+             startForeground(NOTIFICATION_ID, notification);
+         }
+ 
++        CountDownLatch latch = startedLatch;
++        if (latch != null) {
++            latch.countDown();
++        }
++
+         return START_NOT_STICKY;
+     }
+ }

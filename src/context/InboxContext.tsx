@@ -101,6 +101,7 @@ import {
   type CallOutcomeAppliedPayload,
 } from '../services/callOutcomeBus';
 import { callSocket } from '../services/callSocket';
+import { CHAT_READ_LOCALLY_EVENT, isChatOpen, setOpenChatId } from '../services/openChat';
 import {
   extractMessageSenderId,
   extractOutgoingHint,
@@ -208,6 +209,9 @@ interface InboxContextValue {
 
   /** True when E2EE is active for the current conversation (DM or group). */
   isEncrypted: boolean;
+
+  /** Group only: other members, for @mention suggestions in the composer. */
+  mentionCandidates: Array<{ userId: string; name: string; avatar?: string | null }>;
 
   /**
    * Register a scroll-to-message function from InboxScreen once the
@@ -346,6 +350,9 @@ export function InboxProvider({
    */
   const senderProfilesRef = useRef<Map<string, { name?: string; avatar?: string }>>(new Map());
   const [senderProfilesVersion, setSenderProfilesVersion] = useState(0);
+  const [groupMembers, setGroupMembers] = useState<
+    Array<{ userId: string; name: string; avatar?: string | null }>
+  >([]);
   const rememberSenderProfile = useCallback(
     (userId: string, name?: string | null, avatar?: string | null): boolean => {
       const id = normalizeChatUserId(userId) || String(userId ?? '');
@@ -427,6 +434,13 @@ export function InboxProvider({
     const pending = fetchGroupInfo(_conversationId, token)
       .then(info => {
         const memberIds = (info?.members ?? []).map(m => m.userId);
+        if (!cancelled) {
+          setGroupMembers(
+            (info?.members ?? [])
+              .filter(m => m?.userId && m.name)
+              .map(m => ({ userId: String(m.userId), name: String(m.name), avatar: m.image ?? null })),
+          );
+        }
         let learned = false;
         for (const m of info?.members ?? []) {
           if (m?.userId && rememberSenderProfile(String(m.userId), m.name, m.image ?? null)) {
@@ -1140,6 +1154,60 @@ export function InboxProvider({
     // the group crypto key resolves or the inbox list re-renders (those are
     // handled by the retro-decrypt pass + fresh polls / loadEarlier).
   }, [_conversationId, token, threadIntroPeer, useV2Messages, isGroup]);
+
+  // ─── Read receipts while the chat is open ─────────────────────────────────
+  // The chat used to be marked read only once, on open. Anything that arrived
+  // while the user was looking at it stayed unread on the server, so the row
+  // came back "unread" the moment they left.
+  const markReadRef = useRef<() => void>(() => undefined);
+  markReadRef.current = () => {
+    if (!_conversationId || !token) return;
+    markHopenityChatRead(_conversationId, token, isGroup, useV2Messages).catch(() => undefined);
+    DeviceEventEmitter.emit(CHAT_READ_LOCALLY_EVENT, _conversationId);
+  };
+
+  useEffect(() => {
+    if (!_conversationId) return undefined;
+    setOpenChatId(_conversationId);
+    DeviceEventEmitter.emit(CHAT_READ_LOCALLY_EVENT, _conversationId);
+    // Back from the background with the chat still open — what arrived meanwhile is now seen.
+    const sub = AppState.addEventListener('change', s => {
+      if (s === 'active') markReadRef.current();
+    });
+    return () => {
+      sub.remove();
+      if (isChatOpen(_conversationId)) setOpenChatId(null);
+      markReadRef.current();
+    };
+  }, [_conversationId]);
+
+  const newestPeerMessageId = useMemo(() => {
+    const me = normalizeChatUserId(user._id);
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const m = allMessages[i]!;
+      if (m.pending || m.failed || m.system) continue;
+      if (normalizeChatUserId(String(m.user?._id ?? '')) === me) continue;
+      return String(m._id);
+    }
+    return null;
+  }, [allMessages, user._id]);
+
+  const lastMarkedPeerIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!newestPeerMessageId) return undefined;
+    // The first value is the history the open-time load already marked read.
+    if (lastMarkedPeerIdRef.current == null) {
+      lastMarkedPeerIdRef.current = newestPeerMessageId;
+      return undefined;
+    }
+    if (lastMarkedPeerIdRef.current === newestPeerMessageId) return undefined;
+    if (AppState.currentState !== 'active') return undefined;
+    const t = setTimeout(() => {
+      lastMarkedPeerIdRef.current = newestPeerMessageId;
+      markReadRef.current();
+    }, 800);
+    return () => clearTimeout(t);
+  }, [newestPeerMessageId]);
 
   // ─── Live poll: fetch new messages, on-demand (socket push) and every 15 s
   // as a fallback while this chat is open ────────────────────────────────────
@@ -2634,9 +2702,18 @@ function isVideoAsset(asset: {
     [],
   );
 
+  const mentionCandidates = useMemo(
+    () =>
+      isGroup
+        ? groupMembers.filter(m => normalizeChatUserId(m.userId) !== localUserIdStr)
+        : [],
+    [isGroup, groupMembers, localUserIdStr],
+  );
+
   const value = useMemo(
     () => ({
       // State
+      mentionCandidates,
       messages: messagesForUi,
       setText,
       initialText,
@@ -2749,6 +2826,7 @@ function isVideoAsset(asset: {
       registerScrollToMessage,
       wrapRef,
       swipeRef,
+      mentionCandidates,
     ],
   );
 
