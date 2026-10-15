@@ -80,12 +80,6 @@ export async function openPlayStore(): Promise<void> {
 }
 
 /**
- * Opens the Hopenity app on the public profile page of the given user.
- * Tries the deep-link scheme first (hopenity://hopenity.com/profile/{userId});
- * falls back to opening the web profile URL in the browser if the app is not
- * installed or the scheme is not handled.
- */
-/**
  * Open a hopenity.com path inside the Hopenity app, falling back to the web.
  *
  * Always tries the `hopenity://` custom scheme first, on both platforms.
@@ -119,27 +113,42 @@ async function openHopenityPath(path: string): Promise<void> {
   }
 }
 
+/**
+ * Open a public hopenity.com link as-is. The OS hands it to the Hopenity app
+ * through App Links / Universal Links when it is installed, and to the browser
+ * otherwise. Profiles go this way rather than through the `hopenity://` scheme,
+ * which did not land on the profile.
+ */
+async function openHopenityWeb(path: string): Promise<void> {
+  const clean = path.replace(/^\/+/, '');
+  try {
+    await Linking.openURL(`https://hopenity.com/${clean}`);
+  } catch {
+    /* nothing else to try */
+  }
+}
+
 export async function openHopenityPost(postId: string | number): Promise<void> {
   const id = String(postId ?? '').trim();
   if (!id) { await openHopenityBestEffort(); return; }
   await openHopenityPath(`post/${id}`);
 }
 
-export async function openHopenityProfile(userId: string | number): Promise<void> {
-  const id = String(userId ?? '').trim();
+/**
+ * https://hopenity.com/user/{username} — the site also resolves a user id in
+ * that slot (Hopenity's own share links fall back to the id), so either works.
+ */
+export async function openHopenityProfile(usernameOrId: string | number): Promise<void> {
+  const id = String(usernameOrId ?? '').trim();
   if (!id) { await openHopenityBestEffort(); return; }
-  await openHopenityPath(`user/${id}`);
+  await openHopenityWeb(`user/${encodeURIComponent(id)}`);
 }
 
-/**
- * Page profile. Hopenity's parser accepts `page`, `pages` and `page-profile`,
- * but its Android manifest only auto-verifies `/pages/` and `/page-profile/` —
- * so `/page/` links reach the app through the custom scheme only.
- */
-export async function openHopenityPage(pageId: string | number): Promise<void> {
-  const id = String(pageId ?? '').trim();
+/** https://hopenity.com/page/{pagename} — a page id is accepted too. */
+export async function openHopenityPage(pageNameOrId: string | number): Promise<void> {
+  const id = String(pageNameOrId ?? '').trim();
   if (!id) { await openHopenityBestEffort(); return; }
-  await openHopenityPath(`pages/${id}`);
+  await openHopenityWeb(`page/${encodeURIComponent(id)}`);
 }
 
 /** hoppi.live product / seller. Dispatched by host, so the host must survive. */

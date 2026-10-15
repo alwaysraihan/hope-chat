@@ -45,7 +45,7 @@ import {
 import { resolveLiveKitRoomName } from '../utils/livekitRoomId';
 import { notifyPeerIncomingHopeChatCall } from '../services/invitePeerToHopeChatCall';
 import { fetchHopenityChatDirectory } from '../services/chatService';
-import { openHopenityProfile } from '../services/hopenityLinking';
+import { openHopenityPage, openHopenityProfile } from '../services/hopenityLinking';
 import { readThreadMessagesCache } from '../services/offlineCache';
 import { normalizeChatUserId } from '../utils/chatUserId';
 import { Toast } from '../components/Toast';
@@ -185,6 +185,10 @@ const ProfileScreen: React.FC<Props> = ({ navigation, route }) => {
       name: 'Profile',
       icon: <User fill="white" stroke="white" />,
       onPress: () => {
+        if (conversation?.peerPageId) {
+          openHopenityPage(conversation.peerPageId).catch(() => {});
+          return;
+        }
         if (!hopenityUserId) {
           Toast.show("Can't open this profile right now", 'error');
           return;

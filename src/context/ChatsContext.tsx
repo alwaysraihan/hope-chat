@@ -121,6 +121,8 @@ export type ConversationSummary = {
   isSentRequest?: boolean;
   /** Other user in a 1:1 chat — used for E2EE key agreement + previews. */
   peerUserId?: string | null;
+  /** Set when the other side of a 1:1 is a Hopenity Page — its profile is /page/{id}, not /user/{id}. */
+  peerPageId?: string | null;
   /** Server-provided chat chrome (optional); merged in Inbox with local theme prefs. */
   remoteWallpaperUrl?: string | null;
   remoteThemePresetId?: number | null;
@@ -787,6 +789,16 @@ export function mapChatItemToSummary(
   // Outgoing request: we initiated it and the other side hasn't accepted yet.
   const isSentRequest = isRequested && requestedByLocal;
 
+  // The peer is the side that isn't us; only that side's PAGE type matters.
+  const peerSide = isLocalSideA ? 'B' : isLocalSideB ? 'A' : null;
+  const peerPageRaw =
+    isGroup || !peerSide
+      ? null
+      : peerSide === 'A'
+      ? chat.userAProfileType === 'PAGE' ? chat.userAPageId : null
+      : chat.userBProfileType === 'PAGE' ? chat.userBPageId : null;
+  const peerPageId = peerPageRaw != null && String(peerPageRaw) !== '' ? String(peerPageRaw) : null;
+
   const ct = chat.chatTheme;
 
   const presence = extractPeerPresence(chat, localUser._id);
@@ -831,6 +843,7 @@ export function mapChatItemToSummary(
     needsAcceptance,
     isSentRequest,
     peerUserId: peerUserNorm,
+    peerPageId,
     peerIsVerified: isGroup ? undefined : extractPeerVerified(chat, localUser._id),
     peerHasActiveStory: storyHints.peerHasActiveStory,
     peerStoryCount: storyHints.peerStoryCount,
