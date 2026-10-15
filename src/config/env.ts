@@ -25,7 +25,7 @@ export const API_BASE_URL =
   trim(E_API_BASE_URL) || 'https://api.hopenity.com';
 
 export const LIVEKIT_URL =
-  trim(E_LIVEKIT_URL) || 'https://livekit.hopenity.com';
+  trim(E_LIVEKIT_URL) || 'https://hopetalk.hopenity.com';
 
 export const LIVEKIT_API_KEY = trim(E_LIVEKIT_API_KEY);
 

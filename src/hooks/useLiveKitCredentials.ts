@@ -146,7 +146,7 @@ export function useLiveKitCredentials(options: {
         setToken(null);
         setErrorCode('mint_not_configured');
         setError(
-          'Set LIVEKIT_URL / LIVEKIT_TOKEN_SERVICE_URL in src/config/env.ts (e.g. https://livekit.hopenity.com), or LIVEKIT_DEV_TOKEN for CLI tokens.',
+          'Set LIVEKIT_URL / LIVEKIT_TOKEN_SERVICE_URL in src/config/env.ts (e.g. https://hopetalk.hopenity.com), or LIVEKIT_DEV_TOKEN for CLI tokens.',
         );
         return;
       }

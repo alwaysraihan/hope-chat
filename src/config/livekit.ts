@@ -18,7 +18,7 @@ import {
 } from './env';
 
 /** Self-hosted stack — DNS A/AAAA → LiveKit VPS, TLS via Nginx. */
-export const LIVEKIT_DEFAULT_HOSTNAME = 'livekit.hopenity.com';
+export const LIVEKIT_DEFAULT_HOSTNAME = 'hopetalk.hopenity.com';
 
 const trim = (v: string | undefined) => (typeof v === 'string' ? v.trim() : '');
 

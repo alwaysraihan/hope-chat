@@ -16,7 +16,7 @@ export type MintLiveKitTokenParams = {
   signal?: AbortSignal;
 };
 
-/** POST /v1/livekit/token against your VPS (e.g. https://livekit.hopenity.com). */
+/** POST /v1/livekit/token against your VPS (e.g. https://hopetalk.hopenity.com). */
 export async function mintLiveKitToken({
   baseUrl,
   issuerSecret,
