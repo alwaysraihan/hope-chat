@@ -53,6 +53,10 @@
 	<string>Hopechat needs access to your photo library so you can send photos and videos in chats.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
+	<key>RTCAppGroupIdentifier</key>
+	<string>group.com.hopenity.shared</string>
+	<key>RTCScreenSharingExtension</key>
+	<string>com.hopechat.ScreenShare</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

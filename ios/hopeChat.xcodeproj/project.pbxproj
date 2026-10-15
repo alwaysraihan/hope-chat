@@ -8,38 +8,79 @@
 
 /* Begin PBXBuildFile section */
 		0C80B921A6F3F58F76C31292 /* libPods-hopeChat.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-hopeChat.a */; };
+		0CE2A922D493110FD97D8687 /* SocketConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE3D0359E2163B3483B7366 /* SocketConnection.swift */; };
+		0CED3012801D7B3A6B337864 /* SampleUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B9BD5AC2DD97003882FE33A /* SampleUploader.swift */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		1D3B1C4C619BF3A5E76C0B5C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		466429DD471FAB65AC8BE8BF /* ScreenShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EFC3F83D5B89222C61932B2E /* ScreenShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		9088C57685F342A1864956EC /* Colors.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D7EBD407B9B44176B2CA6283 /* Colors.xcassets */; };
+		9CC476AFE3C1BE66BA79C4E2 /* SampleHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A762B7323A97A4C43E01A9 /* SampleHandler.swift */; };
 		A1B010011A68108700A75F01 /* HopeChatCallRingtone.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B010021A68108700A75F01 /* HopeChatCallRingtone.m */; };
-		A1B010051A68108700A75F01 /* HopeChatTorch.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B010061A68108700A75F01 /* HopeChatTorch.m */; };
 		A1B010031A68108700A75F01 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A1B010041A68108700A75F01 /* GoogleService-Info.plist */; };
+		A1B010051A68108700A75F01 /* HopeChatTorch.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B010061A68108700A75F01 /* HopeChatTorch.m */; };
 		F2CDDE6B97E141A7AB5192EF /* BootSplash.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7D91C7AF3683458FBD2AA350 /* BootSplash.storyboard */; };
 		FA01ABCD1A68108700A75B9A /* CrossAppAuthStorage.m in Sources */ = {isa = PBXBuildFile; fileRef = FA02ABCD1A68108700A75B9A /* CrossAppAuthStorage.m */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		BFC3E14A16FF6BC2CF6EDC67 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 170D1EF05A6A86E7C065591F;
+			remoteInfo = ScreenShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		452AD6D545922423536175AE /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				466429DD471FAB65AC8BE8BF /* ScreenShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		0B9BD5AC2DD97003882FE33A /* SampleUploader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SampleUploader.swift; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* hopeChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = hopeChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = hopeChat/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = hopeChat/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = hopeChat/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-hopeChat.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-hopeChat.debug.xcconfig"; path = "Target Support Files/Pods-hopeChat/Pods-hopeChat.debug.xcconfig"; sourceTree = "<group>"; };
+		3BE3D0359E2163B3483B7366 /* SocketConnection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SocketConnection.swift; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-hopeChat.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-hopeChat.release.xcconfig"; path = "Target Support Files/Pods-hopeChat/Pods-hopeChat.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-hopeChat.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-hopeChat.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		675D63AC026DA68EEF23BBCC /* ScreenShare.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ScreenShare.entitlements; sourceTree = "<group>"; };
+		751A2DE71D721B42C286F8F1 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = hopeChat/AppDelegate.swift; sourceTree = "<group>"; };
 		7D91C7AF3683458FBD2AA350 /* BootSplash.storyboard */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = BootSplash.storyboard; path = hopeChat/BootSplash.storyboard; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = hopeChat/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A1B010021A68108700A75F01 /* HopeChatCallRingtone.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = HopeChatCallRingtone.m; path = hopeChat/HopeChatCallRingtone.m; sourceTree = "<group>"; };
-		A1B010061A68108700A75F01 /* HopeChatTorch.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = HopeChatTorch.m; path = hopeChat/HopeChatTorch.m; sourceTree = "<group>"; };
 		A1B010041A68108700A75F01 /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "hopeChat/GoogleService-Info.plist"; sourceTree = "<group>"; };
+		A1B010061A68108700A75F01 /* HopeChatTorch.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = HopeChatTorch.m; path = hopeChat/HopeChatTorch.m; sourceTree = "<group>"; };
+		C8A762B7323A97A4C43E01A9 /* SampleHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
 		D7EBD407B9B44176B2CA6283 /* Colors.xcassets */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = folder.assetcatalog; name = Colors.xcassets; path = hopeChat/Colors.xcassets; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		EFC3F83D5B89222C61932B2E /* ScreenShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScreenShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA02ABCD1A68108700A75B9A /* CrossAppAuthStorage.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = CrossAppAuthStorage.m; path = hopeChat/CrossAppAuthStorage.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		12080F544E4412122EA412C6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		13B07F8C1A680F5B00A75B9A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -93,6 +134,7 @@
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
+				9323A8DB3756BCB4DAF1E1CB /* ScreenShare */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -103,8 +145,22 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* hopeChat.app */,
+				EFC3F83D5B89222C61932B2E /* ScreenShare.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		9323A8DB3756BCB4DAF1E1CB /* ScreenShare */ = {
+			isa = PBXGroup;
+			children = (
+				C8A762B7323A97A4C43E01A9 /* SampleHandler.swift */,
+				3BE3D0359E2163B3483B7366 /* SocketConnection.swift */,
+				0B9BD5AC2DD97003882FE33A /* SampleUploader.swift */,
+				751A2DE71D721B42C286F8F1 /* Info.plist */,
+				675D63AC026DA68EEF23BBCC /* ScreenShare.entitlements */,
+			);
+			name = ScreenShare;
+			path = ScreenShare;
 			sourceTree = "<group>";
 		};
 		BBD78D7AC51CEA395F1C20DB /* Pods */ = {
@@ -127,6 +183,7 @@
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
+				452AD6D545922423536175AE /* Embed Foundation Extensions */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */,
 				E235C05ADACE081382539298 /* [CP] Copy Pods Resources */,
@@ -135,11 +192,29 @@
 			buildRules = (
 			);
 			dependencies = (
+				00050AB26344DA333CB0B88D /* PBXTargetDependency */,
 			);
 			name = hopeChat;
 			productName = hopeChat;
 			productReference = 13B07F961A680F5B00A75B9A /* hopeChat.app */;
 			productType = "com.apple.product-type.application";
+		};
+		170D1EF05A6A86E7C065591F /* ScreenShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2D5F8C532D19E7F66BB54651 /* Build configuration list for PBXNativeTarget "ScreenShare" */;
+			buildPhases = (
+				1E3285E0EABDAFF28DE5A97F /* Sources */,
+				12080F544E4412122EA412C6 /* Frameworks */,
+				116A1F01115F9EF18E3DE88C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScreenShare;
+			productName = ScreenShare;
+			productReference = EFC3F83D5B89222C61932B2E /* ScreenShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -168,11 +243,19 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* hopeChat */,
+				170D1EF05A6A86E7C065591F /* ScreenShare */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		116A1F01115F9EF18E3DE88C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		13B07F8E1A680F5B00A75B9A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -288,7 +371,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1E3285E0EABDAFF28DE5A97F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9CC476AFE3C1BE66BA79C4E2 /* SampleHandler.swift in Sources */,
+				0CE2A922D493110FD97D8687 /* SocketConnection.swift in Sources */,
+				0CED3012801D7B3A6B337864 /* SampleUploader.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		00050AB26344DA333CB0B88D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ScreenShare;
+			target = 170D1EF05A6A86E7C065591F /* ScreenShare */;
+			targetProxy = BFC3E14A16FF6BC2CF6EDC67 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
@@ -515,6 +617,59 @@
 			};
 			name = Release;
 		};
+		9EEF8640FFAE880B234194C7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = ScreenShare/ScreenShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = M5KASSDH5L;
+				INFOPLIST_FILE = ScreenShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hopechat.ScreenShare;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		CCB02BC93A761147530469B3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = ScreenShare/ScreenShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = M5KASSDH5L;
+				INFOPLIST_FILE = ScreenShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hopechat.ScreenShare;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -523,6 +678,15 @@
 			buildConfigurations = (
 				13B07F941A680F5B00A75B9A /* Debug */,
 				13B07F951A680F5B00A75B9A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2D5F8C532D19E7F66BB54651 /* Build configuration list for PBXNativeTarget "ScreenShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9EEF8640FFAE880B234194C7 /* Release */,
+				CCB02BC93A761147530469B3 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -18,6 +18,8 @@ import {
   Alert,
   BackHandler,
   ToastAndroid,
+  NativeModules,
+  findNodeHandle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -105,7 +107,10 @@ import {
   sendCallHangup,
   subscribeCallHangup,
 } from '../services/livekit/callHangupBus';
-import { mediaDevices } from '@livekit/react-native-webrtc';
+import {
+  mediaDevices,
+  ScreenCapturePickerView,
+} from '@livekit/react-native-webrtc';
 import { isTorchAvailable, setTorch } from '../services/livekit/torch';
 import {
   beginCallTransition,
@@ -122,9 +127,12 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
  */
 const PUBLISH_VIDEO_ON_LIVEKIT_CONNECT =
   Platform.OS === 'ios' || liveKitAndroidPublishVideoEnabled();
-/** See the screen-share button: Android only until iOS has a broadcast extension. */
+/**
+ * Android: mediaProjection service (MainApplication), gated like camera publish.
+ * iOS: frames come from the ScreenShare broadcast upload extension (ios/ScreenShare).
+ */
 const SCREEN_SHARE_SUPPORTED =
-  Platform.OS === 'android' && liveKitAndroidPublishVideoEnabled();
+  Platform.OS === 'ios' || liveKitAndroidPublishVideoEnabled();
 /** Remote video needs subscription; only disable on Android crash-mitigation path. */
 const videoCallConnectOptions =
   Platform.OS === 'android' && !liveKitAndroidPublishVideoEnabled()
@@ -963,12 +971,21 @@ function VideoStage({
   }, [forceEndCallWithAlert, localParticipant, isCameraEnabled]);
 
   const screenShareBusyRef = useRef(false);
+  const screenCapturePickerRef = useRef(null);
   const toggleScreenShare = useCallback(() => {
     // The system capture prompt takes a while; ignore taps until it settles.
     if (screenShareBusyRef.current) return;
     screenShareBusyRef.current = true;
-    localParticipant
-      .setScreenShareEnabled(!isScreenShareEnabled)
+    // iOS: open the system broadcast sheet so the user can start the ScreenShare
+    // extension; getDisplayMedia then waits for its frames on the App Group socket.
+    const showIosPicker = async () => {
+      if (Platform.OS !== 'ios' || isScreenShareEnabled) return;
+      const tag = findNodeHandle(screenCapturePickerRef.current);
+      if (tag == null) throw new Error('Screen capture picker not mounted');
+      await NativeModules.ScreenCapturePickerViewManager.show(tag);
+    };
+    showIosPicker()
+      .then(() => localParticipant.setScreenShareEnabled(!isScreenShareEnabled))
       .catch(err => {
         const msg = String((err as { message?: unknown })?.message ?? err);
         // Cancelling the "Start recording or casting?" prompt is not an error.
@@ -1493,10 +1510,6 @@ function VideoStage({
                 )}
               </TouchableOpacity>
             ) : null}
-            {/* Android only: the mediaProjection service is enabled in MainApplication;
-                gated like camera publishing since both publish a video track. iOS
-                needs a ReplayKit Broadcast Upload Extension (not in the project yet) —
-                without it getDisplayMedia publishes a track that never gets frames. */}
             {SCREEN_SHARE_SUPPORTED ? (
               <TouchableOpacity
                 style={[
@@ -1509,6 +1522,11 @@ function VideoStage({
               >
                 <MonitorUp size={22} color={'white'} />
               </TouchableOpacity>
+            ) : null}
+            {Platform.OS === 'ios' && SCREEN_SHARE_SUPPORTED ? (
+              <View style={styles.hiddenPicker} pointerEvents="none">
+                <ScreenCapturePickerView ref={screenCapturePickerRef} />
+              </View>
             ) : null}
           </View>
 
@@ -1917,6 +1935,13 @@ const styles = StyleSheet.create({
   },
   ctrlHighlight: {
     backgroundColor: 'rgba(59,130,246,0.75)',
+  },
+  // iOS broadcast picker: only its button is tapped programmatically.
+  hiddenPicker: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
   addPeopleTopBtn: {
     width: 36,
