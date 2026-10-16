@@ -71,7 +71,43 @@ function durationSecondsFromMessage(m: ApiLastMessageLike): number | undefined {
 }
 
 /**
- * Inbox / home list subtitle — matches WhatsApp-style call + voice lines when API sends types.
+ * Hopenity's own messenger wire formats (see Hopenity MessageService.ts):
+ *   __hopechat_post__:{"postId":"…","postDetails":"…",…}   — "Send message" on a post / ad
+ *   __hopechat_media__:{"kind":"image"|"voice","url":"…"}
+ * Shown raw they are a wall of JSON, so rewrite them into what HopeChat already
+ * renders: the post link (→ PostCardPreview) or the media URL (→ photo/voice).
+ */
+const HOPENITY_POST_PREFIX = '__hopechat_post__:';
+const HOPENITY_MEDIA_PREFIX = '__hopechat_media__:';
+
+function parsePrefixedJson(text: string, prefix: string): Record<string, unknown> | null {
+  const t = text.trim();
+  if (!t.startsWith(prefix)) return null;
+  try {
+    const parsed = JSON.parse(t.slice(prefix.length));
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function hopenityPostIdFromContent(text: string): string | null {
+  const p = parsePrefixedJson(text, HOPENITY_POST_PREFIX);
+  const id = String(p?.postId ?? '').trim();
+  return id || null;
+}
+
+export function normalizeHopenityWireContent(text: string): string {
+  if (!text || !text.trimStart().startsWith('__hopechat_')) return text;
+  const postId = hopenityPostIdFromContent(text);
+  if (postId) return `https://hopenity.com/post/${encodeURIComponent(postId)}`;
+  const media = parsePrefixedJson(text, HOPENITY_MEDIA_PREFIX);
+  const url = typeof media?.url === 'string' ? media.url.trim() : '';
+  if (url) return url;
+  return text;
+}
+
+/** Inbox / home list subtitle — matches WhatsApp-style call + voice lines when API sends types.
  * Backend: set `messageType`, durations, `missed`, `callKind` on `lastMessage`.
  */
 export function formatChatListPreview(
@@ -132,6 +168,10 @@ export function formatChatListPreview(
   }
   // Web-generated structured messages: content starts with "JSON:{...}"
   const contentStr = String(last.content ?? '').trimStart();
+  if (hopenityPostIdFromContent(contentStr)) {
+    const base = '📝 Shared a post';
+    return senderIsLocal ? `You: ${base}` : base;
+  }
   if (contentStr.startsWith('JSON:')) {
     try {
       const parsed = JSON.parse(contentStr.slice(5)) as Record<string, unknown>;
@@ -162,7 +202,7 @@ export function formatChatListPreview(
   }
 
   // Fallback: plain text preview (length capped in caller)
-  const trimmed = String(last.content ?? '').trim();
+  const trimmed = normalizeHopenityWireContent(String(last.content ?? '')).trim();
   if (!trimmed) {
     if (durClock) {
       const fallback = `🎤 ${durClock}`;
@@ -298,9 +338,9 @@ export function mapApiMessageToTimeline(
 ): ParsedApiMessage {
   const meta =
     (raw.metadata as Record<string, unknown> | undefined) ?? {};
-  const messageText = String(
+  const messageText = normalizeHopenityWireContent(String(
     raw.content ?? raw.text ?? '',
-  );
+  ));
   const rawType = String(
     raw.messageType ?? raw.type ?? raw.kind ?? meta.messageType ?? '',
   ).toLowerCase();

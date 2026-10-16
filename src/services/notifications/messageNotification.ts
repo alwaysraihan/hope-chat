@@ -4,6 +4,7 @@ import notifee, {
 } from '@notifee/react-native';
 
 import { decryptNotificationBody } from './decryptNotificationBody';
+import { hopenityPostIdFromContent } from '../chatMessagePreview';
 
 export const MESSAGE_CHANNEL_ID = 'hopechat_messages_v1';
 
@@ -208,12 +209,16 @@ export async function displayMessagingNotification(
   // decrypting locally, which is exactly what this does.
   const decrypted = isDonationRequest ? null : decryptNotificationBody(data);
 
-  const messageText = isDonationRequest
+  const rawMessageText = isDonationRequest
     ? pick(data, 'text', 'body', 'message', 'content') ||
       'Someone is interested in your request.'
     : decrypted ||
       pick(data, 'message_preview', 'body', 'message', 'content') ||
       'You have a new message';
+  // Hopenity's post-share wire format is JSON — never show that in a banner.
+  const messageText = hopenityPostIdFromContent(rawMessageText)
+    ? '📝 Shared a post'
+    : rawMessageText;
 
   /**
    * Collapsed row text. Android shows only title + body when the notification is

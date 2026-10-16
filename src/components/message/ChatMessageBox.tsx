@@ -21,6 +21,7 @@ import ChatThreadIntroCard from './ChatThreadIntroCard';
 import AudioPlayer from './AudioPlayer';
 import { ProductCardPreview } from './ProductCardPreview';
 import { PostCardPreview } from './PostCardPreview';
+import { normalizeHopenityWireContent } from '../../services/chatMessagePreview';
 import DonationRequestBubble from './DonationRequestBubble';
 import BookingCardBubble from './BookingCardBubble';
 import StoryReplyBubble from './StoryReplyBubble';
@@ -808,7 +809,8 @@ function ChatMessageBoxImpl(props: ChatMessageBoxProps) {
   }
 
   // Detect the first hoppi.live product URL in the message for a preview card.
-  const rawText = msg?.text ?? '';
+  // Messages cached before the wire-format decoder existed still hold raw JSON.
+  const rawText = normalizeHopenityWireContent(msg?.text ?? '');
   const allUrls = rawText.match(URL_RE) ?? [];
   // Matched against the raw text, not the whitespace-split URL list, so a
   // reference containing spaces survives intact.
