@@ -127,6 +127,8 @@ type Props = NativeStackScreenProps<RootStackNavigatorParamList, 'VideoCall'>;
  */
 const PUBLISH_VIDEO_ON_LIVEKIT_CONNECT =
   Platform.OS === 'ios' || liveKitAndroidPublishVideoEnabled();
+/** Flashlight button in the call controls — hidden for now; flip to bring it back. */
+const TORCH_BUTTON_ENABLED = false;
 /**
  * Android: mediaProjection service (MainApplication), gated like camera publish.
  * iOS: frames come from the ScreenShare broadcast upload extension (ios/ScreenShare).
@@ -1038,6 +1040,7 @@ function VideoStage({
       ? localCameraTrack.publication?.track?.mediaStreamTrack?.id ?? null
       : null;
   const showTorch =
+    TORCH_BUTTON_ENABLED &&
     PUBLISH_VIDEO_ON_LIVEKIT_CONNECT &&
     torchSupported &&
     isCameraEnabled &&
@@ -1917,8 +1920,12 @@ const styles = StyleSheet.create({
   },
   controlsRow: {
     flexDirection: 'row',
+    // Too many buttons for a narrow phone wrap onto a second, centered row
+    // instead of running off both edges.
+    flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 14,
+    columnGap: 14,
+    rowGap: 12,
     paddingVertical: 10,
     paddingHorizontal: 8,
   },

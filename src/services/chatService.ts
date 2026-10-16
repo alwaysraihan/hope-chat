@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '../config/env';
 import { callSocket } from './callSocket';
+import { formatClock12h } from '../utils/formatLastSeen';
 
 // v2/chats returns both DMs and group chats; v1/chats returns DMs only.
 const CHAT_LIST_ENDPOINT = '/api/v2/chats';
@@ -1279,7 +1280,7 @@ export function formatChatTime(timestamp?: string): string {
     date.getDate() === now.getDate();
 
   if (isToday) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return formatClock12h(date);
   }
 
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });

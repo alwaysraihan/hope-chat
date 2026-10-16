@@ -1021,6 +1021,9 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    // Wrap rather than overflow on narrow phones / large font scales.
+    flexWrap: 'wrap',
+    rowGap: 16,
     justifyContent: 'space-around',
     marginBottom: 40,
     marginHorizontal: 12,

@@ -2,6 +2,19 @@
  * Human-readable "last seen …" for chat headers (Hopenity-style).
  */
 
+/**
+ * "2:05 PM" regardless of device locale. The locale default is 24-hour on many
+ * Android builds (and Bengali digits under bn-BD), unlike the chat bubbles,
+ * which already pin en-US 12-hour.
+ */
+export function formatClock12h(d: Date): string {
+  return d.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 function parseTime(raw: string): Date | null {
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;
@@ -47,17 +60,11 @@ export function formatLastSeenLine(isoOrMs: string | number | null | undefined):
     return `last seen ${m}m ago`;
   }
   if (isToday(d)) {
-    const t = d.toLocaleTimeString(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+    const t = formatClock12h(d);
     return `last seen today at ${t}`;
   }
   if (isYesterday(d)) {
-    const t = d.toLocaleTimeString(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+    const t = formatClock12h(d);
     return `last seen yesterday at ${t}`;
   }
   const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
