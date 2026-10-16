@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   ImageBackground,
+  Platform,
 } from 'react-native';
 import {
   Day,
@@ -1088,8 +1089,15 @@ const InboxScreenInner: React.FC<
             // Measured window-y of the chat body (see chatTopY). `automaticOffset`
             // (Sep 29) mis-measured the chat's window position and left the
             // input toolbar under the keyboard.
+            // Android: measureInWindow's y starts BELOW the status bar, while
+            // keyboard-controller's screen height (which this offset is
+            // subtracted from) includes it — add it back, or the composer sits
+            // a status-bar-height under the keyboard.
             keyboardAvoidingViewProps={{
-              keyboardVerticalOffset: chatTopY ?? insets.top + 60,
+              keyboardVerticalOffset:
+                chatTopY == null
+                  ? insets.top + 60
+                  : chatTopY + (Platform.OS === 'android' ? insets.top : 0),
             }}
           />
         );
